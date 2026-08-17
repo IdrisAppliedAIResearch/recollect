@@ -1,0 +1,25 @@
+# Line endings are pinned to LF everywhere.
+#
+# This is not housekeeping. The sibling research repository lost real time
+# to test failures that turned out to be two line-ending conventions
+# meeting in the same tree, and this harness is in the business of exact
+# character accounting: the packer charges each admission its precise
+# serialized cost against a hard ceiling, and the shadow trace asserts the
+# reconstruction matches the library byte-for-byte. A CRLF checkout on one
+# machine and an LF checkout on another is a silent way to make those
+# comparisons disagree for reasons that have nothing to do with the
+# mechanism.
+#
+# Windows developers: your editor should honour this. Git will hand you LF.
+
+* text=auto eol=lf
+
+# Binary-ish artifacts that must never be touched.
+*.gguf   binary
+*.sqlite binary
+*.png    binary
+*.ico    binary
+
+# Generated; keep it out of diffs and language stats.
+uv.lock            linguist-generated=true
+ui/package-lock.json linguist-generated=true

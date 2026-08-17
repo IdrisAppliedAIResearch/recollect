@@ -1,0 +1,220 @@
+/*
+ * Recollect palette.
+ *
+ * Light is the base definition; dark redefines only what changes. Tier
+ * colours come from the Okabe–Ito colour-blind-safe set (blue / orange /
+ * bluish-green) and are never the only carrier of meaning: every tier mark
+ * also carries its code letter (N / K / A3) and a distinct border style.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* -- surfaces ------------------------------------------------------- */
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --surface-2: #f0f0eb;
+  --surface-3: #e7e7e1;
+  --surface-inset: #fbfbf9;
+  --overlay: rgba(20, 20, 18, 0.45);
+
+  /* -- lines ---------------------------------------------------------- */
+  --border: #dedcd4;
+  --border-strong: #bfbdb3;
+  --border-faint: #ebeae4;
+
+  /* -- text ----------------------------------------------------------- */
+  --text: #1b1b19;
+  --text-muted: #64645c;
+  --text-faint: #8e8e85;
+  --text-invert: #fbfbf9;
+
+  /* -- accent --------------------------------------------------------- */
+  --accent: #1c5d8c;
+  --accent-soft: #e4eef6;
+  --accent-line: #9dc0da;
+
+  /* -- status --------------------------------------------------------- */
+  --ok: #1f6b46;
+  --ok-soft: #e2f0e8;
+  --ok-line: #93c7ad;
+
+  --warn: #8a5300;
+  --warn-soft: #faeed9;
+  --warn-line: #d8b374;
+
+  --bad: #a32017;
+  --bad-soft: #fbe6e3;
+  --bad-line: #de9a92;
+
+  /* -- tiers (Okabe–Ito) ---------------------------------------------- */
+  --tier-recency: #0f6fb4;
+  --tier-recency-soft: #e2eef8;
+  --tier-recency-line: #8fbfe0;
+
+  --tier-similarity: #a86400;
+  --tier-similarity-soft: #f9eeda;
+  --tier-similarity-line: #dcb26c;
+
+  --tier-coverage: #00745c;
+  --tier-coverage-soft: #dff0ea;
+  --tier-coverage-line: #7cc0ac;
+
+  /* Anything no tier claimed. */
+  --tier-none: #86867c;
+  --tier-none-soft: #eeeeea;
+  --tier-none-line: #c8c8c0;
+
+  /* -- type ----------------------------------------------------------- */
+  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, Roboto,
+    'Helvetica Neue', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'SF Mono', 'JetBrains Mono',
+    Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 27px;
+
+  /* -- metrics -------------------------------------------------------- */
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-lg: 10px;
+  --shadow-sm: 0 1px 2px rgba(20, 20, 18, 0.06);
+  --shadow: 0 6px 20px rgba(20, 20, 18, 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #111210;
+    --surface: #191a17;
+    --surface-2: #212320;
+    --surface-3: #2b2d29;
+    --surface-inset: #141513;
+    --overlay: rgba(0, 0, 0, 0.6);
+
+    --border: #33362f;
+    --border-strong: #4c4f45;
+    --border-faint: #26281f;
+
+    --text: #eae8e1;
+    --text-muted: #a09f95;
+    --text-faint: #6f6f66;
+    --text-invert: #121310;
+
+    --accent: #6db4e2;
+    --accent-soft: #16303f;
+    --accent-line: #2c5f7c;
+
+    --ok: #63c295;
+    --ok-soft: #133026;
+    --ok-line: #2c6349;
+
+    --warn: #e0a54a;
+    --warn-soft: #33260f;
+    --warn-line: #6d5222;
+
+    --bad: #f0796c;
+    --bad-soft: #3a1a17;
+    --bad-line: #7a3730;
+
+    --tier-recency: #63b8e8;
+    --tier-recency-soft: #10293a;
+    --tier-recency-line: #2b5c7d;
+
+    --tier-similarity: #e8a33d;
+    --tier-similarity-soft: #33260d;
+    --tier-similarity-line: #705220;
+
+    --tier-coverage: #4cc4a2;
+    --tier-coverage-soft: #0f2f28;
+    --tier-coverage-line: #276050;
+
+    --tier-none: #7d7d74;
+    --tier-none-soft: #23241f;
+    --tier-none-line: #45463e;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* Explicit override wins in both directions. */
+:root[data-theme='dark'] {
+  --bg: #111210;
+  --surface: #191a17;
+  --surface-2: #212320;
+  --surface-3: #2b2d29;
+  --surface-inset: #141513;
+  --overlay: rgba(0, 0, 0, 0.6);
+
+  --border: #33362f;
+  --border-strong: #4c4f45;
+  --border-faint: #26281f;
+
+  --text: #eae8e1;
+  --text-muted: #a09f95;
+  --text-faint: #6f6f66;
+  --text-invert: #121310;
+
+  --accent: #6db4e2;
+  --accent-soft: #16303f;
+  --accent-line: #2c5f7c;
+
+  --ok: #63c295;
+  --ok-soft: #133026;
+  --ok-line: #2c6349;
+
+  --warn: #e0a54a;
+  --warn-soft: #33260f;
+  --warn-line: #6d5222;
+
+  --bad: #f0796c;
+  --bad-soft: #3a1a17;
+  --bad-line: #7a3730;
+
+  --tier-recency: #63b8e8;
+  --tier-recency-soft: #10293a;
+  --tier-recency-line: #2b5c7d;
+
+  --tier-similarity: #e8a33d;
+  --tier-similarity-soft: #33260d;
+  --tier-similarity-line: #705220;
+
+  --tier-coverage: #4cc4a2;
+  --tier-coverage-soft: #0f2f28;
+  --tier-coverage-line: #276050;
+
+  --tier-none: #7d7d74;
+  --tier-none-soft: #23241f;
+  --tier-none-line: #45463e;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
+}
+
+/* Per-tier variable aliases, so a component can set one class and read
+   --tier / --tier-soft / --tier-line without a switch. */
+.t-recency {
+  --tier: var(--tier-recency);
+  --tier-soft: var(--tier-recency-soft);
+  --tier-line: var(--tier-recency-line);
+}
+.t-similarity {
+  --tier: var(--tier-similarity);
+  --tier-soft: var(--tier-similarity-soft);
+  --tier-line: var(--tier-similarity-line);
+}
+.t-coverage {
+  --tier: var(--tier-coverage);
+  --tier-soft: var(--tier-coverage-soft);
+  --tier-line: var(--tier-coverage-line);
+}
+.t-none {
+  --tier: var(--tier-none);
+  --tier-soft: var(--tier-none-soft);
+  --tier-line: var(--tier-none-line);
+}

@@ -1,0 +1,87 @@
+# Continuous integration.
+#
+# The load-bearing job here is `verify`. It runs the shadow-trace suite,
+# which asserts that the instrumented reconstruction reproduces the
+# library's payload byte-for-byte across a sweep of store sizes and
+# budgets. That is the check that keeps the inspector honest, and it needs
+# no model artifact to run: the suite supplies a deterministic fake
+# embedder, so CI exercises the mechanism without the pinned GGUF or a
+# chat server.
+#
+# What CI deliberately cannot check is embedder identity. The correct
+# vectors depend on a specific llama-cpp-python *build* rather than a
+# version number (see docs/EMBEDDER.md), and no hosted runner has it.
+# `recollect doctor` is the gate for that, and it is a local one.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Shadow verification + lint
+    runs-on: ubuntu-latest
+    steps:
+      # `episodic` is an editable path dependency at
+      # ../contextDecayWindow/episodic, so the two repositories have to be
+      # laid out as siblings exactly the way a developer checks them out.
+      - name: Check out the mechanism library
+        uses: actions/checkout@v5
+        with:
+          repository: IdrisAppliedAIResearch/contextDecayWindow
+          path: contextDecayWindow
+
+      - name: Check out Recollect
+        uses: actions/checkout@v5
+        with:
+          path: recollect
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: recollect/uv.lock
+
+      # Not the `llama` extra: llama-cpp-python publishes no PyPI wheel and
+      # is not needed by the suite.
+      - name: Sync dependencies
+        working-directory: recollect
+        run: uv sync --frozen
+
+      - name: Lint
+        working-directory: recollect
+        run: uv run ruff check .
+
+      - name: Verify the shadow trace against the library
+        working-directory: recollect
+        run: uv run pytest -q
+
+  ui:
+    name: UI typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        working-directory: ui
+        run: npm ci
+
+      # `build` runs `tsc --noEmit` before vite, so this covers types too.
+      - name: Typecheck and build
+        working-directory: ui
+        run: npm run build

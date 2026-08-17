@@ -1,0 +1,143 @@
+"""Harness configuration.
+
+Two configs exist and they are deliberately separate.
+
+``EpisodicConfig`` (from the library) holds the *mechanism* constants -
+window size, threshold, selector parameters, embedder identity. Every one
+of those values shaped a committed research number, the store records the
+config it was created under, and reopening under a different one is an
+error. Nothing here may quietly change them.
+
+``RecollectConfig`` (this module) holds the *deployment* choices - where
+the model file lives, which generator to talk to, where to put data. These
+are machine-specific and safe to vary. Keeping them apart is what stops a
+deployment convenience from silently becoming a mechanism change.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from dotenv import load_dotenv
+from episodic import EpisodicConfig
+
+#: The deployed context budget, in characters. This is the value the studies
+#: ran at; the library enforces it as a hard ceiling with no tolerance.
+DEFAULT_BUDGET_CHARS = 32_000
+
+#: Threads for the in-process embedder. Measured bit-identical to the pinned
+#: single-threaded output across 1/2/4/8/16 threads on 21 texts, while cutting
+#: per-call latency from ~305ms to ~55ms. Thread count is not part of the
+#: vector identity on this build; the store's sentinel gate re-checks that
+#: claim on every open, so a wrong assumption here fails loudly.
+DEFAULT_EMBEDDING_THREADS = 8
+
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a helpful assistant with a long-term episodic memory.\n\n"
+    "Before each reply you are given two blocks. <recent_context> holds the "
+    "most recent exchanges in order. <retrieved_stm> holds older exchanges "
+    "that were retrieved because they may bear on what was just asked. Both "
+    "are drawn from your own earlier conversation with this user.\n\n"
+    "Treat them as your memory, not as documents: do not mention the blocks, "
+    "do not cite turn numbers, and do not say that something was retrieved. "
+    "If the blocks do not contain what you need, say you do not recall it "
+    "rather than inventing a memory."
+)
+
+
+@dataclass(frozen=True)
+class RecollectConfig:
+    """Deployment settings. Mechanism constants live in ``EpisodicConfig``."""
+
+    # -- embedding (in-process, never over HTTP) --------------------------
+    embedding_model_path: Path
+    embedding_threads: int = DEFAULT_EMBEDDING_THREADS
+
+    # -- generation (HTTP, OpenAI-compatible) ------------------------------
+    generator_base_url: str = "http://127.0.0.1:8000/v1"
+    generator_model: str = "local"
+    generator_api_key: str = "not-needed"
+    generator_timeout_s: float = 300.0
+    #: The carried models route chain-of-thought into a separate field and
+    #: leave `content` empty while thinking. Off by default so a first
+    #: conversation returns visible text.
+    generator_thinking: bool = False
+    generator_max_tokens: int = 1024
+    generator_temperature: float = 0.7
+
+    # -- memory -------------------------------------------------------------
+    budget_chars: int = DEFAULT_BUDGET_CHARS
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    episodic: EpisodicConfig = field(default_factory=EpisodicConfig)
+
+    # -- storage / server ---------------------------------------------------
+    data_dir: Path = Path("var")
+    host: str = "127.0.0.1"
+    port: int = 8080
+
+    def __post_init__(self) -> None:
+        if self.budget_chars < 0:
+            raise ValueError("budget_chars must be non-negative")
+        if self.embedding_threads < 1:
+            raise ValueError("embedding_threads must be positive")
+
+    @property
+    def sessions_dir(self) -> Path:
+        return self.data_dir / "sessions"
+
+    def session_dir(self, session_id: str) -> Path:
+        return self.sessions_dir / session_id
+
+    def store_path(self, session_id: str) -> Path:
+        return self.session_dir(session_id) / "episodes.sqlite"
+
+    def traces_dir(self, session_id: str) -> Path:
+        return self.session_dir(session_id) / "traces"
+
+    @classmethod
+    def from_env(cls, *, env_file: str | Path | None = ".env") -> RecollectConfig:
+        """Build from environment, loading a .env file if one is present."""
+        if env_file is not None and Path(env_file).is_file():
+            load_dotenv(env_file)
+
+        model_path = os.environ.get("RECOLLECT_EMBEDDING_MODEL_PATH")
+        if not model_path:
+            # Fall back to the research repository's variable so an existing
+            # machine works without a new .env.
+            model_path = os.environ.get("CDW_EMBEDDING_MODEL_PATH")
+        if not model_path:
+            raise ValueError(
+                "Set RECOLLECT_EMBEDDING_MODEL_PATH to the carried "
+                "Qwen3-Embedding-0.6B Q8_0 GGUF. The harness embeds "
+                "in-process against that exact artifact; there is no "
+                "supported HTTP embedding path."
+            )
+
+        return cls(
+            embedding_model_path=Path(model_path),
+            embedding_threads=int(
+                os.environ.get(
+                    "RECOLLECT_EMBEDDING_THREADS", DEFAULT_EMBEDDING_THREADS
+                )
+            ),
+            generator_base_url=os.environ.get(
+                "RECOLLECT_GENERATOR_BASE_URL", "http://127.0.0.1:8000/v1"
+            ),
+            generator_model=os.environ.get("RECOLLECT_GENERATOR_MODEL", "local"),
+            generator_api_key=os.environ.get(
+                "RECOLLECT_GENERATOR_API_KEY", "not-needed"
+            ),
+            generator_thinking=_flag(os.environ.get("RECOLLECT_GENERATOR_THINKING")),
+            budget_chars=int(
+                os.environ.get("RECOLLECT_BUDGET_CHARS", DEFAULT_BUDGET_CHARS)
+            ),
+            data_dir=Path(os.environ.get("RECOLLECT_DATA_DIR", "var")),
+            host=os.environ.get("RECOLLECT_HOST", "127.0.0.1"),
+            port=int(os.environ.get("RECOLLECT_PORT", 8080)),
+        )
+
+
+def _flag(value: str | None) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
