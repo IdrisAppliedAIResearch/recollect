@@ -125,11 +125,31 @@ answer. Counts, episode IDs and character accounting **are** exact and do
 reproduce — quality judgements do not. Say "the count changed from 4 to 7",
 never "this run was better".
 
-**6. Never run `git push`, `git commit --amend`, `git reset --hard`, or any
-force push unless the user asks in this session.** Committing is fine to
-offer; doing it unasked is not.
+**6. Never force push. There is no exception.**
+Not `--force`, not `--force-with-lease`, not `push -f`, and not by way of
+`git commit --amend`, `git rebase`, or `git reset --hard` on anything that
+has already been pushed. Published history is the one thing here that
+cannot be reconstructed from the working tree, and an agent that rewrites
+it can destroy work it never saw — the user's local commits, another
+machine's, a colleague's. If history genuinely looks wrong, **stop and
+describe the problem to the user.** Let them decide. Fixing it forward with
+a new commit is almost always available and is always safe.
 
-**7. Never commit `.env`, `var/`, `node_modules/`, or any `.gguf`.**
+`main` is also protected server-side against force pushes and deletion, and
+the protection applies to admins, so this is enforced and not merely asked
+for. If a push is rejected for that reason, **that is the rule working** —
+do not attempt to disable the protection to get your push through.
+
+**7. Never push, and never open a pull request, until the task is
+complete.**
+"Complete" means §4's checks have been run and passed, not that the code
+looks finished. This includes **draft** PRs — a draft is still a push, still
+notifies people, and still invites review of work you know is unfinished.
+Do not open one to show progress; report progress in the conversation
+instead. And do not push unless the user asked in this session: committing
+locally is fine to do and offer, but publishing is the user's call.
+
+**8. Never commit `.env`, `var/`, `node_modules/`, or any `.gguf`.**
 They are gitignored. Do not add them with `-f`.
 
 ---
