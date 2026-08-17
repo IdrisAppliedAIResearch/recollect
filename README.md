@@ -1,5 +1,8 @@
 # Recollect
 
+[![CI](https://github.com/IdrisAppliedAIResearch/recollect/actions/workflows/ci.yml/badge.svg)](https://github.com/IdrisAppliedAIResearch/recollect/actions/workflows/ci.yml)
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
+
 A deployable harness for episodic conversational memory, instrumented so
 that every retrieval decision is visible.
 
