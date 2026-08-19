@@ -52,6 +52,7 @@ from .engine.generator import (
     StreamChunk,
     new_generation_trace,
 )
+from .engine.sandbox import OpenCodeRunner, SandboxManager
 from .engine.subagent import (
     SubagentConfig,
     SubagentResult,
@@ -103,6 +104,10 @@ class AppState:
                 "User-Agent": "recollect-research/1.0 (local research agent)"
             },
         )
+        # One sandboxed opencode server per session for the opencode
+        # research backend. Created eagerly, spawned lazily on the first
+        # delegation, so the legacy backend pays nothing for it.
+        self.sandboxes = SandboxManager(config)
         self.embedder_health: dict = {}
         # A session is an append-only log with a turn counter; two turns
         # racing on one session would interleave episodes and corrupt the
@@ -123,9 +128,12 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
         # Pay the ~750ms model load and prove the embedder's identity now,
         # rather than making the first user wait and then fail.
         state.embedder_health = await asyncio.to_thread(state.embedder.warm_up)
+        if config.subagent_enabled and config.subagent_backend == "opencode":
+            await state.sandboxes.start_reaper()
         try:
             yield
         finally:
+            await state.sandboxes.close_all()
             await state.generator.aclose()
             await state.web_client.aclose()
 
@@ -463,17 +471,27 @@ async def _stream_turn(
                     "No research was performed."
                 )
             else:
-                config = SubagentConfig(
-                    max_steps=state.config.subagent_max_steps,
-                    max_tool_calls=state.config.subagent_max_tool_calls,
-                    observation_chars=state.config.subagent_observation_chars,
-                    wallclock_s=state.config.subagent_wallclock_s,
-                    max_tokens=state.config.subagent_max_tokens,
-                )
-                try:
-                    async for item in run_subagent(
+                # Both backends yield SubagentStep / SubagentResult, so
+                # everything below - events, trace, phase two - is shared.
+                if state.config.subagent_backend == "opencode":
+                    stream = OpenCodeRunner(
+                        state.sandboxes, state.config
+                    ).run(session_id, task)
+                else:
+                    config = SubagentConfig(
+                        max_steps=state.config.subagent_max_steps,
+                        max_tool_calls=state.config.subagent_max_tool_calls,
+                        observation_chars=(
+                            state.config.subagent_observation_chars
+                        ),
+                        wallclock_s=state.config.subagent_wallclock_s,
+                        max_tokens=state.config.subagent_max_tokens,
+                    )
+                    stream = run_subagent(
                         state.web_client, state.generator, task, config=config
-                    ):
+                    )
+                try:
+                    async for item in stream:
                         if isinstance(item, SubagentStep):
                             yield _sse(
                                 "subagent_step",

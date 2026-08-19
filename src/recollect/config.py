@@ -47,6 +47,20 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
+def _default_sandbox_root() -> Path:
+    """The default sandbox workdir root: machine-local, outside any tree."""
+    override = os.environ.get("RECOLLECT_SANDBOX_ROOT")
+    if override:
+        return Path(override)
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or str(
+            Path.home() / ".local" / "share"
+        )
+    return Path(base) / "recollect" / "sandboxes"
+
+
 @dataclass(frozen=True)
 class RecollectConfig:
     """Deployment settings. Mechanism constants live in ``EpisodicConfig``."""
@@ -84,6 +98,34 @@ class RecollectConfig:
     subagent_wallclock_s: float = 180.0
     subagent_max_tokens: int = 1_024
 
+    # -- research subagent backends ------------------------------------------
+    # "legacy" runs the in-harness agent loop (engine/subagent.py);
+    # "opencode" runs the task in a sandboxed opencode server per chat
+    # session (engine/sandbox). Both emit the same SubagentStep /
+    # SubagentResult shapes, so the turn pipeline and the one-line trace
+    # are identical either way.
+    subagent_backend: str = "legacy"
+    # Limits for the opencode backend. The step cap is handed to opencode
+    # (it forces a text-only final pass at the cap); the wallclock is
+    # enforced client-side here and aborts the running session.
+    sandbox_wallclock_s: float = 300.0
+    sandbox_steps: int = 24
+    # A sandbox idle this long with no running delegation is shut down;
+    # its conversation is re-attached on the next delegation.
+    sandbox_idle_ttl_s: float = 1_800.0
+    #: Binary that launches the opencode server. npm's .cmd shim is
+    #: resolved to the exe it wraps; point this at opencode.exe directly
+    #: to skip the resolution.
+    sandbox_opencode_bin: str = "opencode"
+
+    #: Root for per-session sandbox workdirs (opencode backend). This must
+    #: sit outside any git repository: opencode scopes "the project" to
+    #: the enclosing repo root, so a sandbox inside the recollect repo
+    #: could read and edit this entire codebase, unfenced by any
+    #: permission (the repo *is* the project). Also kept off ``data_dir``
+    #: so a machine-local path cannot drag the repo into it.
+    sandbox_root: Path = field(default_factory=_default_sandbox_root)
+
     # -- storage / server ---------------------------------------------------
     data_dir: Path = Path("var")
     host: str = "127.0.0.1"
@@ -104,6 +146,16 @@ class RecollectConfig:
             raise ValueError("subagent_wallclock_s must be positive")
         if self.subagent_max_tokens < 1:
             raise ValueError("subagent_max_tokens must be positive")
+        if self.subagent_backend not in ("legacy", "opencode"):
+            raise ValueError("subagent_backend must be 'legacy' or 'opencode'")
+        if self.sandbox_wallclock_s <= 0:
+            raise ValueError("sandbox_wallclock_s must be positive")
+        if self.sandbox_steps < 1:
+            raise ValueError("sandbox_steps must be positive")
+        if self.sandbox_idle_ttl_s <= 0:
+            raise ValueError("sandbox_idle_ttl_s must be positive")
+        if not self.sandbox_opencode_bin.strip():
+            raise ValueError("sandbox_opencode_bin must be non-empty")
 
     @property
     def sessions_dir(self) -> Path:
@@ -175,6 +227,17 @@ class RecollectConfig:
             ),
             subagent_max_tokens=int(
                 os.environ.get("RECOLLECT_SUBAGENT_MAX_TOKENS", 1_024)
+            ),
+            subagent_backend=os.environ.get("RECOLLECT_SUBAGENT_BACKEND", "legacy"),
+            sandbox_wallclock_s=float(
+                os.environ.get("RECOLLECT_SANDBOX_WALLCLOCK_S", 300.0)
+            ),
+            sandbox_steps=int(os.environ.get("RECOLLECT_SANDBOX_STEPS", 24)),
+            sandbox_idle_ttl_s=float(
+                os.environ.get("RECOLLECT_SANDBOX_IDLE_TTL_S", 1_800.0)
+            ),
+            sandbox_opencode_bin=os.environ.get(
+                "RECOLLECT_SANDBOX_OPENCODE_BIN", "opencode"
             ),
         )
 
