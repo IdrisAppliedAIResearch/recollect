@@ -92,6 +92,10 @@ def config(tmp_path) -> RecollectConfig:
     return RecollectConfig(
         embedding_model_path=tmp_path / "embedding.gguf",
         data_dir=tmp_path / "var",
+        # Not optional: the default root is machine-local
+        # (%LOCALAPPDATA%), so a test that reaches _spawn writes a
+        # workdir into the user's real sandbox root and leaves it there.
+        sandbox_root=tmp_path / "sandboxes",
     )
 
 
@@ -347,6 +351,7 @@ async def test_start_error_becomes_an_error_result(tmp_path):
     config = RecollectConfig(
         embedding_model_path=tmp_path / "embedding.gguf",
         data_dir=tmp_path / "var",
+        sandbox_root=tmp_path / "sandboxes",
     )
     manager = SandboxManager(
         config,
