@@ -29,6 +29,7 @@ from pathlib import Path
 PROVIDER_ID = "recollect"
 AGENT_NAME = "researcher"
 SUBAGENT_NAME = "researcher-sub"
+FINALIZER_NAME = "researcher-final"
 MCP_SERVER = "recollect_research"
 
 #: The context the local server was launched with (--ctx-size 200000).
@@ -104,6 +105,23 @@ the calling system cannot read it.
 Every claim in "findings" must be supported by a source you actually saw
 in results or fetched. If you found nothing, say so in "summary" and
 leave "findings" empty; do not invent sources.
+"""
+
+#: The finalizer's persona only. The receipt contract it is held to is
+#: ``subagent._FINALIZE_PARTIAL``, sent as the message, so this backend
+#: and the legacy one ask for the same thing in the same words.
+FINALIZER_PROMPT = """\
+You are the receipt writer for the Recollect research sandbox.
+
+The research above is over - it ran out of steps or time - and you have
+no tools at all. You cannot search, fetch, read, or delegate. Every
+claim you are allowed to make is already somewhere in this conversation.
+
+Do not plan further work, do not say what you would do next, and do not
+apologise. Read back over what the run actually established and answer
+in the exact form the message asks for. That answer is read by a
+program, not a person: prose is a failed receipt, and the work the run
+did is lost with it.
 """
 
 
@@ -227,6 +245,28 @@ def build_config(
                 "steps": steps,
                 "permission": _permission_table(subagent=True),
             },
+            # The runner's second chance at a capped run. opencode has no
+            # per-message "tools off" flag, but it does have a per-agent
+            # tool surface: a bare ``{"*": "deny"}`` table leaves nothing
+            # for ``Permission.visibleTools`` to keep, so the request
+            # carries no tools at all. That is this backend's ``tools=None``
+            # - the same move ``subagent._finalize_partial`` makes on the
+            # legacy side. Identical to the researcher otherwise, so the
+            # only thing that changes between the two passes is the tools.
+            FINALIZER_NAME: {
+                "description": (
+                    "Turn a capped research run's existing evidence into "
+                    "the final JSON receipt. No tools."
+                ),
+                "mode": "primary",
+                "prompt": "{file:finalizer.md}",
+                "temperature": 0.7,
+                # One iteration. If a tool ever did survive the table
+                # above, opencode would still force this pass to answer in
+                # text rather than let it start browsing again.
+                "steps": 1,
+                "permission": {"*": "deny"},
+            },
         },
         "mcp": {
             MCP_SERVER: {
@@ -267,4 +307,5 @@ def write_config(
         json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     (workdir / "researcher.md").write_text(RESEARCHER_PROMPT, encoding="utf-8")
+    (workdir / "finalizer.md").write_text(FINALIZER_PROMPT, encoding="utf-8")
     return config_path

@@ -115,3 +115,35 @@ def test_promise_karries_the_final_answer_contract(tmp_path):
         "exactly one fenced JSON block",
     ):
         assert fragment in prompt
+
+
+def test_finalizer_agent_has_no_tools_at_all(tmp_path):
+    _, config = _generate(tmp_path)
+    finalizer = config["agent"][configgen.FINALIZER_NAME]
+    assert finalizer["mode"] == "primary"
+    assert finalizer["prompt"] == "{file:finalizer.md}"
+    # The whole point: opencode has no per-message "tools off" flag, but
+    # `Permission.visibleTools` drops every tool whose last matching rule
+    # is pattern "*" action "deny" - so this bare table is the runner's
+    # equivalent of the legacy backend's `tools=None`. Anything allowed
+    # after it would put a tool back on the table.
+    assert finalizer["permission"] == {"*": "deny"}
+    # One iteration, so a tool that somehow survived the table still could
+    # not start a second round of browsing.
+    assert finalizer["steps"] == 1
+    # Same model settings as the researcher: the tool surface is meant to
+    # be the only difference between the two passes.
+    assert finalizer["temperature"] == config["agent"]["researcher"]["temperature"]
+
+
+def test_finalizer_prompt_does_not_restate_the_receipt_contract(tmp_path):
+    workdir, _ = _generate(tmp_path)
+    prompt = (workdir / "finalizer.md").read_text(encoding="utf-8")
+    collapsed = re.sub(r"\s+", " ", prompt)
+    assert "no tools at all" in collapsed
+    assert "read by a program" in collapsed
+    # The contract itself is `subagent._FINALIZE_PARTIAL`, sent as the
+    # message. A second copy here could drift from the legacy one, and
+    # then the two backends would be asking for different things.
+    for fragment in ('"summary"', '"findings"', '"sources"', "fenced JSON"):
+        assert fragment not in prompt

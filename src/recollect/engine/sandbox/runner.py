@@ -29,7 +29,7 @@ import httpx
 from ...config import RecollectConfig
 from .. import subagent
 from ..subagent import SubagentResult, SubagentStep
-from .configgen import AGENT_NAME, MCP_SERVER
+from .configgen import AGENT_NAME, FINALIZER_NAME, MCP_SERVER
 from .manager import SandboxHandle, SandboxManager, SandboxStartError
 
 #: After a wallclock abort, how long the in-flight message request may
@@ -171,6 +171,34 @@ class OpenCodeRunner:
             )
             return
         final_text = _last_text(payload.get("parts"))
+        if subagent._parse_final(final_text) is None:
+            # A cap ends browsing, not synthesis. opencode enforces its own
+            # step cap by forcing a text-only wrap-up, and the local model
+            # answers that in prose rather than the JSON receipt - so a run
+            # that did the research lands here with its evidence about to be
+            # thrown away. One more pass, over the same session, gets the
+            # receipt out of what it already gathered.
+            #
+            # Only on this path: the aborted branch above returns before it,
+            # and it is reached exactly when the wallclock is already spent.
+            recovered = await self._finalize_partial(handle, deadline)
+            if recovered and subagent._parse_final(recovered) is not None:
+                # Partial, not ok, and for the same reason the legacy
+                # backend calls a finalized run partial: a receipt that
+                # had to be asked for twice is not evidence of a clean
+                # finish. The findings and sources are real and are
+                # handed over in full; only the "treat this as partial"
+                # note is added on top.
+                yield self._partial(
+                    task,
+                    "the sandbox's own wrap-up returned no JSON receipt",
+                    recovered,
+                    steps,
+                    sources,
+                    (time.perf_counter() - started) * 1_000.0,
+                )
+                return
+            total_ms = (time.perf_counter() - started) * 1_000.0
         yield self._finished(task, final_text, steps, sources, total_ms)
 
     # -- event flow -----------------------------------------------------------
@@ -275,6 +303,46 @@ class OpenCodeRunner:
         response.raise_for_status()
         payload = response.json()
         return payload if isinstance(payload, dict) else {}
+
+    async def _finalize_partial(
+        self, handle: SandboxHandle, deadline: float
+    ) -> str:
+        """One tools-disabled pass at the final receipt, budget permitting.
+
+        The legacy backend re-streams with ``tools=None``; opencode has no
+        such flag on a message, so the tools come off the *agent* instead -
+        ``FINALIZER_NAME`` is the same researcher with an empty tool
+        surface. The message goes to the same opencode session, so the
+        model is finalizing over the evidence it gathered rather than
+        starting the task again.
+
+        This is a synthesis pass, so it costs nothing the caller can see:
+        it cannot call tools, the event pump is already cancelled, and no
+        ``SubagentStep`` can come out of it. It gets only the wallclock
+        that was left over; with none left, or on any failure, it returns
+        ``""`` and the caller keeps today's partial result.
+        """
+        remaining = deadline - time.perf_counter()
+        if remaining <= 0:
+            return ""
+        try:
+            response = await handle.client.post(
+                f"/session/{handle.oc_session_id}/message",
+                json={
+                    "agent": FINALIZER_NAME,
+                    "parts": [
+                        {"type": "text", "text": subagent._FINALIZE_PARTIAL}
+                    ],
+                },
+                timeout=httpx.Timeout(remaining, connect=10.0),
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return ""
+        if not isinstance(payload, dict):
+            return ""
+        return _last_text(payload.get("parts"))
 
     async def _fetch_final_text(self, handle: SandboxHandle) -> str:
         """The last assistant text in the session, for capped runs."""

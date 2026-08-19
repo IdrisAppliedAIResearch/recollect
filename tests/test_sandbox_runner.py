@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 
 import httpx
 import pytest
 
 from recollect.config import RecollectConfig
+from recollect.engine import subagent
 from recollect.engine.sandbox.manager import SandboxHandle, SandboxManager
 from recollect.engine.sandbox.runner import OpenCodeRunner
 from recollect.engine.subagent import SubagentResult, SubagentStep
@@ -359,3 +361,172 @@ async def test_start_error_becomes_an_error_result(tmp_path):
 
     assert results[-1].status == "error"
     assert "exited early" in results[-1].error
+
+
+# -- the tools-disabled finalize pass ---------------------------------------
+#
+# opencode enforces its step cap by forcing a text-only wrap-up, and the
+# local model answers that in prose rather than the JSON receipt. Without a
+# second chance, a run that did the research is reported as `partial` with
+# everything but `partial_text[:1000]` discarded.
+
+
+def _finalize_handler(
+    first_text: str,
+    second: httpx.Response | Exception,
+    posts: list[dict],
+):
+    """A server that answers the delegation with ``first_text`` and the
+    finalize message with ``second``."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if (request.method, request.url.path) == ("GET", "/event"):
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=b"",
+            )
+        if (request.method, request.url.path) == (
+            "POST",
+            f"/session/{OC_ID}/message",
+        ):
+            body = json.loads(request.content)
+            posts.append(body)
+            await asyncio.sleep(0.05)
+            if len(posts) == 1:
+                return httpx.Response(
+                    200,
+                    json={
+                        "info": {"role": "assistant"},
+                        "parts": [
+                            {
+                                "type": "text",
+                                "text": first_text,
+                                "synthetic": False,
+                            }
+                        ],
+                    },
+                )
+            if isinstance(second, Exception):
+                raise second
+            return second
+        return httpx.Response(404, json={})
+
+    return handler
+
+
+async def test_prose_wrap_up_is_finalized_from_the_evidence(config):
+    posts: list[dict] = []
+    handler = _finalize_handler(
+        "I searched for the BERT paper and read three sources. Here is a "
+        "long prose summary instead of the receipt.",
+        httpx.Response(
+            200,
+            json={
+                "info": {"role": "assistant"},
+                "parts": [{"type": "text", "text": FINAL_JSON, "synthetic": False}],
+            },
+        ),
+        posts,
+    )
+
+    runner, handle = _inject(config, handler)
+    steps, results, _ = await _run(runner, "task")
+    await handle.client.aclose()
+
+    # Second message, same session, the legacy contract text, and the
+    # agent whose whole tool surface is denied.
+    assert len(posts) == 2
+    assert posts[0]["agent"] == "researcher"
+    assert posts[1]["agent"] == "researcher-final"
+    assert posts[1]["parts"] == [
+        {"type": "text", "text": subagent._FINALIZE_PARTIAL}
+    ]
+
+    result = results[-1]
+    # Partial, like the legacy backend's finalized runs: the receipt had to
+    # be asked for twice, so it is not evidence of a clean finish. But the
+    # findings survive, which is the whole point.
+    assert result.status == "partial"
+    assert result.summary == "Mars research points one direction."
+    assert result.sources == ["https://arxiv.org/abs/1"]
+    document = json.loads(result.result_json)
+    assert document["findings"][0]["claim"] == "finding one"
+    assert document["note"] == subagent._PARTIAL_NOTE
+    assert document["stop_reason"] == result.error
+    assert "no JSON receipt" in result.error
+    # A synthesis pass is not a research step.
+    assert steps == []
+    assert result.steps == []
+
+
+async def test_finalize_pass_that_also_fails_keeps_the_bare_partial(config):
+    posts: list[dict] = []
+    handler = _finalize_handler(
+        "I could not finish in time.",
+        httpx.Response(
+            200,
+            json={
+                "info": {"role": "assistant"},
+                "parts": [
+                    {
+                        "type": "text",
+                        "text": "Sorry, I still cannot produce that.",
+                        "synthetic": False,
+                    }
+                ],
+            },
+        ),
+        posts,
+    )
+
+    runner, handle = _inject(config, handler)
+    _, results, _ = await _run(runner, "task")
+    await handle.client.aclose()
+
+    assert len(posts) == 2
+    result = results[-1]
+    # Unchanged from before the finalize pass existed: the original text is
+    # what is preserved, not the failed retry's.
+    assert result.status == "partial"
+    assert result.error == "malformed or missing final JSON"
+    document = json.loads(result.result_json)
+    assert "could not finish in time" in document["partial_text"]
+    assert "still cannot produce" not in result.result_json
+
+
+async def test_finalize_request_failure_keeps_the_bare_partial(config):
+    posts: list[dict] = []
+    handler = _finalize_handler(
+        "prose, not a receipt",
+        httpx.ConnectError("sandbox went away"),
+        posts,
+    )
+
+    runner, handle = _inject(config, handler)
+    _, results, _ = await _run(runner, "task")
+    await handle.client.aclose()
+
+    assert len(posts) == 2
+    result = results[-1]
+    assert result.status == "partial"
+    assert result.error == "malformed or missing final JSON"
+    assert "prose, not a receipt" in json.loads(result.result_json)["partial_text"]
+
+
+async def test_finalize_pass_is_skipped_when_no_budget_remains(config):
+    posts: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        posts.append(json.loads(request.content))
+        return httpx.Response(200, json={"info": {}, "parts": []})
+
+    runner, handle = _inject(config, handler)
+    # A deadline already in the past is exactly the state a run that spent
+    # its wallclock on browsing arrives in: the pass is skipped rather than
+    # borrowing time the run does not have.
+    recovered = await runner._finalize_partial(handle, time.perf_counter() - 1.0)
+    await handle.client.aclose()
+
+    assert recovered == ""
+    assert posts == []
