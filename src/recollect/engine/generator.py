@@ -40,7 +40,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from ..trace import GenerationTrace
+from ..trace import GenerationTrace, ToolCallTrace
 
 
 @dataclass(frozen=True)
@@ -64,6 +64,80 @@ class StreamChunk:
 
 class GenerationError(RuntimeError):
     """The generator could not be reached or returned an error."""
+
+
+class _ThinkMarkupFilter:
+    """Remove leaked template think blocks without breaking streamed text.
+
+    Some OpenAI-compatible servers leak an orphan closing delimiter even
+    when thinking is disabled. A delimiter may be split across SSE deltas,
+    so filtering each delta independently is not sufficient.
+    """
+
+    _OPEN = ("<think>", "[think]")
+    _CLOSE = ("</think>", "[/think]")
+    _MARKERS = _OPEN + _CLOSE
+
+    def __init__(self) -> None:
+        self._pending = ""
+        self._inside = False
+
+    @staticmethod
+    def _partial_suffix(text: str, markers: tuple[str, ...]) -> int:
+        lowered = text.lower()
+        longest = min(len(text), max(map(len, markers)) - 1)
+        for size in range(longest, 0, -1):
+            suffix = lowered[-size:]
+            if any(marker.startswith(suffix) for marker in markers):
+                return size
+        return 0
+
+    def feed(self, text: str) -> str:
+        self._pending += text
+        clean: list[str] = []
+
+        while self._pending:
+            lowered = self._pending.lower()
+            if self._inside:
+                matches = [
+                    (lowered.find(marker), marker)
+                    for marker in self._CLOSE
+                    if lowered.find(marker) >= 0
+                ]
+                if matches:
+                    index, marker = min(matches, key=lambda match: match[0])
+                    self._pending = self._pending[index + len(marker) :]
+                    self._inside = False
+                    continue
+
+                keep = self._partial_suffix(self._pending, self._CLOSE)
+                self._pending = self._pending[-keep:] if keep else ""
+                break
+
+            matches = [
+                (lowered.find(marker), marker)
+                for marker in self._MARKERS
+                if lowered.find(marker) >= 0
+            ]
+            if matches:
+                index, marker = min(matches, key=lambda match: match[0])
+                clean.append(self._pending[:index])
+                self._pending = self._pending[index + len(marker) :]
+                self._inside = marker in self._OPEN
+                continue
+
+            keep = self._partial_suffix(self._pending, self._MARKERS)
+            emit_to = len(self._pending) - keep
+            clean.append(self._pending[:emit_to])
+            self._pending = self._pending[emit_to:]
+            break
+
+        return "".join(clean)
+
+    def finish(self) -> str:
+        tail = "" if self._inside else self._pending
+        self._pending = ""
+        return tail
 
 
 class Generator:
@@ -117,30 +191,57 @@ class Generator:
         messages: list[dict],
         *,
         trace: GenerationTrace,
+        tools: list[dict] | None = None,
+        max_tokens: int | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Stream a completion, filling ``trace`` in place as it goes.
 
         The trace object is mutated rather than returned so a caller can
         forward increments to a UI and still hold the finished accounting
         when the stream ends.
+
+        ``tools`` is an OpenAI tool schema list. When given, the request
+        advertises them and the model may answer with ``tool_calls`` instead
+        of prose; those are accumulated into ``trace.tool_calls`` (see the
+        accumulation note below). Passing nothing reproduces the exact
+        request this method has always sent, so callers that never delegate
+        are unaffected. ``max_tokens`` overrides the settings cap for this
+        call only - the research subagent budgets its own generations
+        separately from the main model's.
         """
         payload = {
             "model": self.settings.model,
             "messages": messages,
             "stream": True,
-            "max_tokens": self.settings.max_tokens,
+            "max_tokens": max_tokens
+            if max_tokens is not None
+            else self.settings.max_tokens,
             "temperature": self.settings.temperature,
             "stream_options": {"include_usage": True},
             # Explicit: the carried templates default to thinking on, which
             # leaves `content` empty. See the module docstring.
             "chat_template_kwargs": {"enable_thinking": self.settings.thinking},
         }
+        if tools:
+            # Native tool calling: the carried GGUF's chat template has a live
+            # tools/function branch (probed against the target server), so the
+            # model is asked to select a tool rather than emit JSON in prose.
+            # `auto` lets it answer normally when no tool fits.
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
         trace.thinking_enabled = self.settings.thinking
 
         started = time.perf_counter()
         first_token_at: float | None = None
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
+        content_filter = _ThinkMarkupFilter()
+        # Tool calls stream as *fragments*: the id and name arrive in one
+        # delta, then the JSON arguments arrive several chunks later, each
+        # carrying only `function.arguments`. Keying by the delta's `index`
+        # (falling back to append order for servers that omit it) is what
+        # reassembles one call out of its pieces.
+        tool_parts: dict[int, dict[str, str]] = {}
 
         try:
             async with self._client.stream(
@@ -177,11 +278,25 @@ class Generator:
 
                         content = delta.get("content")
                         if content:
+                            content = content_filter.feed(content)
+                        if content:
                             if first_token_at is None:
                                 first_token_at = time.perf_counter()
                                 trace.ttft_ms = (first_token_at - started) * 1_000.0
                             content_parts.append(content)
                             yield StreamChunk("token", content)
+
+                        tool_calls = delta.get("tool_calls")
+                        if isinstance(tool_calls, list):
+                            _absorb_tool_calls(tool_calls, tool_parts)
+
+                tail = content_filter.finish()
+                if tail:
+                    if first_token_at is None:
+                        first_token_at = time.perf_counter()
+                        trace.ttft_ms = (first_token_at - started) * 1_000.0
+                    content_parts.append(tail)
+                    yield StreamChunk("token", tail)
         except httpx.HTTPError as error:
             trace.error = (
                 f"Could not reach the generator at {self.settings.base_url}: "
@@ -194,6 +309,12 @@ class Generator:
             trace.response_text = "".join(content_parts)
             trace.response_chars = len(trace.response_text)
             trace.reasoning_text = "".join(reasoning_parts)
+            trace.tool_calls = [
+                ToolCallTrace(
+                    id=slot["id"], name=slot["name"], arguments=slot["arguments"]
+                )
+                for _, slot in sorted(tool_parts.items(), key=lambda kv: kv[0])
+            ]
             if trace.tokens_out and total_ms > 0:
                 decode_ms = total_ms - (trace.ttft_ms or 0.0)
                 if decode_ms > 0:
@@ -250,6 +371,34 @@ def _absorb_metrics(event: dict, trace: GenerationTrace) -> None:
             cache.prefill_ms = float(timings["prompt_ms"])
         if cache.processed_tokens is not None and cache.cached_tokens is not None:
             cache.prompt_tokens = cache.processed_tokens + cache.cached_tokens
+
+
+def _absorb_tool_calls(
+    tool_calls: list, tool_parts: dict[int, dict[str, str]]
+) -> None:
+    """Fold streamed tool-call fragments into their per-index slots.
+
+    Each delta carries at most one partial call: often just a further
+    fragment of the JSON arguments. Everything that is present is merged in;
+    everything absent is simply not yet known.
+    """
+    for position, part in enumerate(tool_calls):
+        if not isinstance(part, dict):
+            continue
+        index = part.get("index")
+        if not isinstance(index, int):
+            index = max(tool_parts) + 1 if tool_parts else position
+        slot = tool_parts.setdefault(
+            index, {"id": "", "name": "", "arguments": ""}
+        )
+        if part.get("id"):
+            slot["id"] = str(part["id"])
+        function = part.get("function")
+        if isinstance(function, dict):
+            if function.get("name"):
+                slot["name"] = str(function["name"])
+            if function.get("arguments"):
+                slot["arguments"] += str(function["arguments"])
 
 
 def new_generation_trace(

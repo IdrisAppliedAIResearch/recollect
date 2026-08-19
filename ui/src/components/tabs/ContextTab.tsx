@@ -101,9 +101,12 @@ export function ContextTab({ trace }: { trace: TurnTrace }) {
                       data-tier={tier ?? 'none'}
                     >
                       <div className="ep__head mono">
-                        <span className="xml-tag">&lt;episode</span>{' '}
-                        <span className="xml-attr">turn="{episode.turn}"</span>
-                        <span className="xml-tag">&gt;</span>
+                        {/* One contiguous item: the head is a flex row with gaps,
+                            and splitting the tag would insert gaps inside it. */}
+                        <span className="xml-tag">
+                          &lt;episode{' '}
+                          <span className="xml-attr">turn="{episode.turn}"</span>&gt;
+                        </span>
                         {tier && (
                           <span className="tiermark" data-tier={tier}>
                             <span className="tiermark__code">{tier}</span>
@@ -137,17 +140,22 @@ function Ruler({ trace }: { trace: TurnTrace }) {
 
   return (
     <div className="ruler">
-      <div className="ruler__fill">
-        {tiers.map((tier) => (
-          <div
-            key={tier.name}
-            className="ruler__seg"
-            data-tier={tier.name}
-            style={{ width: `${(tier.chars_delivered / budget) * 100}%` }}
-            title={`${tier.label}: ${chars(tier.chars_delivered)} chars`}
-          />
-        ))}
-        <div className="ruler__cap" />
+      {/* The track is its own bounded box: the fill's segment percentages are
+          relative to it, and the legend sits under it rather than inside an
+          overflow-clipped bar. */}
+      <div className="ruler__track">
+        <div className="ruler__fill">
+          {tiers.map((tier) => (
+            <div
+              key={tier.name}
+              className="ruler__seg"
+              data-tier={tier.name}
+              style={{ width: `${(tier.chars_delivered / budget) * 100}%` }}
+              title={`${tier.label}: ${chars(tier.chars_delivered)} chars`}
+            />
+          ))}
+          <div className="ruler__cap" />
+        </div>
       </div>
       <div className="ruler__legend mono">
         {tiers.map((tier) => (
@@ -156,7 +164,7 @@ function Ruler({ trace }: { trace: TurnTrace }) {
             {chars(tier.chars_delivered)}
           </span>
         ))}
-        <span className="ruler__tick">
+        <span className="ruler__total">
           {chars(trace.report.chars_delivered)} / {chars(trace.report.budget_chars)} (
           {pct(trace.report.chars_delivered / budget)})
         </span>

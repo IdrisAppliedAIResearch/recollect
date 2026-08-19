@@ -66,7 +66,7 @@ export function VerifyTab({ trace }: { trace: TurnTrace }) {
             </ul>
           )}
 
-          <div className="rowflex">
+          <div className="statgrid">
             <Stat
               label="payload"
               value={verification.payload_identical ? 'identical' : 'DIFFERENT'}
@@ -76,6 +76,11 @@ export function VerifyTab({ trace }: { trace: TurnTrace }) {
               label="report fields"
               value={verification.report_fields_identical ? 'identical' : 'DIFFERENT'}
               tone={verification.report_fields_identical ? 'ok' : 'bad'}
+            />
+            <Stat
+              label="authority build"
+              value={ms(trace.report.latency_ms)}
+              sub="library, one pass"
             />
             <Stat
               label="shadow cost"
@@ -105,11 +110,21 @@ export function VerifyTab({ trace }: { trace: TurnTrace }) {
               {ms(trace.query.embed_latency_ms)}
               {trace.query.embed_cache_hit ? ' (cached)' : ''}
             </span>
+            <span className="strip__label">store config</span>
+            <span className="storeconfig" title={trace.store.config_json}>
+              {storeConfigEntries(trace.store.config_json).map(([key, value]) => (
+                <span key={key} className="storeconfig__pair">
+                  {key}={value}
+                </span>
+              ))}
+            </span>
           </div>
           <p className="section-note">
             The store re-embeds a fixed sentinel on every open and refuses to serve if
             the digest moved. A match means stored vectors and this query vector live
-            in the same space, so the cosines on the Scores tab are comparable.
+            in the same space, so the cosines on the Scores tab are comparable. The
+            store also records the exact config it was created under and refuses to
+            reopen under a different one, so the config line is what this turn ran at.
           </p>
         </div>
       </section>
@@ -121,7 +136,7 @@ export function VerifyTab({ trace }: { trace: TurnTrace }) {
             <span className="card__note mono">{generation.model}</span>
           </div>
           <div className="card__body">
-            <div className="rowflex">
+            <div className="statgrid">
               <Stat label="time to first token" value={ms(generation.ttft_ms)} />
               <Stat label="total" value={ms(generation.total_ms)} />
               <Stat
@@ -195,4 +210,14 @@ function Stat({
       {sub && <span className="stat__sub">{sub}</span>}
     </div>
   )
+}
+
+/** The config the store was created under, exactly as the store recorded it. */
+function storeConfigEntries(configJson: string): [string, string][] {
+  try {
+    const parsed = JSON.parse(configJson) as Record<string, unknown>
+    return Object.entries(parsed).map(([key, value]) => [key, String(value)])
+  } catch {
+    return []
+  }
 }

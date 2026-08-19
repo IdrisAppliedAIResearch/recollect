@@ -6,9 +6,9 @@
  * episodes" summary, and it is the failure the underlying research spent
  * eleven studies finding.
  */
-import { chars, cosine, int } from '../../lib/format.ts'
+import { chars, cosine, int, ms, truncate } from '../../lib/format.ts'
 import { hasContributed, isFullyOverlapped, isStarved, orderedTiers } from '../../lib/derive.ts'
-import type { TierTrace, TurnTrace } from '../../types/trace.ts'
+import type { SubagentTrace, TierTrace, TurnTrace } from '../../types/trace.ts'
 
 export function PipelineTab({ trace }: { trace: TurnTrace }) {
   const tiers = orderedTiers(trace)
@@ -73,7 +73,7 @@ export function PipelineTab({ trace }: { trace: TurnTrace }) {
             SPREAD — and charged the exact characters they serialize to. One that
             does not fit is skipped, and the walk continues to the next.
           </p>
-          <div className="rowflex">
+          <div className="statgrid">
             <Stat label="admitted" value={int(trace.report.episodes_delivered)} />
             <Stat label="dropped" value={int(trace.report.episodes_dropped)} />
             <Stat
@@ -98,7 +98,7 @@ export function PipelineTab({ trace }: { trace: TurnTrace }) {
           </span>
         </div>
         <div className="card__body">
-          <div className="rowflex">
+          <div className="statgrid">
             <Stat
               label="recent block"
               value={int(trace.context_block.recent_episode_count)}
@@ -125,7 +125,69 @@ export function PipelineTab({ trace }: { trace: TurnTrace }) {
           </div>
         </div>
       </section>
+
+      {trace.subagent && (
+        <ResearchCard
+          sub={trace.subagent}
+          answered={Boolean(trace.generation?.response_text.trim())}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * The ephemeral research subagent's one-line record, if this turn ran one.
+ * The full arc (steps, observations) lives for the turn in the chat pane and
+ * nowhere else; this card is what the persisted trace keeps.
+ */
+function ResearchCard({ sub, answered }: { sub: SubagentTrace; answered: boolean }) {
+  return (
+    <section className="card">
+      <div className="card__head">
+        <span className="card__title">Research subagent</span>
+        <span className="card__note mono">
+          {int(sub.steps)} steps · {int(sub.sources.length)} sources · {ms(sub.total_ms)}
+        </span>
+      </div>
+      <div className="card__body">
+        <div className="research__task mono" title={sub.task}>
+          {truncate(sub.task, 140)}
+        </div>
+
+        {!answered && (
+          <div className="callout callout--bad">
+            <span className="callout__mark">!</span>
+            <div className="callout__body">
+              <div className="callout__title">The subagent returned no answer</div>
+              {sub.error ?? 'The research run ended without usable output.'}
+            </div>
+          </div>
+        )}
+
+        <div className="statgrid">
+          <Stat label="steps" value={int(sub.steps)} sub="tool calls made" />
+          <Stat label="sources" value={int(sub.sources.length)} sub="collected" />
+          <Stat label="returned" value={chars(sub.returned_chars)} sub="evidence characters" />
+          <Stat label="tools" value={sub.tools_used.join(', ') || '—'} />
+        </div>
+
+        {sub.sources.length > 0 && (
+          <details className="research__sources">
+            <summary>
+              {int(sub.sources.length)} source{sub.sources.length === 1 ? '' : 's'}
+            </summary>
+            <ul>
+              {sub.sources.map((url) => (
+                <li key={url} className="mono">
+                  {url}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
+    </section>
   )
 }
 

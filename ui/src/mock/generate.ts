@@ -505,10 +505,11 @@ export function generateTurn(input: MockTurnInput): TurnTrace {
           processed_tokens: 9040 + Math.floor(payload.length / 4) - 612,
           prefill_ms: 5870,
         },
-        finish_reason: 'stop',
-        error: null,
-      }
-    : null
+         finish_reason: 'stop',
+         error: null,
+         tool_calls: [],
+       }
+     : null
 
   return {
     schema_version: 1,
@@ -605,11 +606,12 @@ export function generateTurn(input: MockTurnInput): TurnTrace {
             "coverage_count: shadow=1 authority=0",
           ]
         : [],
-      library_version: LIBRARY_VERSION,
-      shadow_latency_ms: 8.4 + (turnIndex % 3) * 0.7,
-    },
-    generation,
-  }
+       library_version: LIBRARY_VERSION,
+       shadow_latency_ms: 8.4 + (turnIndex % 3) * 0.7,
+     },
+     generation,
+     subagent: null,
+   }
 }
 
 function mockResponse(topicIndex: number, turnIndex: number): string {

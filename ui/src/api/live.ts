@@ -117,11 +117,43 @@ function toChatEvent(name: string, payload: unknown): ChatEvent | null {
       return { type: 'token', text: String(record.text ?? '') }
     case 'reasoning':
       return { type: 'reasoning', text: String(record.text ?? '') }
+    case 'subagent_start':
+      return {
+        type: 'subagent_start',
+        run_id: String(record.run_id ?? ''),
+        task: String(record.task ?? ''),
+      }
+    case 'subagent_step': {
+      const step = record.step as Record<string, unknown> | undefined
+      if (!step) return null
+      return {
+        type: 'subagent_step',
+        run_id: String(record.run_id ?? ''),
+        step: {
+          index: typeof step.index === 'number' ? step.index : 0,
+          tool: String(step.tool ?? ''),
+          args: (step.args as Record<string, unknown>) ?? {},
+          observation: String(step.observation ?? ''),
+          ms: typeof step.ms === 'number' ? step.ms : 0,
+        },
+      }
+    }
+    case 'subagent_done':
+      return {
+        type: 'subagent_done',
+        run_id: String(record.run_id ?? ''),
+        ok: Boolean(record.ok),
+        steps: typeof record.steps === 'number' ? record.steps : 0,
+        sources: Array.isArray(record.sources) ? record.sources.map(String) : [],
+        returned_chars: typeof record.returned_chars === 'number' ? record.returned_chars : 0,
+        error: typeof record.error === 'string' ? record.error : undefined,
+      }
     case 'done':
       return {
         type: 'done',
         turn_id: String(record.turn_id ?? ''),
         generation: record.generation as GenerationTrace,
+        total_ms: typeof record.total_ms === 'number' ? record.total_ms : null,
       }
     case 'error':
       return { type: 'error', message: String(record.message ?? 'unknown error') }

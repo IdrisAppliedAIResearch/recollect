@@ -175,6 +175,15 @@ the user will build on it.
 
 Do not mark a `.agent/TODO.md` item Done before this passes.
 
+**Delete your scratch artifacts when the task is done.** After verifying,
+remove the temporary files the task created outside the repository:
+screenshots, throwaway seed or test scripts, log captures, temporary
+browser profiles. They outlive the task, and the next agent cannot tell a
+stale screenshot from a current one — leftovers from an old task read as
+evidence of the current one. Anything test-only created *inside* the repo
+(e.g. a throwaway session under `var/`) must be deleted or explicitly
+pointed out to the user before you report done.
+
 ---
 
 ## 5. How to make changes

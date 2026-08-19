@@ -409,6 +409,43 @@ class PromptCacheTrace(BaseModel):
         return min(1.0, self.cached_tokens / self.prompt_tokens)
 
 
+class ToolCallTrace(BaseModel):
+    """One tool invocation the model requested via OpenAI ``tool_calls``.
+
+    ``arguments`` is the raw JSON string exactly as the server streamed it,
+    not a re-serialized dict: a re-serialization can silently reorder or
+    normalize things the model did not write.
+    """
+
+    id: str
+    name: str
+    arguments: str
+
+
+class SubagentTrace(BaseModel):
+    """One-line accounting for the ephemeral research subagent, if one ran.
+
+    Deliberately a *summary* and nothing more: the subagent's full arc —
+    prompts, tool calls, observations — is an internal implementation detail
+    of one generation step and is never written to the episode store. Keeping
+    only these counts here is what makes that guarantee inspectable from the
+    trace itself.
+    """
+
+    task: str
+    status: str = Field(
+        description="'ok' when the subagent finished with a parsed final "
+        "result, 'partial' when a cap or a malformed final answer ended it "
+        "early, 'error' when it could not run at all."
+    )
+    steps: int
+    tools_used: list[str]
+    sources: list[str]
+    returned_chars: int
+    total_ms: float
+    error: str | None = None
+
+
 class GenerationTrace(BaseModel):
     """What the model was asked, and what it did with it."""
 
@@ -433,6 +470,12 @@ class GenerationTrace(BaseModel):
     total_ms: float | None = None
     tokens_out: int | None = None
     tokens_per_sec: float | None = None
+    tool_calls: list[ToolCallTrace] = Field(
+        default_factory=list,
+        description="Tool invocations the model requested in this generation, "
+        "accumulated across the stream. Empty when the call had no tools or "
+        "the model did not use any - requests without tools are unaffected.",
+    )
     prompt_cache: PromptCacheTrace = Field(default_factory=PromptCacheTrace)
     finish_reason: str | None = None
     error: str | None = None
@@ -468,6 +511,14 @@ class TurnTrace(BaseModel):
     report: ReportTrace
     verification: VerificationTrace
     generation: GenerationTrace | None = None
+
+    subagent: SubagentTrace | None = Field(
+        default=None,
+        description="Summary of the ephemeral research subagent for this "
+        "turn, when the main model delegated to one. One line of accounting "
+        "only - the subagent's content is never recorded. None on ordinary "
+        "turns.",
+    )
 
     # -- convenience views the UI would otherwise recompute ----------------
 

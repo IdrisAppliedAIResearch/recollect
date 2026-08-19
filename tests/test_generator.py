@@ -8,7 +8,10 @@ routed its output into a non-standard field.
 
 from __future__ import annotations
 
+import json
+
 from recollect.engine.generator import (
+    Generator,
     GeneratorSettings,
     _absorb_metrics,
     new_generation_trace,
@@ -103,3 +106,155 @@ def test_empty_context_block_is_omitted_entirely():
         system_prompt="PREAMBLE", context_block="", user_message="QUESTION"
     )
     assert [message["role"] for message in messages] == ["system", "user"]
+
+
+# -- request payload: the tools path must not change anything else ----------
+
+
+def _mocked_generator(sse_body: str):
+    """A Generator whose transport replays one body and records the payload."""
+    import httpx
+
+    payloads: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content))
+        return httpx.Response(200, content=sse_body.encode("utf-8"))
+
+    generator = Generator(SETTINGS)
+    generator._client = httpx.AsyncClient(
+        base_url=SETTINGS.base_url.rstrip("/"),
+        transport=httpx.MockTransport(handler),
+    )
+    return generator, payloads
+
+
+BASE_PAYLOAD_KEYS = {
+    "model",
+    "messages",
+    "stream",
+    "max_tokens",
+    "temperature",
+    "stream_options",
+    "chat_template_kwargs",
+}
+
+PLAIN_SSE = (
+    'data: {"choices":[{"delta":{"content":"ok "}}]}\n'
+    'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n'
+    "data: [DONE]\n"
+)
+
+
+async def test_payload_without_tools_is_exactly_the_historical_shape():
+    """Callers that never delegate must send the same request as before."""
+    generator, payloads = _mocked_generator(PLAIN_SSE)
+    try:
+        chunks = [
+            chunk
+            async for chunk in generator.stream(
+                [{"role": "user", "content": "hi"}], trace=_trace()
+            )
+        ]
+    finally:
+        await generator.aclose()
+
+    assert [chunk.text for chunk in chunks] == ["ok "]
+    payload = payloads[0]
+    assert set(payload) == BASE_PAYLOAD_KEYS
+    assert "tools" not in payload and "tool_choice" not in payload
+
+
+async def test_payload_with_tools_adds_only_tools_and_tool_choice():
+    """The research path advertises tools; nothing else moves."""
+    tools = [{"type": "function", "function": {"name": "web_search"}}]
+    generator, payloads = _mocked_generator(PLAIN_SSE)
+    try:
+        [
+            chunk
+            async for chunk in generator.stream(
+                [{"role": "user", "content": "hi"}], trace=_trace(), tools=tools
+            )
+        ]
+    finally:
+        await generator.aclose()
+
+    payload = payloads[0]
+    assert set(payload) == BASE_PAYLOAD_KEYS | {"tools", "tool_choice"}
+    assert payload["tools"] == tools
+    assert payload["tool_choice"] == "auto"
+
+
+THINK_LEAK_SSE = (
+    'data: {"choices":[{"delta":{"content":"<thi"}}]}\n'
+    'data: {"choices":[{"delta":{"content":"nk>hidden reasoning"}}]}\n'
+    'data: {"choices":[{"delta":{"content":"</think>Clean answer</thi"}}]}\n'
+    'data: {"choices":[{"delta":{"content":"nk>"}}]}\n'
+    'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n'
+    "data: [DONE]\n"
+)
+
+
+async def test_stream_strips_think_blocks_and_split_orphan_delimiters():
+    generator, _ = _mocked_generator(THINK_LEAK_SSE)
+    trace = _trace()
+    try:
+        chunks = [
+            chunk
+            async for chunk in generator.stream(
+                [{"role": "user", "content": "hi"}], trace=trace
+            )
+        ]
+    finally:
+        await generator.aclose()
+
+    visible = "".join(chunk.text for chunk in chunks)
+    assert visible == "Clean answer"
+    assert trace.response_text == visible
+    assert "hidden reasoning" not in visible
+    assert "think" not in visible.lower()
+
+
+TOOL_SSE = (
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a",'
+    '"type":"function","function":{"name":"alpha","arguments":""}}]}}]}\n'
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b",'
+    '"type":"function","function":{"name":"beta","arguments":""}}]}}]}\n'
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":1,'
+    '"function":{"arguments":"{\\"b\\": "}}]}}]}\n'
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,'
+    '"function":{"arguments":"{\\"a\\": 1}"}}]}}]}\n'
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":1,'
+    '"function":{"arguments":"2}"}}]}}]}\n'
+    'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n'
+    "data: [DONE]\n"
+)
+
+
+async def test_streamed_tool_call_fragments_reassemble_by_index():
+    """Arguments arrive in pieces, possibly out of order, over several deltas.
+
+    Keying by the delta's `index` is what reassembles one call out of its
+    fragments; append-order would splice the two calls together.
+    """
+    generator, _ = _mocked_generator(TOOL_SSE)
+    trace = _trace()
+    try:
+        [
+            chunk
+            async for chunk in generator.stream(
+                [{"role": "user", "content": "hi"}],
+                trace=trace,
+                tools=[{"type": "function", "function": {"name": "alpha"}}],
+            )
+        ]
+    finally:
+        await generator.aclose()
+
+    assert trace.finish_reason == "tool_calls"
+    assert trace.response_text == ""
+    calls = {(call.id, call.name, call.arguments) for call in trace.tool_calls}
+    assert calls == {
+        ("call_a", "alpha", '{"a": 1}'),
+        ("call_b", "beta", '{"b": 2}'),
+    }

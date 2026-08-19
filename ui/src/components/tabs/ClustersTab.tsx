@@ -28,7 +28,7 @@ export function ClustersTab({ trace }: { trace: TurnTrace }) {
 
   return (
     <div className="stack">
-      <div className="rowflex">
+      <div className="statgrid">
         <Stat label="clusters" value={int(clusters.length)} sub="over the pool" />
         <Stat
           label="entered"
