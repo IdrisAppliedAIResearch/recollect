@@ -123,17 +123,32 @@ def test_finalizer_agent_has_no_tools_at_all(tmp_path):
     assert finalizer["mode"] == "primary"
     assert finalizer["prompt"] == "{file:finalizer.md}"
     # The whole point: opencode has no per-message "tools off" flag, but
-    # `Permission.visibleTools` drops every tool whose last matching rule
-    # is pattern "*" action "deny" - so this bare table is the runner's
-    # equivalent of the legacy backend's `tools=None`. Anything allowed
-    # after it would put a tool back on the table.
+    # `ToolRegistry.materialize` deletes every tool whose last matching
+    # rule is resource "*" effect deny, MCP tools included - so this bare
+    # table is the runner's equivalent of the legacy backend's
+    # `tools=None`. Anything allowed after it would put a tool back.
     assert finalizer["permission"] == {"*": "deny"}
-    # One iteration, so a tool that somehow survived the table still could
-    # not start a second round of browsing.
-    assert finalizer["steps"] == 1
     # Same model settings as the researcher: the tool surface is meant to
     # be the only difference between the two passes.
     assert finalizer["temperature"] == config["agent"]["researcher"]["temperature"]
+
+
+def test_the_finalizer_is_not_starved_of_its_one_working_turn(tmp_path):
+    """The step budget that made the finalize pass a no-op on first ship.
+
+    opencode numbers a turn's steps from 1 and, on the step where
+    `step >= agent.steps`, it materializes no tools, appends its own
+    "MAXIMUM STEPS REACHED ... Respond with text only" message to the
+    request and sets toolChoice "none". So the `steps`-th turn is the
+    forced wrap-up, not a working one. At `steps: 1` the finalizer's only
+    turn is that wrap-up: it recites the banner, `_parse_final` refuses
+    it, and the pass changes nothing - which is what a live capped run
+    showed. Two gives it one real turn, with the wrap-up as a backstop it
+    should never reach, since opencode only continues a turn after a tool
+    call and this agent has no tools to call.
+    """
+    _, config = _generate(tmp_path)
+    assert config["agent"][configgen.FINALIZER_NAME]["steps"] >= 2
 
 
 def test_finalizer_prompt_does_not_restate_the_receipt_contract(tmp_path):

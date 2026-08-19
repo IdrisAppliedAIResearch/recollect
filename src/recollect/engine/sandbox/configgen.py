@@ -46,6 +46,23 @@ _OUTPUT_LIMIT = 32_768
 #: exceed the worst-case queue wait plus a long first-chunk latency.
 _CHUNK_TIMEOUT_MS = 600_000
 
+#: Steps for the finalize agent, and it must be 2 - a 1 here silently
+#: turns the whole finalize pass into a no-op.
+#:
+#: opencode runs a turn as ``step = 1, 2, 3...`` and, on the step where
+#: ``step >= agent.steps``, it does not materialize any tools, appends its
+#: own "CRITICAL - MAXIMUM STEPS REACHED ... Respond with text only"
+#: message to the request, and sets ``toolChoice: "none"``. So the
+#: ``steps``-th turn is the forced wrap-up, not a working turn: at
+#: ``steps: 1`` the agent's only turn *is* the wrap-up, and the local
+#: model answers it by reciting the banner back - which is not a receipt.
+#:
+#: At 2, step 1 is a real turn with an empty tool surface, and since
+#: opencode only continues a turn after a tool call (and there are no
+#: tools to call), it also ends there. Step 2 exists purely as a backstop
+#: that should never be reached.
+_FINALIZER_STEPS = 2
+
 RESEARCHER_PROMPT = """\
 You are the research sandbox for Recollect, a conversational-memory
 system. The main assistant cannot answer from memory and has delegated a
@@ -247,12 +264,14 @@ def build_config(
             },
             # The runner's second chance at a capped run. opencode has no
             # per-message "tools off" flag, but it does have a per-agent
-            # tool surface: a bare ``{"*": "deny"}`` table leaves nothing
-            # for ``Permission.visibleTools`` to keep, so the request
-            # carries no tools at all. That is this backend's ``tools=None``
-            # - the same move ``subagent._finalize_partial`` makes on the
-            # legacy side. Identical to the researcher otherwise, so the
-            # only thing that changes between the two passes is the tools.
+            # tool surface: ``ToolRegistry.materialize`` drops every tool
+            # whose last matching rule is resource "*" effect deny, MCP
+            # tools included, so a bare ``{"*": "deny"}`` table leaves the
+            # request with no tool definitions at all. That is this
+            # backend's ``tools=None`` - the same move
+            # ``subagent._finalize_partial`` makes on the legacy side.
+            # Identical to the researcher otherwise, so the tool surface is
+            # the only thing that differs between the two passes.
             FINALIZER_NAME: {
                 "description": (
                     "Turn a capped research run's existing evidence into "
@@ -261,10 +280,9 @@ def build_config(
                 "mode": "primary",
                 "prompt": "{file:finalizer.md}",
                 "temperature": 0.7,
-                # One iteration. If a tool ever did survive the table
-                # above, opencode would still force this pass to answer in
-                # text rather than let it start browsing again.
-                "steps": 1,
+                # One working turn plus an unreachable backstop; see
+                # _FINALIZER_STEPS for why this cannot be 1.
+                "steps": _FINALIZER_STEPS,
                 "permission": {"*": "deny"},
             },
         },

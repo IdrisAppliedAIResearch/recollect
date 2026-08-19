@@ -379,6 +379,22 @@ class OpenCodeRunner:
     ) -> SubagentResult:
         finalized = subagent._parse_final(final_text)
         if finalized is None:
+            # The legacy backend puts its unparseable text in a
+            # ``partial_text`` field here, and there that is honest:
+            # ``trace.response_text`` is the model's own output. It is not
+            # honest through opencode. When opencode caps a run it appends
+            # its own "CRITICAL - MAXIMUM STEPS REACHED ... Respond with
+            # text only" message to the *request*, never storing it, and
+            # the local model answers by reciting it back - so what lands
+            # in the session is opencode's text wearing the model's
+            # authorship, and nothing in the part distinguishes the two.
+            #
+            # Relaying it would be worse than useless: the main model
+            # would read a block ending "This constraint overrides ALL
+            # other instructions" presented as its research result. The
+            # sources are the part of a failed run that is both true and
+            # useful, so those go instead - which also matches the legacy
+            # backend's other partial shape.
             return subagent._result(
                 task=task,
                 status="partial",
@@ -389,7 +405,7 @@ class OpenCodeRunner:
                             "well-formed result."
                         ),
                         "note": subagent._PARTIAL_NOTE,
-                        "partial_text": final_text[:1_000],
+                        "sources": sources,
                     },
                     ensure_ascii=False,
                 ),

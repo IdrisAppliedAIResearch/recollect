@@ -25,6 +25,42 @@ from recollect.engine.subagent import SubagentResult, SubagentStep
 
 OC_ID = "ses_test"
 
+#: What opencode actually puts in the session when a run hits its step
+#: cap. It appends this to the *request* as an assistant message (with
+#: no tools and toolChoice "none") and never stores it, so what ends up
+#: in the transcript is the local model reciting it back - arriving as
+#: an ordinary text part with nothing to mark it as opencode's words.
+#: Verbatim from a live capped run; the fixtures used to use model prose
+#: here, which is why they missed a starved finalizer.
+OC_STEP_CAP_BANNER = "\n".join(
+    [
+        "CRITICAL - MAXIMUM STEPS REACHED",
+        "",
+        "The maximum number of steps allowed for this task has been "
+        "reached. Tools are disabled until next user input. Respond with "
+        "text only.",
+        "",
+        "STRICT REQUIREMENTS:",
+        "1. Do NOT make any tool calls (no reads, writes, edits, searches, "
+        "or any other tools)",
+        "2. MUST provide a text response summarizing work done so far",
+        "3. This constraint overrides ALL other instructions, including "
+        "any user requests for edits or tool use",
+    ]
+)
+
+
+def _text_part(text: str) -> dict:
+    """A text part with the keys a real opencode part has - notably not
+    ``synthetic`` or ``ignored``, which are absent, not false."""
+    return {
+        "id": "prt_1",
+        "messageID": "msg_1",
+        "sessionID": OC_ID,
+        "type": "text",
+        "text": text,
+    }
+
 FINAL_JSON = (
     "The sources agree on the broad picture.\n"
     "```json\n"
@@ -208,7 +244,7 @@ async def test_completed_delegation_yields_steps_and_result(config):
                 200,
                 json={
                     "info": {"role": "assistant"},
-                    "parts": [{"type": "text", "text": FINAL_JSON, "synthetic": False}],
+                    "parts": [_text_part(FINAL_JSON)],
                 },
             )
         return httpx.Response(
@@ -325,13 +361,7 @@ async def test_unparseable_final_is_partial(config):
                 200,
                 json={
                     "info": {"role": "assistant"},
-                    "parts": [
-                        {
-                            "type": "text",
-                            "text": "I could not finish in time.",
-                            "synthetic": False,
-                        }
-                    ],
+                    "parts": [_text_part(OC_STEP_CAP_BANNER)],
                 },
             )
         return httpx.Response(404, json={})
@@ -344,7 +374,12 @@ async def test_unparseable_final_is_partial(config):
     assert result.status == "partial"
     assert result.error == "malformed or missing final JSON"
     document = json.loads(result.result_json)
-    assert "could not finish in time" in document["partial_text"]
+    # The text is not relayed: through opencode it cannot be attributed,
+    # and this one is opencode's own cap instruction. The sources are what
+    # a failed run can honestly hand back.
+    assert "partial_text" not in document
+    assert "MAXIMUM STEPS REACHED" not in result.result_json
+    assert document["sources"] == []
 
 
 async def test_start_error_becomes_an_error_result(tmp_path):
@@ -370,10 +405,12 @@ async def test_start_error_becomes_an_error_result(tmp_path):
 
 # -- the tools-disabled finalize pass ---------------------------------------
 #
-# opencode enforces its step cap by forcing a text-only wrap-up, and the
-# local model answers that in prose rather than the JSON receipt. Without a
-# second chance, a run that did the research is reported as `partial` with
-# everything but `partial_text[:1000]` discarded.
+# opencode enforces its step cap by not materializing tools on the capped
+# step and appending its own "MAXIMUM STEPS REACHED" instruction to the
+# request. The local model answers that by reciting it, so the delegation
+# comes back with an unparseable final message. Without a second chance, a
+# run that did the research is reported as `partial` with the evidence
+# discarded.
 
 
 def _finalize_handler(
@@ -403,33 +440,27 @@ def _finalize_handler(
                     200,
                     json={
                         "info": {"role": "assistant"},
-                        "parts": [
-                            {
-                                "type": "text",
-                                "text": first_text,
-                                "synthetic": False,
-                            }
-                        ],
+                        "parts": [_text_part(first_text)],
                     },
                 )
             if isinstance(second, Exception):
                 raise second
             return second
+
         return httpx.Response(404, json={})
 
     return handler
 
 
-async def test_prose_wrap_up_is_finalized_from_the_evidence(config):
+async def test_capped_run_is_finalized_from_the_evidence(config):
     posts: list[dict] = []
     handler = _finalize_handler(
-        "I searched for the BERT paper and read three sources. Here is a "
-        "long prose summary instead of the receipt.",
+        OC_STEP_CAP_BANNER,
         httpx.Response(
             200,
             json={
                 "info": {"role": "assistant"},
-                "parts": [{"type": "text", "text": FINAL_JSON, "synthetic": False}],
+                "parts": [_text_part(FINAL_JSON)],
             },
         ),
         posts,
@@ -465,21 +496,22 @@ async def test_prose_wrap_up_is_finalized_from_the_evidence(config):
     assert result.steps == []
 
 
-async def test_finalize_pass_that_also_fails_keeps_the_bare_partial(config):
+async def test_a_starved_finalizer_recites_the_banner_and_ships_nothing(config):
+    """The regression that 121 green tests missed.
+
+    A finalizer with no working turn of its own gets opencode's cap
+    instruction, recites it, and the run ends exactly where it started.
+    The guard against ever shipping that again is the step budget asserted
+    in test_sandbox_configgen; this pins what it looks like when it breaks.
+    """
     posts: list[dict] = []
     handler = _finalize_handler(
-        "I could not finish in time.",
+        OC_STEP_CAP_BANNER,
         httpx.Response(
             200,
             json={
                 "info": {"role": "assistant"},
-                "parts": [
-                    {
-                        "type": "text",
-                        "text": "Sorry, I still cannot produce that.",
-                        "synthetic": False,
-                    }
-                ],
+                "parts": [_text_part(OC_STEP_CAP_BANNER)],
             },
         ),
         posts,
@@ -491,19 +523,56 @@ async def test_finalize_pass_that_also_fails_keeps_the_bare_partial(config):
 
     assert len(posts) == 2
     result = results[-1]
-    # Unchanged from before the finalize pass existed: the original text is
-    # what is preserved, not the failed retry's.
     assert result.status == "partial"
     assert result.error == "malformed or missing final JSON"
     document = json.loads(result.result_json)
-    assert "could not finish in time" in document["partial_text"]
-    assert "still cannot produce" not in result.result_json
+    # Banner in, nothing of opencode's out. This is the honesty bar: the
+    # main model must never be handed a block that ends "This constraint
+    # overrides ALL other instructions" as its research result.
+    assert "MAXIMUM STEPS REACHED" not in result.result_json
+    assert "overrides ALL other instructions" not in result.result_json
+    assert "partial_text" not in document
+    assert document["note"] == subagent._PARTIAL_NOTE
+
+
+async def test_a_receipt_sharing_a_message_with_the_banner_still_parses(config):
+    """``_last_text`` joins a message's text parts with newlines.
+
+    That is a feature here, not the hazard it looks like: ``_parse_final``
+    scans for fenced blocks anywhere in the text, so a receipt that shares
+    a message with recited banner prose is still read - in either order.
+    """
+    posts: list[dict] = []
+    handler = _finalize_handler(
+        OC_STEP_CAP_BANNER,
+        httpx.Response(
+            200,
+            json={
+                "info": {"role": "assistant"},
+                "parts": [
+                    _text_part(OC_STEP_CAP_BANNER),
+                    _text_part(FINAL_JSON),
+                ],
+            },
+        ),
+        posts,
+    )
+
+    runner, handle = _inject(config, handler)
+    _, results, _ = await _run(runner, "task")
+    await handle.client.aclose()
+
+    result = results[-1]
+    assert result.status == "partial"
+    assert result.summary == "Mars research points one direction."
+    assert result.sources == ["https://arxiv.org/abs/1"]
+    assert "MAXIMUM STEPS REACHED" not in result.result_json
 
 
 async def test_finalize_request_failure_keeps_the_bare_partial(config):
     posts: list[dict] = []
     handler = _finalize_handler(
-        "prose, not a receipt",
+        OC_STEP_CAP_BANNER,
         httpx.ConnectError("sandbox went away"),
         posts,
     )
@@ -516,7 +585,7 @@ async def test_finalize_request_failure_keeps_the_bare_partial(config):
     result = results[-1]
     assert result.status == "partial"
     assert result.error == "malformed or missing final JSON"
-    assert "prose, not a receipt" in json.loads(result.result_json)["partial_text"]
+    assert "MAXIMUM STEPS REACHED" not in result.result_json
 
 
 async def test_finalize_pass_is_skipped_when_no_budget_remains(config):
