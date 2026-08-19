@@ -204,6 +204,26 @@ export interface PromptCacheTrace {
   prefill_ms: number | null
 }
 
+export interface ToolCallTrace {
+  id: string
+  name: string
+  /** The raw JSON string exactly as streamed, not a re-serialized dict. */
+  arguments: string
+}
+
+/** One-line accounting for the research subagent of a turn, if one ran. */
+export interface SubagentTrace {
+  task: string
+  /** 'ok' | 'partial' | 'error'. */
+  status: string
+  steps: number
+  tools_used: string[]
+  sources: string[]
+  returned_chars: number
+  total_ms: number
+  error: string | null
+}
+
 export interface GenerationTrace {
   model: string
   base_url: string
@@ -223,6 +243,7 @@ export interface GenerationTrace {
   prompt_cache: PromptCacheTrace
   finish_reason: string | null
   error: string | null
+  tool_calls: ToolCallTrace[]
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +273,8 @@ export interface TurnTrace {
   report: ReportTrace
   verification: VerificationTrace
   generation: GenerationTrace | null
+  /** Present only when the turn delegated to the ephemeral research subagent. */
+  subagent: SubagentTrace | null
 }
 
 export interface TurnSummary {

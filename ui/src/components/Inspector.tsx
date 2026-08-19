@@ -17,6 +17,7 @@ import { ScoresTab } from './tabs/ScoresTab.tsx'
 import { SelectorTab } from './tabs/SelectorTab.tsx'
 import { VerifyTab } from './tabs/VerifyTab.tsx'
 import { isTrustworthy, starvedTiers } from '../lib/derive.ts'
+import type { DataSource } from '../types/api.ts'
 import type { TurnTrace } from '../types/trace.ts'
 
 type TabId =
@@ -38,7 +39,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'verify', label: 'Verify' },
 ]
 
-export function Inspector({ trace }: { trace: TurnTrace | null }) {
+export function Inspector({ trace, source }: { trace: TurnTrace | null; source: DataSource }) {
   const [tab, setTab] = useState<TabId>('pipeline')
 
   if (!trace) {
@@ -89,7 +90,7 @@ export function Inspector({ trace }: { trace: TurnTrace | null }) {
       <div className="tabpanel" role="tabpanel">
         {tab === 'pipeline' && <PipelineTab trace={trace} />}
         {tab === 'context' && <ContextTab trace={trace} />}
-        {tab === 'scores' && <ScoresTab trace={trace} />}
+        {tab === 'scores' && <ScoresTab trace={trace} source={source} />}
         {tab === 'clusters' && <ClustersTab trace={trace} />}
         {tab === 'selector' && <SelectorTab trace={trace} />}
         {tab === 'budget' && <BudgetTab trace={trace} />}

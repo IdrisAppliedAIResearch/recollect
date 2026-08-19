@@ -72,6 +72,18 @@ class RecollectConfig:
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     episodic: EpisodicConfig = field(default_factory=EpisodicConfig)
 
+    # -- research subagent ----------------------------------------------------
+    # Deployment bounds for the ephemeral research subagent. These cap cost,
+    # not quality: a run that hits any of them stops with a *partial* result
+    # rather than an empty one, so a loose value reads as a longer answer,
+    # never as a broken server.
+    subagent_enabled: bool = True
+    subagent_max_steps: int = 8
+    subagent_max_tool_calls: int = 8
+    subagent_observation_chars: int = 4_000
+    subagent_wallclock_s: float = 180.0
+    subagent_max_tokens: int = 1_024
+
     # -- storage / server ---------------------------------------------------
     data_dir: Path = Path("var")
     host: str = "127.0.0.1"
@@ -82,6 +94,16 @@ class RecollectConfig:
             raise ValueError("budget_chars must be non-negative")
         if self.embedding_threads < 1:
             raise ValueError("embedding_threads must be positive")
+        if self.subagent_max_steps < 1:
+            raise ValueError("subagent_max_steps must be positive")
+        if self.subagent_max_tool_calls < 1:
+            raise ValueError("subagent_max_tool_calls must be positive")
+        if self.subagent_observation_chars < 1:
+            raise ValueError("subagent_observation_chars must be positive")
+        if self.subagent_wallclock_s <= 0:
+            raise ValueError("subagent_wallclock_s must be positive")
+        if self.subagent_max_tokens < 1:
+            raise ValueError("subagent_max_tokens must be positive")
 
     @property
     def sessions_dir(self) -> Path:
@@ -136,6 +158,24 @@ class RecollectConfig:
             data_dir=Path(os.environ.get("RECOLLECT_DATA_DIR", "var")),
             host=os.environ.get("RECOLLECT_HOST", "127.0.0.1"),
             port=int(os.environ.get("RECOLLECT_PORT", 8080)),
+            subagent_enabled=_flag(
+                os.environ.get("RECOLLECT_SUBAGENT_ENABLED", "1")
+            ),
+            subagent_max_steps=int(
+                os.environ.get("RECOLLECT_SUBAGENT_MAX_STEPS", 8)
+            ),
+            subagent_max_tool_calls=int(
+                os.environ.get("RECOLLECT_SUBAGENT_MAX_TOOL_CALLS", 8)
+            ),
+            subagent_observation_chars=int(
+                os.environ.get("RECOLLECT_SUBAGENT_OBSERVATION_CHARS", 4_000)
+            ),
+            subagent_wallclock_s=float(
+                os.environ.get("RECOLLECT_SUBAGENT_WALLCLOCK_S", 180.0)
+            ),
+            subagent_max_tokens=int(
+                os.environ.get("RECOLLECT_SUBAGENT_MAX_TOKENS", 1_024)
+            ),
         )
 
 

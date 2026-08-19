@@ -57,6 +57,17 @@ export function Strip({ trace }: { trace: TurnTrace }) {
               {name} starved
             </span>
           ))}
+          {trace.report.truncated && (
+            <span
+              className="badge badge--warn"
+              title={
+                `The paths wanted ${chars(trace.report.chars_wanted)} characters; only ` +
+                `${chars(trace.report.chars_delivered)} fit the budget.`
+              }
+            >
+              truncated
+            </span>
+          )}
         </span>
       </div>
     </div>

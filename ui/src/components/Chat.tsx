@@ -4,9 +4,11 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { chars, int } from '../lib/format.ts'
+import { chars, clock, int, stamp } from '../lib/format.ts'
 import type { SessionInfo } from '../types/api.ts'
 import type { Exchange } from '../App.tsx'
+import { Markdown } from './Markdown.tsx'
+import { Workspace } from './Workspace.tsx'
 
 interface Props {
   exchanges: Exchange[]
@@ -29,11 +31,19 @@ export function Chat({
 }: Props) {
   const [draft, setDraft] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     const log = logRef.current
     if (log) log.scrollTop = log.scrollHeight
   }, [exchanges])
+
+  // Going `disabled` while busy throws focus away, and it never comes back on
+  // its own — so re-focus as soon as the composer is usable again, which is
+  // what "ready to keep typing" means after each reply.
+  useEffect(() => {
+    if (!busy && !readOnly) inputRef.current?.focus()
+  }, [busy, readOnly])
 
   const submit = () => {
     const message = draft.trim()
@@ -41,6 +51,12 @@ export function Chat({
     setDraft('')
     onSend(message)
   }
+
+  // Only one turn is in flight at a time, so the newest exchange that carries
+  // a workspace is the live research arc (or the one that just finished).
+  const workspace = exchanges.at(-1)?.workspace ?? null
+  const researching =
+    workspace?.phase === 'researching' || workspace?.phase === 'synthesizing'
 
   return (
     <div className="chat">
@@ -66,15 +82,17 @@ export function Chat({
         )}
 
         {exchanges.map((exchange) => (
-          <div key={exchange.id}>
+          <div key={exchange.id} className="turn">
             <div className="msg msg--user">
-              <div className="msg__bubble">{exchange.user}</div>
+              <div className="msg__bubble">
+                <Markdown text={exchange.user} />
+              </div>
             </div>
 
             {exchange.reasoning && (
               <div className="reasoning">
                 <div className="reasoning__label">thinking</div>
-                {exchange.reasoning}
+                <Markdown text={exchange.reasoning} />
               </div>
             )}
 
@@ -91,12 +109,19 @@ export function Chat({
               title="Inspect this turn"
             >
               <div className="msg__bubble">
-                {exchange.assistant || (exchange.streaming ? '…' : '')}
+                {exchange.assistant ? (
+                  <Markdown text={exchange.assistant} />
+                ) : (
+                  (exchange.streaming ? '…' : '')
+                )}
                 {exchange.error && <div className="callout callout--bad">{exchange.error}</div>}
               </div>
 
               {exchange.trace && (
                 <div className="msg__meta mono">
+                  <span title={stamp(exchange.trace.started_at)}>
+                    {clock(exchange.trace.started_at)}
+                  </span>
                   <span>{int(exchange.trace.report.episodes_delivered)} episodes</span>
                   <span>
                     {chars(exchange.trace.report.chars_delivered)}/
@@ -121,12 +146,15 @@ export function Chat({
         ))}
       </div>
 
+      {workspace && <Workspace workspace={workspace} />}
+
       <div className="composer">
         <div className="composer__row">
           <textarea
+            ref={inputRef}
             className="composer__input"
             value={draft}
-            rows={2}
+            rows={1}
             placeholder={
               readOnly ? 'Mock data is read-only' : 'Say something worth remembering…'
             }
@@ -145,11 +173,19 @@ export function Chat({
             onClick={submit}
             disabled={busy || readOnly || !draft.trim()}
           >
-            {busy ? 'Thinking…' : 'Send'}
+            {busy
+              ? workspace?.phase === 'synthesizing'
+                ? 'Answering…'
+                : researching
+                  ? 'Researching…'
+                  : 'Thinking…'
+              : 'Send'}
           </button>
         </div>
         <div className="composer__hint">
-          Enter sends · Shift+Enter for a new line · click any reply to inspect its turn
+          {readOnly
+            ? 'Mock data is read-only · click any reply to inspect its turn'
+            : 'Enter sends · Shift+Enter for a new line · click any reply to inspect its turn'}
         </div>
       </div>
     </div>

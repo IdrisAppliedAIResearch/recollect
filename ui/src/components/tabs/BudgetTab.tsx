@@ -18,7 +18,7 @@ export function BudgetTab({ trace }: { trace: TurnTrace }) {
 
   return (
     <div className="stack">
-      <div className="rowflex">
+      <div className="statgrid">
         <Stat label="delivered" value={chars(trace.report.chars_delivered)} sub="characters" />
         <Stat label="budget" value={chars(trace.report.budget_chars)} sub="hard ceiling" />
         <Stat
@@ -84,10 +84,14 @@ export function BudgetTab({ trace }: { trace: TurnTrace }) {
                 <span className="swatch" data-tier={tier.name} /> {tier.label}
               </span>
               <span className="gauge__track">
+                {/* Measured against proposed, matching the "X of Y proposed"
+                    reading beside it; the budget view is the stackbar above. */}
                 <span
                   className="gauge__fill"
                   data-tier={tier.name}
-                  style={{ width: `${(tier.chars_delivered / budget) * 100}%` }}
+                  style={{
+                    width: `${(tier.chars_delivered / Math.max(tier.chars_proposed, 1)) * 100}%`,
+                  }}
                 />
               </span>
               <span className="gauge__value mono">

@@ -66,11 +66,19 @@ export function createMockSource(scenario: MockScenario = 'deployed'): DataSourc
       await delay(40)
       return {
         ok: true,
+        // Same field names the live health endpoint reports, so the top bar
+        // chip renders identically in both data sources.
         embedder: {
           model: 'Qwen3-Embedding-0.6B-Q8_0.gguf',
-          dimension: 1024,
-          threads: 8,
+          n_threads: 8,
+          n_ctx: 512,
+          embedding_dimension: 1024,
           in_process: true,
+          cold_load_ms: 754.2,
+          calls: 37,
+          cache_hits: 4,
+          cache_entries: 33,
+          hit_ratio: 4 / 37,
         },
         generator: {
           base_url: 'http://127.0.0.1:8000/v1',
@@ -79,6 +87,20 @@ export function createMockSource(scenario: MockScenario = 'deployed'): DataSourc
           note: 'mock data source — no generator contacted',
         },
         library_version: '0.1.0',
+        episodic_config: {
+          budget_accounting: 'exact_serialized',
+          candidate_policy: 'full_store',
+          embed_call_shape: 'solo',
+          k_threshold: 0.48,
+          recency_window_n: 32,
+          seed: 5005,
+          selector: 'A3',
+          selector_cluster_count: 16,
+          selector_cost_exponent: 0,
+          selector_lambda: 0.1,
+          unsafe_cosine_top_n: 100,
+        },
+        budget_chars: 32_000,
       }
     },
 
@@ -114,7 +136,6 @@ export function createMockSource(scenario: MockScenario = 'deployed'): DataSourc
         turn_number: found.turn_number,
         user_message: found.user_message,
         assistant_message: found.assistant_message,
-        created_at: found.created_at,
       }
     },
 
@@ -158,7 +179,7 @@ export function createMockSource(scenario: MockScenario = 'deployed'): DataSourc
       }
 
       turns.push(trace)
-      onEvent({ type: 'done', turn_id: trace.turn_id, generation })
+      onEvent({ type: 'done', turn_id: trace.turn_id, generation, total_ms: trace.total_ms })
     },
   }
 }

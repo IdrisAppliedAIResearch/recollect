@@ -33,6 +33,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -45,12 +46,21 @@ from .engine._internals import LIBRARY_VERSION
 from .engine.embedder import HarnessEmbedder
 from .engine.generator import (
     GenerationError,
+    GenerationTrace,
     Generator,
     GeneratorSettings,
+    StreamChunk,
     new_generation_trace,
 )
+from .engine.subagent import (
+    SubagentConfig,
+    SubagentResult,
+    SubagentStep,
+    run_subagent,
+    run_subagent_tool,
+)
 from .session import SessionInfo, SessionManager
-from .trace import TurnSummary, TurnTrace
+from .trace import SubagentTrace, ToolCallTrace, TurnSummary, TurnTrace
 
 
 class ChatRequest(BaseModel):
@@ -82,6 +92,17 @@ class AppState:
                 temperature=config.generator_temperature,
             )
         )
+        # Outbound web traffic for the research subagent. Deliberately a
+        # separate client from the generator's: different destination,
+        # different timeout posture, and it must never inherit the generator
+        # base URL. Redirects follow so web_fetch can report the final URL.
+        self.web_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            follow_redirects=True,
+            headers={
+                "User-Agent": "recollect-research/1.0 (local research agent)"
+            },
+        )
         self.embedder_health: dict = {}
         # A session is an append-only log with a turn counter; two turns
         # racing on one session would interleave episodes and corrupt the
@@ -106,6 +127,7 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
             yield
         finally:
             await state.generator.aclose()
+            await state.web_client.aclose()
 
     app = FastAPI(
         title="Recollect",
@@ -267,6 +289,87 @@ def _sse(event: str, data: dict | str) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
+_RESEARCH_HANDOFF = (
+    "The research subagent returned the internal evidence below. Answer the "
+    "user's original question now in clear natural language. Synthesize the "
+    "findings; do not reproduce the JSON, tool-call syntax, or internal "
+    "workflow. Cite useful source URLs. If the result says it is partial, "
+    "state that limitation briefly.\n\nINTERNAL RESEARCH RESULT:\n"
+)
+
+_RESEARCH_REPAIR = (
+    "Your previous draft exposed an internal JSON/tool payload. Rewrite it as "
+    "a direct natural-language answer to the user's original question. Do not "
+    "output JSON, XML tool syntax, or discuss the internal research process."
+)
+
+
+def _looks_like_internal_payload(text: str) -> bool:
+    stripped = text.strip()
+    lowered = stripped.lower()
+    if any(
+        marker in lowered
+        for marker in ("<tool_call", "</tool_call>", "function=web_")
+    ):
+        return True
+    if "```json" in lowered:
+        return True
+    if (
+        '"summary"' in lowered
+        and '"findings"' in lowered
+        and '"sources"' in lowered
+    ):
+        return True
+    if '"tool"' in lowered and '"results"' in lowered:
+        return True
+
+    candidate = stripped
+    if candidate.startswith("```json") and candidate.endswith("```"):
+        candidate = candidate[7:-3].strip()
+    try:
+        return isinstance(json.loads(candidate), (dict, list))
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+
+def _research_fallback(result_json: str) -> str:
+    """Render a safe answer if two model attempts expose internal payloads."""
+    try:
+        document = json.loads(result_json)
+    except (json.JSONDecodeError, TypeError):
+        document = {}
+
+    lines = []
+    summary = document.get("summary") if isinstance(document, dict) else None
+    if isinstance(summary, str) and summary.strip():
+        lines.append(summary.strip())
+    else:
+        lines.append("The research run did not return a complete synthesis.")
+
+    findings = document.get("findings", []) if isinstance(document, dict) else []
+    rendered_findings = []
+    for finding in (findings if isinstance(findings, list) else []):
+        if not isinstance(finding, dict):
+            continue
+        claim = str(finding.get("claim") or "").strip()
+        url = str(finding.get("source_url") or "").strip()
+        if claim:
+            citation = f" ([source]({url}))" if url else ""
+            rendered_findings.append(f"- {claim}{citation}")
+    if rendered_findings:
+        lines.append("\n".join(rendered_findings))
+
+    sources = document.get("sources", []) if isinstance(document, dict) else []
+    source_lines = [
+        f"- {url}"
+        for url in sources
+        if isinstance(url, str) and url.startswith(("http://", "https://"))
+    ]
+    if source_lines:
+        lines.append("Sources:\n" + "\n".join(source_lines))
+    return "\n\n".join(lines)
+
+
 async def _stream_turn(
     state: AppState, session_id: str, message: str
 ) -> AsyncIterator[str]:
@@ -276,6 +379,12 @@ async def _stream_turn(
     than being held until the reply is done. On a multi-second generation
     that turns the inspector from a post-mortem into a live view of what
     the memory system just decided.
+
+    A turn may be two phases: if the model answers with a ``run_subagent``
+    tool call, an ephemeral research loop runs inside this same lock, its
+    steps stream as ``subagent_*`` events, and a second generation produces
+    the final answer. A delegated turn commits only that final answer; the
+    phase-one preamble and the subagent's arc reach no database.
     """
     async with state.lock(session_id):
         started = time.perf_counter()
@@ -289,31 +398,227 @@ async def _stream_turn(
 
         yield _sse("retrieval", prepared.trace.model_dump(mode="json"))
 
-        generation = new_generation_trace(
-            settings=state.generator.settings,
-            system_prompt=state.config.system_prompt,
-            context_block=prepared.trace.context_block.payload,
-            user_message=message,
-        )
+        def _trace_for() -> GenerationTrace:
+            return new_generation_trace(
+                settings=state.generator.settings,
+                system_prompt=state.config.system_prompt,
+                context_block=prepared.trace.context_block.payload,
+                user_message=message,
+            )
+
         messages = state.generator.build_messages(
             system_prompt=state.config.system_prompt,
             context_block=prepared.trace.context_block.payload,
             user_message=message,
         )
 
+        # -- phase 1: the main model, allowed to delegate -------------------
+        generation = _trace_for()
+        tools = (
+            [run_subagent_tool()] if state.config.subagent_enabled else None
+        )
+        phase_one_chunks = []
         try:
-            async for chunk in state.generator.stream(messages, trace=generation):
-                yield _sse(chunk.kind, {"text": chunk.text})
+            async for chunk in state.generator.stream(
+                messages, trace=generation, tools=tools
+            ):
+                # A few servers emit raw tool-call markup in `content` while
+                # also returning the structured call. Buffer until the call
+                # is complete so delegation scaffolding can never flash in
+                # the chat before we know this is a two-phase turn.
+                phase_one_chunks.append(chunk)
         except GenerationError as error:
             generation.error = str(error)
             yield _sse("error", {"message": str(error)})
 
+        committed_parts: list[str] = []
+        subagent_trace: SubagentTrace | None = None
+
+        delegation = (
+            None
+            if generation.error
+            else _find_run_subagent(generation.tool_calls)
+        )
+        if delegation is None:
+            for chunk in phase_one_chunks:
+                yield _sse(chunk.kind, {"text": chunk.text})
+            committed_parts.append(generation.response_text)
+
+        if delegation is not None:
+            call, run_id = delegation
+            task = _subagent_task(call.arguments)
+            subagent_result: SubagentResult | None = None
+
+            yield _sse(
+                "subagent_start",
+                {"run_id": run_id, "task": task or "(unparseable task)"},
+            )
+
+            if task is None:
+                # The model produced a tool call it cannot mean. Feed the
+                # failure back as the tool result so phase 2 can still give
+                # the user a sane answer instead of a dead stream.
+                observation = (
+                    "The subagent call was malformed (no 'task' field). "
+                    "No research was performed."
+                )
+            else:
+                config = SubagentConfig(
+                    max_steps=state.config.subagent_max_steps,
+                    max_tool_calls=state.config.subagent_max_tool_calls,
+                    observation_chars=state.config.subagent_observation_chars,
+                    wallclock_s=state.config.subagent_wallclock_s,
+                    max_tokens=state.config.subagent_max_tokens,
+                )
+                try:
+                    async for item in run_subagent(
+                        state.web_client, state.generator, task, config=config
+                    ):
+                        if isinstance(item, SubagentStep):
+                            yield _sse(
+                                "subagent_step",
+                                {
+                                    "run_id": run_id,
+                                    "step": {
+                                        "index": item.index,
+                                        "tool": item.tool,
+                                        "args": item.args,
+                                        "observation": item.observation,
+                                        "ms": round(item.ms, 1),
+                                    },
+                                },
+                            )
+                        else:
+                            subagent_result = item
+                except Exception as error:  # noqa: BLE001 - phase fails, turn lives
+                    observation = f"the subagent failed: {error}"
+                    yield _sse(
+                        "subagent_done",
+                        {
+                            "run_id": run_id,
+                            "ok": False,
+                            "steps": 0,
+                            "sources": [],
+                            "returned_chars": 0,
+                            "error": str(error),
+                        },
+                    )
+                    yield _sse("error", {"message": observation})
+
+            if subagent_result is not None:
+                step_count = len(subagent_result.steps)
+                observation = subagent_result.result_json
+                subagent_trace = SubagentTrace(
+                    task=task,
+                    status=subagent_result.status,
+                    steps=step_count,
+                    tools_used=sorted({s.tool for s in subagent_result.steps}),
+                    sources=subagent_result.sources,
+                    returned_chars=len(observation),
+                    total_ms=subagent_result.total_ms,
+                    error=subagent_result.error,
+                )
+                done_payload: dict = {
+                    "run_id": run_id,
+                    "ok": subagent_result.ok,
+                    "steps": step_count,
+                    "sources": subagent_result.sources,
+                    "returned_chars": len(observation),
+                }
+                if subagent_result.error:
+                    done_payload["error"] = subagent_result.error
+                yield _sse("subagent_done", done_payload)
+
+            # -- phase 2: the main model answers from the research ----------
+            # Replay the delegation exactly as the server expects: the
+            # assistant turn with its tool call, then the tool result.
+            messages.append(
+                {
+                    "role": "assistant",
+                    # The structured tool call is the complete phase-one
+                    # assistant message. Real servers sometimes duplicate it
+                    # as malformed content, which must not be replayed into
+                    # the final-answer context.
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": "run_subagent",
+                                "arguments": call.arguments,
+                            },
+                        }
+                    ],
+                }
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": _RESEARCH_HANDOFF + observation,
+                }
+            )
+
+            final = _trace_for()
+            final_chunks = []
+            try:
+                async for chunk in state.generator.stream(
+                    messages, trace=final
+                ):
+                    final_chunks.append(chunk)
+            except GenerationError as error:
+                final.error = str(error)
+                yield _sse("error", {"message": str(error)})
+
+            if not final.error and _looks_like_internal_payload(
+                final.response_text
+            ):
+                # The local model occasionally echoes a tool result verbatim.
+                # Keep that draft out of SSE and storage, then allow exactly
+                # one bounded rewrite before using a deterministic fallback.
+                messages.append(
+                    {"role": "assistant", "content": final.response_text}
+                )
+                messages.append({"role": "system", "content": _RESEARCH_REPAIR})
+                repaired = _trace_for()
+                repair_chunks = []
+                try:
+                    async for chunk in state.generator.stream(
+                        messages, trace=repaired
+                    ):
+                        repair_chunks.append(chunk)
+                except GenerationError as error:
+                    repaired.error = str(error)
+
+                if not repaired.error and not _looks_like_internal_payload(
+                    repaired.response_text
+                ):
+                    final = repaired
+                    final_chunks = repair_chunks
+                else:
+                    fallback = _research_fallback(observation)
+                    final = repaired
+                    final.error = None
+                    final.finish_reason = "stop"
+                    final.response_text = fallback
+                    final.response_chars = len(fallback)
+                    final_chunks = [StreamChunk("token", fallback)]
+
+            for chunk in final_chunks:
+                yield _sse(chunk.kind, {"text": chunk.text})
+            committed_parts.append(final.response_text)
+            generation = final
+
         prepared.trace.generation = generation
+        if subagent_trace is not None:
+            prepared.trace.subagent = subagent_trace
         prepared.trace.total_ms = (time.perf_counter() - started) * 1_000.0
 
-        if generation.response_text and not generation.error:
+        committed_text = "".join(committed_parts)
+        if committed_text and not generation.error:
             await asyncio.to_thread(
-                state.sessions.commit_turn, prepared, generation.response_text
+                state.sessions.commit_turn, prepared, committed_text
             )
         else:
             # Nothing was said, so nothing is remembered - but the trace is
@@ -329,6 +634,32 @@ async def _stream_turn(
                 "total_ms": prepared.trace.total_ms,
             },
         )
+
+
+def _find_run_subagent(tool_calls) -> tuple[ToolCallTrace, str] | None:
+    """The turn's delegation, if the model made one.
+
+    Only ``run_subagent`` is ever offered in phase 1, so at most one
+    delegation can exist; first match wins and a fresh run id is minted so
+    the UI can key its workspace events without any shared registry.
+    """
+    for call in tool_calls or []:
+        if call.name == "run_subagent":
+            return call, uuid.uuid4().hex
+    return None
+
+
+def _subagent_task(arguments: str) -> str | None:
+    """Pull the ``task`` field out of a run_subagent call's JSON arguments."""
+    try:
+        decoded = json.loads(arguments)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(decoded, dict):
+        task = decoded.get("task")
+        if isinstance(task, str) and task.strip():
+            return task.strip()
+    return None
 
 
 async def _complete(

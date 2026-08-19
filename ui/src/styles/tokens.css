@@ -196,24 +196,27 @@
   --shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
 }
 
-/* Per-tier variable aliases, so a component can set one class and read
-   --tier / --tier-soft / --tier-line without a switch. */
-.t-recency {
+/* Per-tier variable aliases, so a component can set one attribute and read
+   --tier / --tier-soft / --tier-line without a switch. Keyed on the data-tier
+   attribute because that is what every component writes (tier names are the
+   TierName values plus the 'none' fallback). Custom properties inherit, so a
+   marked parent colours its subtree. */
+[data-tier='recency'] {
   --tier: var(--tier-recency);
   --tier-soft: var(--tier-recency-soft);
   --tier-line: var(--tier-recency-line);
 }
-.t-similarity {
+[data-tier='similarity'] {
   --tier: var(--tier-similarity);
   --tier-soft: var(--tier-similarity-soft);
   --tier-line: var(--tier-similarity-line);
 }
-.t-coverage {
+[data-tier='coverage'] {
   --tier: var(--tier-coverage);
   --tier-soft: var(--tier-coverage-soft);
   --tier-line: var(--tier-coverage-line);
 }
-.t-none {
+[data-tier='none'] {
   --tier: var(--tier-none);
   --tier-soft: var(--tier-none-soft);
   --tier-line: var(--tier-none-line);

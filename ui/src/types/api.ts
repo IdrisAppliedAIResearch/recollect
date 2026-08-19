@@ -5,6 +5,10 @@ export interface HealthResponse {
   embedder: Record<string, unknown>
   generator: Record<string, unknown>
   library_version: string
+  /** The EpisodicConfig the server runs under, as the library serializes it. */
+  episodic_config?: Record<string, unknown>
+  /** The deployed context budget in characters (RecollectConfig, not the library). */
+  budget_chars?: number
 }
 
 export interface SessionInfo {
@@ -19,15 +23,38 @@ export interface EpisodeBody {
   turn_number: number
   user_message: string
   assistant_message: string
-  created_at: string
 }
 
-/** SSE events emitted by POST /api/chat, in the order they arrive. */
+/** One research step, as streamed mid-turn. Ephemeral: never persisted. */
+export interface SubagentStepEvent {
+  index: number
+  tool: string
+  args: Record<string, unknown>
+  observation: string
+  ms: number
+}
+
+/**
+ * SSE events emitted by POST /api/chat, in the order they arrive. The three
+ * `subagent_*` events appear only when the main model delegated a research
+ * task; they stream between the two main-model generations.
+ */
 export type ChatEvent =
   | { type: 'retrieval'; trace: TurnTrace }
   | { type: 'token'; text: string }
   | { type: 'reasoning'; text: string }
-  | { type: 'done'; turn_id: string; generation: GenerationTrace }
+  | { type: 'subagent_start'; run_id: string; task: string }
+  | { type: 'subagent_step'; run_id: string; step: SubagentStepEvent }
+  | {
+      type: 'subagent_done'
+      run_id: string
+      ok: boolean
+      steps: number
+      sources: string[]
+      returned_chars: number
+      error?: string
+    }
+  | { type: 'done'; turn_id: string; generation: GenerationTrace; total_ms: number | null }
   | { type: 'error'; message: string }
 
 export interface DataSource {

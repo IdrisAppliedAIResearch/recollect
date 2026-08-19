@@ -33,7 +33,7 @@ export function SelectorTab({ trace }: { trace: TurnTrace }) {
 
   return (
     <div className="stack">
-      <div className="rowflex">
+      <div className="statgrid">
         <Stat label="steps" value={int(steps.length)} sub="episodes chosen" />
         <Stat label="entered new cluster" value={int(novel)} sub="novelty bonus paid" />
         <Stat

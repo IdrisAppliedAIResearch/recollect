@@ -6,21 +6,68 @@
  * and never reached the model is the single most informative thing this
  * screen can show, and it exists nowhere in the delivered set.
  */
-import { useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
-import { chars, cosine, truncate } from '../../lib/format.ts'
+import { chars, cosine, int, truncate } from '../../lib/format.ts'
 import { proposingTiers } from '../../lib/derive.ts'
+import type { DataSource, EpisodeBody } from '../../types/api.ts'
 import type { CandidateTrace, TierName, TurnTrace } from '../../types/trace.ts'
 
 type SortKey = 'relevance' | 'turn_number' | 'render_chars' | 'cluster'
 type Filter = 'all' | 'delivered' | 'dropped' | 'proposed'
 
-export function ScoresTab({ trace }: { trace: TurnTrace }) {
+export function ScoresTab({
+  trace,
+  source,
+}: {
+  trace: TurnTrace
+  source: DataSource
+}) {
   const [sort, setSort] = useState<SortKey>('relevance')
   const [descending, setDescending] = useState(true)
   const [filter, setFilter] = useState<Filter>('all')
   const [tierFilter, setTierFilter] = useState<TierName | 'any'>('any')
   const [search, setSearch] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [episodeBody, setEpisodeBody] = useState<EpisodeBody | null>(null)
+  const [bodyLoading, setBodyLoading] = useState(false)
+  const [bodyError, setBodyError] = useState<string | null>(null)
+  const bodyRequests = useRef(0)
+
+  // A new turn is a new table: any fetched body belongs to the old one.
+  useEffect(() => {
+    setExpandedId(null)
+    setEpisodeBody(null)
+    setBodyError(null)
+    setBodyLoading(false)
+  }, [trace])
+
+  const toggleBody = (episodeId: string) => {
+    if (expandedId === episodeId) {
+      setExpandedId(null)
+      setEpisodeBody(null)
+      setBodyError(null)
+      return
+    }
+    setExpandedId(episodeId)
+    setEpisodeBody(null)
+    setBodyError(null)
+    setBodyLoading(true)
+    const request = ++bodyRequests.current
+    void source
+      .getEpisode(trace.session_id, episodeId)
+      .then((episode) => {
+        if (bodyRequests.current !== request) return
+        setEpisodeBody(episode)
+      })
+      .catch((error) => {
+        if (bodyRequests.current !== request) return
+        setBodyError((error as Error).message)
+      })
+      .finally(() => {
+        if (bodyRequests.current === request) setBodyLoading(false)
+      })
+  }
 
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -107,48 +154,89 @@ export function ScoresTab({ trace }: { trace: TurnTrace }) {
           </thead>
           <tbody>
             {rows.map((candidate) => (
-              <tr key={candidate.id} data-delivered={candidate.delivered}>
-                <td className="n faint">{candidate.relevance_rank}</td>
-                <td className="n">{cosine(candidate.relevance)}</td>
-                <td>
-                  <span className="relbar">
-                    <span
-                      className="relbar__fill"
-                      style={{ width: `${Math.max(0, Math.min(1, candidate.relevance)) * 100}%` }}
-                    />
-                  </span>
-                </td>
-                <td className="n">{candidate.turn_number}</td>
-                <td className="n">{candidate.cluster ?? '—'}</td>
-                <td>
-                  {proposingTiers(candidate).map((tier) => (
-                    <span key={tier} className="tiermark" data-tier={tier}>
-                      <span className="tiermark__code">{tier.slice(0, 3)}</span>
+              <Fragment key={candidate.id}>
+                <tr data-delivered={candidate.delivered}>
+                  <td className="n faint">{candidate.relevance_rank}</td>
+                  <td className="n">{cosine(candidate.relevance)}</td>
+                  <td>
+                    <span className="relbar">
+                      <span
+                        className="relbar__fill"
+                        style={{ width: `${Math.max(0, Math.min(1, candidate.relevance)) * 100}%` }}
+                      />
                     </span>
-                  ))}
-                  {proposingTiers(candidate).length === 0 && <span className="faint">—</span>}
-                </td>
-                <td className="n">{chars(candidate.render_chars)}</td>
-                <td>
-                  {candidate.delivered ? (
-                    <span className="tiermark" data-tier={candidate.delivered_via ?? 'none'}>
-                      <span className="tiermark__code">
-                        {candidate.delivered_via ?? 'delivered'}
+                  </td>
+                  <td className="n">{candidate.turn_number}</td>
+                  <td className="n">{candidate.cluster ?? '—'}</td>
+                  <td>
+                    {proposingTiers(candidate).map((tier) => (
+                      <span key={tier} className="tiermark" data-tier={tier}>
+                        <span className="tiermark__code">{tier.slice(0, 3)}</span>
                       </span>
+                    ))}
+                    {proposingTiers(candidate).length === 0 && <span className="faint">—</span>}
+                  </td>
+                  <td className="n">{chars(candidate.render_chars)}</td>
+                  <td>
+                    {candidate.delivered ? (
+                      <span className="tiermark" data-tier={candidate.delivered_via ?? 'none'}>
+                        <span className="tiermark__code">
+                          {candidate.delivered_via ?? 'delivered'}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="badge badge--warn" title={candidate.drop_reason ?? ''}>
+                        dropped
+                      </span>
+                    )}
+                  </td>
+                  <td className="wide">
+                    <span
+                      className="epbody-cell"
+                      title={
+                        expandedId === candidate.id
+                          ? ''
+                          : `${candidate.preview}\n\n${candidate.assistant_preview}`
+                      }
+                    >
+                      <button
+                        type="button"
+                        className="epbody-toggle"
+                        aria-expanded={expandedId === candidate.id}
+                        title="Show the full episode text"
+                        onClick={() => toggleBody(candidate.id)}
+                      >
+                        {expandedId === candidate.id ? '▾' : '▸'}
+                      </button>
+                      {truncate(candidate.preview, 100)}
                     </span>
-                  ) : (
-                    <span className="badge badge--warn" title={candidate.drop_reason ?? ''}>
-                      dropped
-                    </span>
-                  )}
-                </td>
-                <td
-                  className="wide"
-                  title={`${candidate.preview}\n\n${candidate.assistant_preview}`}
-                >
-                  {truncate(candidate.preview, 110)}
-                </td>
-              </tr>
+                  </td>
+                </tr>
+                {expandedId === candidate.id && (
+                  <tr className="epbody-row">
+                    <td colSpan={9}>
+                      <div className="epbody">
+                        {bodyLoading && <div className="epbody__state faint">fetching full body…</div>}
+                        {bodyError && <div className="callout callout--bad">{bodyError}</div>}
+                        {episodeBody && (
+                          <>
+                            <div className="epbody__block">
+                              <span className="epbody__role">
+                                user · turn {int(episodeBody.turn_number)}
+                              </span>
+                              <div className="epbody__text">{episodeBody.user_message}</div>
+                            </div>
+                            <div className="epbody__block">
+                              <span className="epbody__role">assistant</span>
+                              <div className="epbody__text">{episodeBody.assistant_message}</div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
