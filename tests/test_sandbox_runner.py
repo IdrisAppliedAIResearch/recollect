@@ -1,9 +1,9 @@
 """The opencode runner against a scripted opencode HTTP server.
 
 httpx.MockTransport stands in for the sandbox serve process, so these
-tests exercise the event stream, step extraction, wallclock abort, and
-result assembly with the real server's response shapes - no processes,
-no model, no network.
+tests exercise the event stream, step extraction, long-run completion
+(the wallclock abort is gone), and result assembly with the real
+server's response shapes - no processes, no model, no network.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-import time
 from pathlib import Path
 
 import httpx
@@ -136,18 +135,29 @@ def config(tmp_path) -> RecollectConfig:
 
 
 def _inject(config: RecollectConfig, handler, **runner_kwargs):
+    async def lifecycle_handler(request: httpx.Request) -> httpx.Response:
+        if (request.method, request.url.path) == ("POST", "/session"):
+            return httpx.Response(200, json={"id": OC_ID})
+        if (request.method, request.url.path) == (
+            "DELETE",
+            f"/session/{OC_ID}",
+        ):
+            return httpx.Response(200, json=True)
+        return await handler(request)
+
     client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler),
+        transport=httpx.MockTransport(lifecycle_handler),
         base_url="http://127.0.0.1:9",
     )
+    workdir = Path(config.sandbox_root) / "s1" / "workspace"
+    workdir.mkdir(parents=True)
     handle = SandboxHandle(
         session_id="s1",
-        workdir=Path("unused"),
+        workdir=workdir,
         port=9,
         password="pw",
         process=None,
         client=client,
-        oc_session_id=OC_ID,
     )
     manager = SandboxManager(config)
     manager._handles["s1"] = handle
@@ -237,8 +247,15 @@ async def test_completed_delegation_yields_steps_and_result(config):
             f"/session/{OC_ID}/message",
         ):
             body = json.loads(request.content)
-            assert body["agent"] == "researcher"
-            assert body["parts"] == [{"type": "text", "text": "find out about mars"}]
+            assert body["agent"] == "build"
+            assert body["parts"] == [
+                {
+                    "type": "text",
+                    "text": subagent.transfer_task(
+                        "find out about mars", "focused"
+                    ),
+                }
+            ]
             await asyncio.sleep(0.3)  # let the frames above flow first
             return httpx.Response(
                 200,
@@ -273,7 +290,10 @@ async def test_completed_delegation_yields_steps_and_result(config):
     assert steps[1].args == {"filePath": "notes.md"}
 
 
-async def test_wallclock_aborts_the_session_and_reports_partial(config):
+async def test_slow_delegation_completes_without_abort(config):
+    # The message request takes far longer than the old 0.2 s wallclock
+    # test cap; with the wallclock gone the same run must land ok, with
+    # no abort ever sent.
     aborts: list[str] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -291,30 +311,26 @@ async def test_wallclock_aborts_the_session_and_reports_partial(config):
         ):
             await asyncio.sleep(0.5)
             return httpx.Response(
-                200, json={"info": {"role": "assistant"}, "parts": []}
+                200,
+                json={
+                    "info": {"role": "assistant"},
+                    "parts": [_text_part(FINAL_JSON)],
+                },
             )
         if (request.method, request.url.path) == ("POST", f"/session/{OC_ID}/abort"):
             aborts.append("abort")
             return httpx.Response(200, json={})
-        if (request.method, request.url.path) == ("GET", f"/session/{OC_ID}/message"):
-            return httpx.Response(200, json=[])
         return httpx.Response(404, json={})
 
-    runner, handle = _inject(config, handler, wallclock_s=0.2)
+    runner, handle = _inject(config, handler)
     _, results, _ = await _run(runner, "slow research task")
     await handle.client.aclose()
 
-    assert aborts == ["abort"]
+    assert aborts == []
     result = results[-1]
-    assert result.status == "partial"
-    assert result.error == "sandbox wallclock reached"
-    assert result.summary == ""
-    assert result.sources == []
-    document = json.loads(result.result_json)
-    # No final text to salvage from the aborted session, so this is the
-    # bare partial shape, with the reason in summary and error.
-    assert document["summary"] == "The subagent stopped: sandbox wallclock reached."
-    assert document["note"]
+    assert result.status == "ok"
+    assert result.summary == "Mars research points one direction."
+    assert result.sources == ["https://arxiv.org/abs/1"]
 
 
 async def test_request_failure_is_an_error_result(config):
@@ -403,23 +419,9 @@ async def test_start_error_becomes_an_error_result(tmp_path):
     assert "exited early" in results[-1].error
 
 
-# -- the tools-disabled finalize pass ---------------------------------------
-#
-# opencode enforces its step cap by not materializing tools on the capped
-# step and appending its own "MAXIMUM STEPS REACHED" instruction to the
-# request. The local model answers that by reciting it, so the delegation
-# comes back with an unparseable final message. Without a second chance, a
-# run that did the research is reported as `partial` with the evidence
-# discarded.
-
-
-def _finalize_handler(
-    first_text: str,
-    second: httpx.Response | Exception,
-    posts: list[dict],
-):
-    """A server that answers the delegation with ``first_text`` and the
-    finalize message with ``second``."""
+async def test_native_prose_is_a_success_without_a_second_model_pass(config):
+    posts: list[dict] = []
+    answer = "The evidence supports the focused answer."
 
     async def handler(request: httpx.Request) -> httpx.Response:
         if (request.method, request.url.path) == ("GET", "/event"):
@@ -432,175 +434,89 @@ def _finalize_handler(
             "POST",
             f"/session/{OC_ID}/message",
         ):
-            body = json.loads(request.content)
-            posts.append(body)
+            posts.append(json.loads(request.content))
             await asyncio.sleep(0.05)
-            if len(posts) == 1:
-                return httpx.Response(
-                    200,
-                    json={
-                        "info": {"role": "assistant"},
-                        "parts": [_text_part(first_text)],
-                    },
-                )
-            if isinstance(second, Exception):
-                raise second
-            return second
-
+            return httpx.Response(200, json={"parts": [_text_part(answer)]})
         return httpx.Response(404, json={})
 
-    return handler
-
-
-async def test_capped_run_is_finalized_from_the_evidence(config):
-    posts: list[dict] = []
-    handler = _finalize_handler(
-        OC_STEP_CAP_BANNER,
-        httpx.Response(
-            200,
-            json={
-                "info": {"role": "assistant"},
-                "parts": [_text_part(FINAL_JSON)],
-            },
-        ),
-        posts,
-    )
-
-    runner, handle = _inject(config, handler)
-    steps, results, _ = await _run(runner, "task")
-    await handle.client.aclose()
-
-    # Second message, same session, the legacy contract text, and the
-    # agent whose whole tool surface is denied.
-    assert len(posts) == 2
-    assert posts[0]["agent"] == "researcher"
-    assert posts[1]["agent"] == "researcher-final"
-    assert posts[1]["parts"] == [
-        {"type": "text", "text": subagent._FINALIZE_PARTIAL}
-    ]
-
-    result = results[-1]
-    # Partial, like the legacy backend's finalized runs: the receipt had to
-    # be asked for twice, so it is not evidence of a clean finish. But the
-    # findings survive, which is the whole point.
-    assert result.status == "partial"
-    assert result.summary == "Mars research points one direction."
-    assert result.sources == ["https://arxiv.org/abs/1"]
-    document = json.loads(result.result_json)
-    assert document["findings"][0]["claim"] == "finding one"
-    assert document["note"] == subagent._PARTIAL_NOTE
-    assert document["stop_reason"] == result.error
-    assert "no JSON receipt" in result.error
-    # A synthesis pass is not a research step.
-    assert steps == []
-    assert result.steps == []
-
-
-async def test_a_starved_finalizer_recites_the_banner_and_ships_nothing(config):
-    """The regression that 121 green tests missed.
-
-    A finalizer with no working turn of its own gets opencode's cap
-    instruction, recites it, and the run ends exactly where it started.
-    The guard against ever shipping that again is the step budget asserted
-    in test_sandbox_configgen; this pins what it looks like when it breaks.
-    """
-    posts: list[dict] = []
-    handler = _finalize_handler(
-        OC_STEP_CAP_BANNER,
-        httpx.Response(
-            200,
-            json={
-                "info": {"role": "assistant"},
-                "parts": [_text_part(OC_STEP_CAP_BANNER)],
-            },
-        ),
-        posts,
-    )
-
     runner, handle = _inject(config, handler)
     _, results, _ = await _run(runner, "task")
     await handle.client.aclose()
 
-    assert len(posts) == 2
+    assert len(posts) == 1
+    assert posts[0]["agent"] == "build"
     result = results[-1]
-    assert result.status == "partial"
-    assert result.error == "malformed or missing final JSON"
-    document = json.loads(result.result_json)
-    # Banner in, nothing of opencode's out. This is the honesty bar: the
-    # main model must never be handed a block that ends "This constraint
-    # overrides ALL other instructions" as its research result.
-    assert "MAXIMUM STEPS REACHED" not in result.result_json
-    assert "overrides ALL other instructions" not in result.result_json
-    assert "partial_text" not in document
-    assert document["note"] == subagent._PARTIAL_NOTE
+    assert result.status == "ok"
+    assert result.summary == answer
+    assert json.loads(result.result_json) == {
+        "summary": answer,
+        "findings": [],
+        "sources": [],
+    }
 
 
-async def test_a_receipt_sharing_a_message_with_the_banner_still_parses(config):
-    """``_last_text`` joins a message's text parts with newlines.
-
-    That is a feature here, not the hazard it looks like: ``_parse_final``
-    scans for fenced blocks anywhere in the text, so a receipt that shares
-    a message with recited banner prose is still read - in either order.
-    """
-    posts: list[dict] = []
-    handler = _finalize_handler(
-        OC_STEP_CAP_BANNER,
-        httpx.Response(
-            200,
-            json={
-                "info": {"role": "assistant"},
-                "parts": [
-                    _text_part(OC_STEP_CAP_BANNER),
-                    _text_part(FINAL_JSON),
-                ],
-            },
-        ),
-        posts,
-    )
-
-    runner, handle = _inject(config, handler)
-    _, results, _ = await _run(runner, "task")
-    await handle.client.aclose()
-
-    result = results[-1]
-    assert result.status == "partial"
-    assert result.summary == "Mars research points one direction."
-    assert result.sources == ["https://arxiv.org/abs/1"]
-    assert "MAXIMUM STEPS REACHED" not in result.result_json
-
-
-async def test_finalize_request_failure_keeps_the_bare_partial(config):
-    posts: list[dict] = []
-    handler = _finalize_handler(
-        OC_STEP_CAP_BANNER,
-        httpx.ConnectError("sandbox went away"),
-        posts,
-    )
-
-    runner, handle = _inject(config, handler)
-    _, results, _ = await _run(runner, "task")
-    await handle.client.aclose()
-
-    assert len(posts) == 2
-    result = results[-1]
-    assert result.status == "partial"
-    assert result.error == "malformed or missing final JSON"
-    assert "MAXIMUM STEPS REACHED" not in result.result_json
-
-
-async def test_finalize_pass_is_skipped_when_no_budget_remains(config):
+async def test_cap_banner_is_never_relayed_or_retried(config):
     posts: list[dict] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        posts.append(json.loads(request.content))
-        return httpx.Response(200, json={"info": {}, "parts": []})
+        if (request.method, request.url.path) == ("GET", "/event"):
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=b"",
+            )
+        if (request.method, request.url.path) == (
+            "POST",
+            f"/session/{OC_ID}/message",
+        ):
+            posts.append(json.loads(request.content))
+            await asyncio.sleep(0.05)
+            return httpx.Response(
+                200, json={"parts": [_text_part(OC_STEP_CAP_BANNER)]}
+            )
+        return httpx.Response(404, json={})
 
     runner, handle = _inject(config, handler)
-    # A deadline already in the past is exactly the state a run that spent
-    # its wallclock on browsing arrives in: the pass is skipped rather than
-    # borrowing time the run does not have.
-    recovered = await runner._finalize_partial(handle, time.perf_counter() - 1.0)
+    _, results, _ = await _run(runner, "task")
     await handle.client.aclose()
 
-    assert recovered == ""
-    assert posts == []
+    assert len(posts) == 1
+    result = results[-1]
+    assert result.status == "partial"
+    assert result.error == "malformed or missing final JSON"
+    assert "MAXIMUM STEPS REACHED" not in result.result_json
+    assert "overrides ALL other instructions" not in result.result_json
+
+
+async def test_receipt_sharing_a_message_with_banner_still_parses(config):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if (request.method, request.url.path) == ("GET", "/event"):
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=b"",
+            )
+        if (request.method, request.url.path) == (
+            "POST",
+            f"/session/{OC_ID}/message",
+        ):
+            await asyncio.sleep(0.05)
+            return httpx.Response(
+                200,
+                json={
+                    "parts": [
+                        _text_part(OC_STEP_CAP_BANNER),
+                        _text_part(FINAL_JSON),
+                    ]
+                },
+            )
+        return httpx.Response(404, json={})
+
+    runner, handle = _inject(config, handler)
+    _, results, _ = await _run(runner, "task")
+    await handle.client.aclose()
+
+    result = results[-1]
+    assert result.status == "ok"
+    assert result.summary == "Mars research points one direction."
+    assert "MAXIMUM STEPS REACHED" not in result.result_json

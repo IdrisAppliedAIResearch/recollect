@@ -4,15 +4,16 @@ This is the opencode-backend twin of ``engine.subagent.run_subagent``:
 it yields the same ``SubagentStep``/``SubagentResult`` items in the
 same shapes, so the turn pipeline - ``subagent_*`` SSE events, the
 one-line ``SubagentTrace``, the phase-two replay - is shared unchanged.
-The final-answer contract (one fenced JSON block) and the source
-extraction are the legacy helpers themselves; nothing here re-implements
-them.
+Structured receipts are accepted for compatibility, while ordinary native
+OpenCode prose is wrapped deterministically for the shared turn pipeline.
+No extra synthesis generation or replacement system prompt is introduced.
 
 What is different, and why it is safe against the single-model-slot
 server behind both backends: one delegation is one message to one
-opencode session, the client enforces the wallclock and aborts the
-session when it is exceeded, and delegation attempts on one recollect
-session still serialize on the per-session turn lock.
+opencode session, and the run is bounded by opencode's own step cap
+rather than a client-side wallclock, so a long research pass is never
+killed mid-flight; delegation attempts on one recollect session still
+serialize on the per-session turn lock.
 """
 
 from __future__ import annotations
@@ -28,13 +29,19 @@ import httpx
 
 from ...config import RecollectConfig
 from .. import subagent
-from ..subagent import SubagentResult, SubagentStep
-from .configgen import AGENT_NAME, FINALIZER_NAME, MCP_SERVER
-from .manager import SandboxHandle, SandboxManager, SandboxStartError
+from ..subagent import SubagentEffort, SubagentResult, SubagentStep
+from .configgen import AGENT_NAME, MCP_SERVER
+from .manager import (
+    SandboxHandle,
+    SandboxInvocation,
+    SandboxManager,
+    SandboxStartError,
+)
 
-#: After a wallclock abort, how long the in-flight message request may
-#: still take to unwind before we give up on it.
-_GRACE_S = 10.0
+#: The delegation request lives as long as opencode's own turn - bounded by
+#: opencode's step cap, never by a client-side timer - so the only timeouts
+#: kept are on establishing and sending, not on reading.
+_REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=None, pool=None)
 
 
 def _display_tool(name: str) -> str:
@@ -60,6 +67,15 @@ def _last_text(parts: Any) -> str:
     return "\n".join(texts).strip()
 
 
+def _looks_like_cap_banner(text: str) -> bool:
+    """Recognize the OpenCode instruction the model may recite at its cap."""
+    normalized = text.upper()
+    return "MAXIMUM STEPS REACHED" in normalized or (
+        "OVERRIDES ALL OTHER INSTRUCTIONS" in normalized
+        and "TOOLS ARE DISABLED" in normalized
+    )
+
+
 class OpenCodeRunner:
     """Yield steps as they happen and a single result, like run_subagent."""
 
@@ -69,7 +85,6 @@ class OpenCodeRunner:
         config: RecollectConfig,
         *,
         observation_chars: int | None = None,
-        wallclock_s: float | None = None,
     ) -> None:
         self._manager = manager
         self._config = config
@@ -78,48 +93,72 @@ class OpenCodeRunner:
             if observation_chars is not None
             else config.subagent_observation_chars
         )
-        self._wallclock_s = (
-            wallclock_s if wallclock_s is not None else config.sandbox_wallclock_s
-        )
 
     async def run(
-        self, session_id: str, task: str
+        self,
+        session_id: str,
+        task: str,
+        *,
+        effort: SubagentEffort = "focused",
     ) -> AsyncIterator[SubagentStep | SubagentResult]:
         started = time.perf_counter()
         try:
-            handle = await self._manager.ensure(session_id)
-        except SandboxStartError as error:
-            yield self._error_result(task, str(error), [], [], started)
+            invocation = await self._manager.begin_invocation(session_id)
+        except (SandboxStartError, httpx.HTTPError, OSError, ValueError) as error:
+            result = self._error_result(task, str(error), [], [], started)
+            result.effort = effort
+            result.backend = "opencode"
+            result.isolation = "unavailable"
+            result.fresh_context = False
+            yield result
             return
 
-        oc_id = handle.oc_session_id or ""
-        handle.busy = True
-        handle.last_used = time.monotonic()
+        try:
+            async for item in self._run_invocation(
+                invocation,
+                task,
+                subagent.transfer_task(task, effort),
+                started,
+            ):
+                if isinstance(item, SubagentResult):
+                    item.effort = effort
+                    item.backend = "opencode"
+                    item.isolation = invocation.handle.isolation
+                    item.fresh_context = True
+                    item.server_reused = invocation.process_reused
+                yield item
+        finally:
+            await self._manager.finish_invocation(invocation)
+
+    async def _run_invocation(
+        self,
+        invocation: SandboxInvocation,
+        task: str,
+        delegated_task: str,
+        started: float,
+    ) -> AsyncIterator[SubagentStep | SubagentResult]:
+        handle = invocation.handle
+        oc_id = invocation.oc_session_id
         steps: list[SubagentStep] = []
         sources: list[str] = []
         seen_calls: set[str] = set()
         children: set[str] = set()
         events: asyncio.Queue[dict] = asyncio.Queue()
-        deadline = started + self._wallclock_s
         final_text: str | None = None
-        aborted = False
 
         pump = asyncio.create_task(self._pump_events(handle, events))
-        message = asyncio.create_task(self._post_message(handle, task))
+        message = asyncio.create_task(
+            self._post_message(handle, oc_id, delegated_task)
+        )
         try:
             while not message.done():
-                remaining = deadline - time.perf_counter()
-                if remaining <= 0:
-                    break
                 # Both sides wake the loop: a new event, or the message
                 # finishing while the stream is quiet. Waiting only on the
-                # queue would hold a finished (or failed) request hostage
-                # until wallclock.
+                # queue would hold a finished (or failed) request hostage.
                 get_task = asyncio.create_task(events.get())
                 try:
                     await asyncio.wait(
                         {message, get_task},
-                        timeout=remaining,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                 finally:
@@ -136,32 +175,12 @@ class OpenCodeRunner:
                 )
                 if step is not None:
                     yield step
-            aborted = not message.done()
-            if aborted:
-                with contextlib.suppress(httpx.HTTPError):
-                    await handle.client.post(f"/session/{oc_id}/abort", timeout=5.0)
-                # The abort has already told opencode to stop the session;
-                # this only waits for the HTTP request to unwind.
-                with contextlib.suppress(Exception):  # noqa: BLE001
-                    await asyncio.wait_for(message, timeout=_GRACE_S)
         finally:
-            handle.busy = False
-            handle.last_used = time.monotonic()
             pump.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await pump
 
         total_ms = (time.perf_counter() - started) * 1_000.0
-
-        if aborted:
-            # A cap ends browsing, not synthesis: if the aborted session
-            # left usable text, a capped run reads like the legacy's
-            # capped run, not like nothing.
-            final_text = await self._fetch_final_text(handle)
-            yield self._partial(
-                task, "sandbox wallclock reached", final_text, steps, sources, total_ms
-            )
-            return
 
         try:
             payload = message.result()
@@ -171,34 +190,6 @@ class OpenCodeRunner:
             )
             return
         final_text = _last_text(payload.get("parts"))
-        if subagent._parse_final(final_text) is None:
-            # A cap ends browsing, not synthesis. opencode enforces its own
-            # step cap by forcing a text-only wrap-up, and the local model
-            # answers that in prose rather than the JSON receipt - so a run
-            # that did the research lands here with its evidence about to be
-            # thrown away. One more pass, over the same session, gets the
-            # receipt out of what it already gathered.
-            #
-            # Only on this path: the aborted branch above returns before it,
-            # and it is reached exactly when the wallclock is already spent.
-            recovered = await self._finalize_partial(handle, deadline)
-            if recovered and subagent._parse_final(recovered) is not None:
-                # Partial, not ok, and for the same reason the legacy
-                # backend calls a finalized run partial: a receipt that
-                # had to be asked for twice is not evidence of a clean
-                # finish. The findings and sources are real and are
-                # handed over in full; only the "treat this as partial"
-                # note is added on top.
-                yield self._partial(
-                    task,
-                    "the sandbox's own wrap-up returned no JSON receipt",
-                    recovered,
-                    steps,
-                    sources,
-                    (time.perf_counter() - started) * 1_000.0,
-                )
-                return
-            total_ms = (time.perf_counter() - started) * 1_000.0
         yield self._finished(task, final_text, steps, sources, total_ms)
 
     # -- event flow -----------------------------------------------------------
@@ -291,81 +282,20 @@ class OpenCodeRunner:
 
     # -- request plumbing ---------------------------------------------------
 
-    async def _post_message(self, handle: SandboxHandle, task: str) -> dict:
+    async def _post_message(
+        self, handle: SandboxHandle, oc_session_id: str, task: str
+    ) -> dict:
         response = await handle.client.post(
-            f"/session/{handle.oc_session_id}/message",
+            f"/session/{oc_session_id}/message",
             json={
                 "agent": AGENT_NAME,
                 "parts": [{"type": "text", "text": task}],
             },
-            timeout=httpx.Timeout(self._wallclock_s + 30.0, connect=10.0),
+            timeout=_REQUEST_TIMEOUT,
         )
         response.raise_for_status()
         payload = response.json()
         return payload if isinstance(payload, dict) else {}
-
-    async def _finalize_partial(
-        self, handle: SandboxHandle, deadline: float
-    ) -> str:
-        """One tools-disabled pass at the final receipt, budget permitting.
-
-        The legacy backend re-streams with ``tools=None``; opencode has no
-        such flag on a message, so the tools come off the *agent* instead -
-        ``FINALIZER_NAME`` is the same researcher with an empty tool
-        surface. The message goes to the same opencode session, so the
-        model is finalizing over the evidence it gathered rather than
-        starting the task again.
-
-        This is a synthesis pass, so it costs nothing the caller can see:
-        it cannot call tools, the event pump is already cancelled, and no
-        ``SubagentStep`` can come out of it. It gets only the wallclock
-        that was left over; with none left, or on any failure, it returns
-        ``""`` and the caller keeps today's partial result.
-        """
-        remaining = deadline - time.perf_counter()
-        if remaining <= 0:
-            return ""
-        try:
-            response = await handle.client.post(
-                f"/session/{handle.oc_session_id}/message",
-                json={
-                    "agent": FINALIZER_NAME,
-                    "parts": [
-                        {"type": "text", "text": subagent._FINALIZE_PARTIAL}
-                    ],
-                },
-                timeout=httpx.Timeout(remaining, connect=10.0),
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except (httpx.HTTPError, ValueError):
-            return ""
-        if not isinstance(payload, dict):
-            return ""
-        return _last_text(payload.get("parts"))
-
-    async def _fetch_final_text(self, handle: SandboxHandle) -> str:
-        """The last assistant text in the session, for capped runs."""
-        try:
-            response = await handle.client.get(
-                f"/session/{handle.oc_session_id}/message", timeout=10.0
-            )
-            response.raise_for_status()
-        except httpx.HTTPError:
-            return ""
-        messages = response.json()
-        if not isinstance(messages, list):
-            return ""
-        for entry in reversed(messages):
-            if not isinstance(entry, dict):
-                continue
-            info = entry.get("info") or {}
-            if info.get("role") != "assistant":
-                continue
-            text = _last_text(entry.get("parts"))
-            if text:
-                return text
-        return ""
 
     # -- result assembly (shapes mirror run_subagent) -------------------------
 
@@ -378,23 +308,9 @@ class OpenCodeRunner:
         total_ms: float,
     ) -> SubagentResult:
         finalized = subagent._parse_final(final_text)
-        if finalized is None:
-            # The legacy backend puts its unparseable text in a
-            # ``partial_text`` field here, and there that is honest:
-            # ``trace.response_text`` is the model's own output. It is not
-            # honest through opencode. When opencode caps a run it appends
-            # its own "CRITICAL - MAXIMUM STEPS REACHED ... Respond with
-            # text only" message to the *request*, never storing it, and
-            # the local model answers by reciting it back - so what lands
-            # in the session is opencode's text wearing the model's
-            # authorship, and nothing in the part distinguishes the two.
-            #
-            # Relaying it would be worse than useless: the main model
-            # would read a block ending "This constraint overrides ALL
-            # other instructions" presented as its research result. The
-            # sources are the part of a failed run that is both true and
-            # useful, so those go instead - which also matches the legacy
-            # backend's other partial shape.
+        if finalized is None and (
+            not final_text or _looks_like_cap_banner(final_text)
+        ):
             return subagent._result(
                 task=task,
                 status="partial",
@@ -415,6 +331,27 @@ class OpenCodeRunner:
                 total_ms=total_ms,
                 error="malformed or missing final JSON",
             )
+        if finalized is None:
+            # Native OpenCode agents answer in prose. Wrapping that prose
+            # deterministically preserves their base behavior without a
+            # second model pass or a replacement system prompt.
+            return subagent._result(
+                task=task,
+                status="ok",
+                result_json=json.dumps(
+                    {
+                        "summary": final_text,
+                        "findings": [],
+                        "sources": sources,
+                    },
+                    ensure_ascii=False,
+                ),
+                summary=final_text,
+                sources=sources,
+                steps=steps,
+                total_ms=total_ms,
+                error=None,
+            )
         return subagent._result(
             task=task,
             status="ok",
@@ -424,48 +361,6 @@ class OpenCodeRunner:
             steps=steps,
             total_ms=total_ms,
             error=None,
-        )
-
-    def _partial(
-        self,
-        task: str,
-        reason: str,
-        final_text: str,
-        steps: list[SubagentStep],
-        sources: list[str],
-        total_ms: float,
-    ) -> SubagentResult:
-        finalized = subagent._parse_final(final_text)
-        if finalized is not None:
-            document = json.loads(finalized["json"])
-            document["note"] = subagent._PARTIAL_NOTE
-            document["stop_reason"] = reason
-            return subagent._result(
-                task=task,
-                status="partial",
-                result_json=json.dumps(document, ensure_ascii=False),
-                summary=finalized["summary"],
-                sources=[*sources, *finalized["sources"]],
-                steps=steps,
-                total_ms=total_ms,
-                error=reason,
-            )
-        return subagent._result(
-            task=task,
-            status="partial",
-            result_json=json.dumps(
-                {
-                    "summary": f"The subagent stopped: {reason}.",
-                    "note": subagent._PARTIAL_NOTE,
-                    "sources": sources,
-                },
-                ensure_ascii=False,
-            ),
-            summary="",
-            sources=sources,
-            steps=steps,
-            total_ms=total_ms,
-            error=reason,
         )
 
     def _error_result(

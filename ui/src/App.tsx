@@ -16,7 +16,7 @@ import { chars, int, ms, pct } from './lib/format.ts'
 import type { ChatEvent, DataSource, HealthResponse, SessionInfo } from './types/api.ts'
 import type { TurnTrace } from './types/trace.ts'
 
-/** One research step as streamed mid-turn. Never persisted. */
+/** One subagent step as streamed mid-turn. Never persisted. */
 export interface WorkspaceStep {
   index: number
   tool: string
@@ -26,13 +26,14 @@ export interface WorkspaceStep {
 }
 
 /**
- * The ephemeral research subagent's live arc, while its turn is running and
+ * The ephemeral subagent's live arc, while its turn is running and
  * just after. React state only: reload the page and it is gone, while the
  * chat and the trace's one-line summary remain.
  */
 export interface Workspace {
   run_id: string
   task: string
+  effort: 'focused' | 'deep'
   steps: WorkspaceStep[]
   phase: 'researching' | 'synthesizing' | 'complete' | 'failed'
   sources: string[]
@@ -200,6 +201,7 @@ export function App() {
                 workspace: {
                   run_id: event.run_id,
                   task: event.task,
+                  effort: event.effort,
                   steps: [],
                   phase: 'researching',
                   sources: [],

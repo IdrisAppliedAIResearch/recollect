@@ -1,4 +1,4 @@
-"""Keyless web access for the research subagent.
+"""Keyless web access for the subagent.
 
 Two tools, six search legs, zero API keys. The subagent is the only
 caller, and everything comes back to it as an *observation string*: a JSON
@@ -28,7 +28,7 @@ import time
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 import trafilatura
@@ -78,30 +78,39 @@ class _ProviderUnavailable(RuntimeError):
 
 
 @dataclass
-class SearchRunState:
-    """Per-research-run search cache and provider pacing state."""
+class SearchProviderState:
+    """Pacing shared by calls using one warm provider process."""
 
-    cache: dict[tuple[str, int], str] = field(default_factory=dict)
     next_allowed: dict[str, float] = field(default_factory=dict)
     cooldown_until: dict[str, float] = field(default_factory=dict)
     disabled: dict[str, str] = field(default_factory=dict)
+    locks: dict[str, asyncio.Lock] = field(default_factory=dict)
 
     async def before_request(self, provider: str) -> None:
-        if provider in self.disabled:
-            raise _ProviderUnavailable(self.disabled[provider])
+        # A model can emit parallel calls even though generation itself has
+        # one server slot. Serialize each provider's reservation so two fresh
+        # calls cannot both observe the same open pacing window.
+        async with self.locks.setdefault(provider, asyncio.Lock()):
+            if provider in self.disabled:
+                raise _ProviderUnavailable(self.disabled[provider])
 
-        now = time.monotonic()
-        cooldown = self.cooldown_until.get(provider, 0.0)
-        if cooldown > now:
-            remaining = max(1, round(cooldown - now))
-            raise _ProviderUnavailable(f"cooling down for {remaining}s")
+            now = time.monotonic()
+            cooldown = self.cooldown_until.get(provider, 0.0)
+            if cooldown > now:
+                remaining = max(1, round(cooldown - now))
+                raise _ProviderUnavailable(f"cooling down for {remaining}s")
 
-        delay = self.next_allowed.get(provider, 0.0) - now
-        if delay > 0:
-            await asyncio.sleep(delay)
-        self.next_allowed[provider] = (
-            time.monotonic() + _PROVIDER_INTERVALS[provider]
-        )
+            delay = self.next_allowed.get(provider, 0.0) - now
+            if delay > 0:
+                await asyncio.sleep(delay)
+            now = time.monotonic()
+            cooldown = self.cooldown_until.get(provider, 0.0)
+            if provider in self.disabled:
+                raise _ProviderUnavailable(self.disabled[provider])
+            if cooldown > now:
+                remaining = max(1, round(cooldown - now))
+                raise _ProviderUnavailable(f"cooling down for {remaining}s")
+            self.next_allowed[provider] = now + _PROVIDER_INTERVALS[provider]
 
     def rate_limited(
         self, provider: str, retry_after: float | None
@@ -117,6 +126,23 @@ class SearchRunState:
 
     def timed_out(self, provider: str) -> None:
         self.cooldown_until[provider] = time.monotonic() + 15.0
+
+
+@dataclass
+class SearchRunState:
+    """Per-research-run result cache over a shareable pacing state."""
+
+    cache: dict[tuple[str, int], str] = field(default_factory=dict)
+    providers: SearchProviderState = field(default_factory=SearchProviderState)
+
+    async def before_request(self, provider: str) -> None:
+        await self.providers.before_request(provider)
+
+    def rate_limited(self, provider: str, retry_after: float | None) -> str:
+        return self.providers.rate_limited(provider, retry_after)
+
+    def timed_out(self, provider: str) -> None:
+        self.providers.timed_out(provider)
 
 
 def _retry_after(response: httpx.Response) -> float | None:
@@ -157,11 +183,11 @@ class _DDGParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         classes = (dict(attrs).get("class") or "").split()
-        if "result__a" in classes:
+        if "result__a" in classes or "result-link" in classes:
             self._flush()
             self._href = _ddg_url(attrs)
             self._capture = "title"
-        elif "result__snippet" in classes:
+        elif "result__snippet" in classes or "result-snippet" in classes:
             self._capture = "snippet"
 
     def handle_endtag(self, tag):
@@ -203,22 +229,36 @@ def _ddg_url(attrs: list[tuple[str, str | None]]) -> str:
 async def _duckduckgo(
     client: httpx.AsyncClient, query: str, max_results: int
 ) -> list[dict]:
-    response = await client.get(
+    last_error: Exception | None = None
+    for endpoint in (
         "https://html.duckduckgo.com/html/",
-        params={"q": query},
-        timeout=_SEARCH_TIMEOUT,
-    )
-    _raise_for_status(response, "web")
-    parser = _DDGParser()
-    parser.feed(response.text)
-    parser.close()
-    results = []
-    for title, url, snippet in parser.items[:max_results]:
-        entry: dict = {"source": "web", "title": title, "url": url}
-        if snippet:
-            entry["snippet"] = snippet[:300]
-        results.append(entry)
-    return results
+        "https://lite.duckduckgo.com/lite/",
+    ):
+        try:
+            response = await client.get(
+                endpoint,
+                params={"q": query},
+                timeout=_SEARCH_TIMEOUT,
+                follow_redirects=False,
+            )
+            _raise_for_status(response, "web")
+        except (httpx.HTTPError, _RateLimited) as error:
+            last_error = error
+            continue
+        parser = _DDGParser()
+        parser.feed(response.text)
+        parser.close()
+        results = []
+        for title, url, snippet in parser.items[:max_results]:
+            entry: dict = {"source": "web", "title": title, "url": url}
+            if snippet:
+                entry["snippet"] = snippet[:300]
+            results.append(entry)
+        if results:
+            return results
+    if last_error is not None:
+        raise last_error
+    return []
 
 
 async def _arxiv(
@@ -649,56 +689,154 @@ async def web_fetch(
     raises would end the whole research turn.
     """
     max_chars = max(200, min(int(max_chars), 8_000))
-    parts = urlsplit(url.strip())
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        return json.dumps(
-            {"tool": "web_fetch", "url": url, "error": "only http/https URLs"},
-            ensure_ascii=False,
+    requested_url = url.strip()
+    current_url = requested_url
+    seen: set[str] = set()
+    content = b""
+    status = 0
+    final_url = current_url
+    for _ in range(6):
+        parts = urlsplit(current_url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            return _fetch_document(
+                requested_url,
+                current_url,
+                error="only http/https URLs",
+                error_kind="invalid_url",
+                retryable=False,
+            )
+        blocked = await asyncio.to_thread(_blocked_host, parts.hostname)
+        if blocked:
+            return _fetch_document(
+                requested_url,
+                current_url,
+                error=blocked,
+                error_kind="blocked_address",
+                retryable=False,
+            )
+        normalized = current_url.casefold()
+        if normalized in seen:
+            return _fetch_document(
+                requested_url,
+                current_url,
+                error="redirect loop",
+                error_kind="redirect_loop",
+                retryable=False,
+            )
+        seen.add(normalized)
+        try:
+            async with client.stream(
+                "GET", current_url, follow_redirects=False
+            ) as response:
+                status = response.status_code
+                final_url = str(response.url)
+                if status in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("Location", "").strip()
+                    if not location:
+                        return _fetch_document(
+                            requested_url,
+                            final_url,
+                            status=status,
+                            error="redirect response had no Location header",
+                            error_kind="invalid_redirect",
+                            retryable=False,
+                        )
+                    current_url = urljoin(final_url, location)
+                    continue
+                if not response.is_success:
+                    return _http_failure(requested_url, final_url, response)
+                chunks = bytearray()
+                async for chunk in response.aiter_bytes():
+                    chunks.extend(chunk)
+                    if len(chunks) > _MAX_RESPONSE_BYTES:
+                        return _fetch_document(
+                            requested_url,
+                            final_url,
+                            status=status,
+                            error="response exceeded the 2 MB limit",
+                            error_kind="response_too_large",
+                            retryable=False,
+                        )
+                content = bytes(chunks)
+                break
+        except httpx.HTTPError as error:
+            return _fetch_document(
+                requested_url,
+                current_url,
+                error=f"{type(error).__name__}: {error}",
+                error_kind="network_error",
+                retryable=True,
+            )
+    else:
+        return _fetch_document(
+            requested_url,
+            current_url,
+            error="too many redirects",
+            error_kind="too_many_redirects",
+            retryable=False,
         )
 
-    blocked = await asyncio.to_thread(_blocked_host, parts.hostname)
-    if blocked:
-        return json.dumps(
-            {"tool": "web_fetch", "url": url, "error": blocked},
-            ensure_ascii=False,
-        )
-
-    try:
-        response = await client.get(url)
-    except httpx.HTTPError as error:
-        return json.dumps(
-            {
-                "tool": "web_fetch",
-                "url": url,
-                "error": f"{type(error).__name__}: {error}",
-            },
-            ensure_ascii=False,
-        )
-
-    if len(response.content) > _MAX_RESPONSE_BYTES:
-        return json.dumps(
-            {
-                "tool": "web_fetch",
-                "url": url,
-                "status": response.status_code,
-                "error": (
-                    f"response too large ({len(response.content) // 1_000_000} "
-                    f"MB); try a narrower source"
-                ),
-            },
-            ensure_ascii=False,
-        )
-
-    text = await asyncio.to_thread(_extract_article, response.content, url)
+    text = await asyncio.to_thread(_extract_article, content, final_url)
     truncated = len(text) > max_chars
     return json.dumps(
         {
             "tool": "web_fetch",
-            "url": url,
-            "final_url": str(response.url),
-            "status": response.status_code,
+            "url": requested_url,
+            "final_url": final_url,
+            "status": status,
             "truncated": truncated,
             "text": text[:max_chars] + (" [...]" if truncated else ""),
         },
         ensure_ascii=False,
+    )
+
+
+def _fetch_document(
+    requested_url: str,
+    final_url: str,
+    *,
+    error: str,
+    error_kind: str,
+    retryable: bool,
+    status: int | None = None,
+    retry_after_s: float | None = None,
+) -> str:
+    document: dict = {
+        "tool": "web_fetch",
+        "url": requested_url,
+        "final_url": final_url,
+        "error_kind": error_kind,
+        "retryable": retryable,
+        "error": error,
+    }
+    if status is not None:
+        document["status"] = status
+    if retry_after_s is not None:
+        document["retry_after_s"] = retry_after_s
+    return json.dumps(document, ensure_ascii=False)
+
+
+def _http_failure(
+    requested_url: str, final_url: str, response: httpx.Response
+) -> str:
+    status = response.status_code
+    retry_after = _retry_after(response)
+    if status in {401, 403}:
+        kind, retryable = "access_denied", False
+    elif status in {404, 410}:
+        kind, retryable = "not_found", False
+    elif status == 429:
+        kind, retryable = "rate_limited", True
+    elif status in {408, 425} or 500 <= status < 600:
+        kind, retryable = "upstream_failure", True
+    else:
+        kind, retryable = "http_error", False
+    return _fetch_document(
+        requested_url,
+        final_url,
+        status=status,
+        error=f"HTTP {status}; do not rely on this response as a source",
+        error_kind=kind,
+        retryable=retryable,
+        retry_after_s=retry_after,
     )

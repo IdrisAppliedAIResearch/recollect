@@ -53,7 +53,7 @@ export function Chat({
   }
 
   // Only one turn is in flight at a time, so the newest exchange that carries
-  // a workspace is the live research arc (or the one that just finished).
+  // a workspace is the live subagent arc (or the one that just finished).
   const workspace = exchanges.at(-1)?.workspace ?? null
   const researching =
     workspace?.phase === 'researching' || workspace?.phase === 'synthesizing'
@@ -177,7 +177,7 @@ export function Chat({
               ? workspace?.phase === 'synthesizing'
                 ? 'Answering…'
                 : researching
-                  ? 'Researching…'
+                  ? 'Working…'
                   : 'Thinking…'
               : 'Send'}
           </button>

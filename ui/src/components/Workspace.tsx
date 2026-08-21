@@ -1,5 +1,5 @@
 /**
- * The research subagent's live work, as it happens.
+ * The subagent's live work, as it happens.
  *
  * Ephemeral by contract: this view is React state fed by mid-turn SSE events,
  * and nothing here is ever written to the episode store. Reload the page and
@@ -30,7 +30,7 @@ export function Workspace({ workspace }: Props) {
   const phaseLabel =
     workspace.phase === 'researching'
       ? workspace.steps.length
-        ? 'Researching'
+        ? 'Working'
         : 'Preparing'
       : workspace.phase === 'synthesizing'
         ? 'Synthesizing answer'
@@ -50,7 +50,7 @@ export function Workspace({ workspace }: Props) {
         <span className="workpane__agent" aria-hidden>
           R
         </span>
-        <span className="workpane__label">Research subagent</span>
+        <span className="workpane__label">Subagent</span>
         <span className="workpane__summary">
           {active ? (
             <span className="workpane__phase">
@@ -122,7 +122,7 @@ export function Workspace({ workspace }: Props) {
               <span className="callout__mark">!</span>
               <div className="callout__body">
                 <div className="callout__title">The subagent returned no answer</div>
-                {workspace.failure ?? 'The research run ended without usable output.'}
+                {workspace.failure ?? 'The subagent run ended without usable output.'}
               </div>
             </div>
           )}

@@ -206,7 +206,7 @@ class Generator:
         accumulation note below). Passing nothing reproduces the exact
         request this method has always sent, so callers that never delegate
         are unaffected. ``max_tokens`` overrides the settings cap for this
-        call only - the research subagent budgets its own generations
+        call only - the subagent budgets its own generations
         separately from the main model's.
         """
         payload = {

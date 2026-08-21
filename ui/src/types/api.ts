@@ -25,7 +25,7 @@ export interface EpisodeBody {
   assistant_message: string
 }
 
-/** One research step, as streamed mid-turn. Ephemeral: never persisted. */
+/** One subagent step, as streamed mid-turn. Ephemeral: never persisted. */
 export interface SubagentStepEvent {
   index: number
   tool: string
@@ -36,14 +36,19 @@ export interface SubagentStepEvent {
 
 /**
  * SSE events emitted by POST /api/chat, in the order they arrive. The three
- * `subagent_*` events appear only when the main model delegated a research
- * task; they stream between the two main-model generations.
+ * `subagent_*` events appear only when the main model delegated a task;
+ * they stream between the two main-model generations.
  */
 export type ChatEvent =
   | { type: 'retrieval'; trace: TurnTrace }
   | { type: 'token'; text: string }
   | { type: 'reasoning'; text: string }
-  | { type: 'subagent_start'; run_id: string; task: string }
+  | {
+      type: 'subagent_start'
+      run_id: string
+      task: string
+      effort: 'focused' | 'deep'
+    }
   | { type: 'subagent_step'; run_id: string; step: SubagentStepEvent }
   | {
       type: 'subagent_done'

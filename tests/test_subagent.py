@@ -1,4 +1,4 @@
-"""The ephemeral research subagent.
+"""The ephemeral subagent.
 
 These tests run the whole loop with a scripted generator and stubbed web
 tools: no model, no network. They pin the three properties the design
@@ -27,6 +27,8 @@ from recollect.engine.subagent import (
     SubagentResult,
     SubagentStep,
     run_subagent,
+    run_subagent_tool,
+    transfer_task,
 )
 from recollect.trace import ToolCallTrace
 from tests.conftest import FakeEmbedder
@@ -89,7 +91,7 @@ class ScriptedGenerator:
             not tools
             and messages
             and str(messages[0].get("content", "")).startswith(
-                "You are a focused research subagent"
+                "You are a focused subagent"
             )
         ):
             key = "sub"
@@ -144,6 +146,37 @@ def _collect(events):
     steps = [e for e in events if isinstance(e, SubagentStep)]
     result = next(e for e in events if isinstance(e, SubagentResult))
     return steps, result
+
+
+def test_transfer_wording_and_tool_contract_are_explicit():
+    focused = transfer_task("Find the build backend.", "focused")
+    deep = transfer_task("Compare the primary studies.", "deep")
+    assert focused == (
+        "Quickly answer this focused task: Find the build backend. Use the "
+        "shortest supported path and return a concise answer. Stop once an "
+        "authoritative source directly supports the answer. Do not retry an "
+        "unchanged failed request."
+    )
+    assert deep == (
+        "Deep dive into this substantial research task: Compare the primary "
+        "studies. Follow relevant sources to their underlying evidence, "
+        "resolve important ambiguity, and return a sourced synthesis."
+    )
+
+    parameters = run_subagent_tool()["function"]["parameters"]
+    assert parameters["required"] == ["task", "effort"]
+    assert parameters["properties"]["effort"]["enum"] == ["focused", "deep"]
+
+
+def test_subagent_request_defaults_old_calls_and_rejects_invalid_effort():
+    from recollect.api import _subagent_request
+
+    assert _subagent_request('{"task": "lookup"}') == ("lookup", "focused")
+    assert _subagent_request('{"task": "compare", "effort": "deep"}') == (
+        "compare",
+        "deep",
+    )
+    assert _subagent_request('{"task": "lookup", "effort": "huge"}') is None
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +351,7 @@ async def test_step_cap_stops_partial(stub_tools):
     steps, result = _collect(events)
     assert len(steps) == 3
     assert result.status == "partial"
-    assert result.error == "step or wallclock limit reached"
+    assert result.error == "step limit reached"
     assert "limit" in result.result_json
     # The unspent scripts prove the loop stopped on the cap, not on content.
     assert len(gen.scripts["sub"]) == 7
@@ -428,7 +461,10 @@ async def test_delegated_turn_records_only_main_text_and_summary(stub_tools, con
                         "function=run_subagent"
                     ),
                     "tool_calls": [
-                        ("run_subagent", '{"task": "find the mars paper"}')
+                        (
+                            "run_subagent",
+                            '{"task": "find the mars paper", "effort": "deep"}',
+                        )
                     ],
                 }
             ],
@@ -451,6 +487,8 @@ async def test_delegated_turn_records_only_main_text_and_summary(stub_tools, con
     assert "subagent_start" in names
     assert names.count("subagent_step") == 2
     assert "subagent_done" in names
+    start = events[names.index("subagent_start")][1]
+    assert start["effort"] == "deep"
     assert (
         names.index("subagent_start")
         < names.index("subagent_done")
@@ -468,6 +506,12 @@ async def test_delegated_turn_records_only_main_text_and_summary(stub_tools, con
     assert "<tool_call>" not in visible_text
     final_call = next(call for call in state.generator.calls if call["key"] == "final")
     assert final_call["messages"][-2]["content"] == ""
+    first_sub_call = next(
+        call for call in state.generator.calls if call["key"] == "sub"
+    )
+    assert first_sub_call["messages"][1]["content"] == transfer_task(
+        "find the mars paper", "deep"
+    )
 
     # The UI renders each step event verbatim: one nested "step" object per
     # event, 1-based index, exactly the keys the row has cells for.
@@ -511,6 +555,11 @@ async def test_delegated_turn_records_only_main_text_and_summary(stub_tools, con
     assert sub["sources"] == ["https://arxiv.org/abs/1", "https://arxiv.org/abs/7"]
     assert sub["returned_chars"] > 0
     assert sub["task"] == "find the mars paper"
+    assert sub["effort"] == "deep"
+    assert sub["backend"] == "legacy"
+    assert sub["isolation"] == "in_process"
+    assert sub["fresh_context"] is True
+    assert sub["server_reused"] is False
     assert "BODY-OF-" not in json.dumps(trace)
 
 
@@ -544,7 +593,7 @@ async def test_raw_json_final_is_repaired_before_stream_or_storage(
         call for call in state.generator.calls if call["key"] == "final"
     ]
     assert len(final_calls) == 2
-    assert "INTERNAL RESEARCH RESULT" in final_calls[0]["messages"][-1]["content"]
+    assert "INTERNAL SUBAGENT RESULT" in final_calls[0]["messages"][-1]["content"]
     assert final_calls[0]["messages"][-2]["content"] == ""
     assert "Rewrite it as" in final_calls[1]["messages"][-1]["content"]
 

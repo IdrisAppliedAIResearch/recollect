@@ -1,7 +1,7 @@
 """The sandbox manager against a stub opencode server.
 
 The stub is a plain stdlib HTTP server that speaks just enough of the
-opencode API (health + session list/create) for the manager's lifecycle
+opencode API (health + fresh session create/delete) for the manager's lifecycle
 code. The real opencode binary is never touched here.
 """
 
@@ -11,10 +11,12 @@ import sys
 import textwrap
 from pathlib import Path
 
+import httpx
 import pytest
 
 from recollect.config import RecollectConfig
 from recollect.engine.sandbox.manager import (
+    SandboxHandle,
     SandboxManager,
     SandboxStartError,
 )
@@ -23,13 +25,12 @@ _STUB = textwrap.dedent(
     """
     import http.server
     import json
-    import os
     import sys
 
     args = sys.argv[1:]
     port = int(args[args.index("--port") + 1])
     workdir = args[args.index("--workdir") + 1]
-    session = "recollect:" + os.path.basename(workdir.rstrip("/\\\\"))
+    session_counter = 0
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -46,31 +47,22 @@ _STUB = textwrap.dedent(
         def do_GET(self):
             if self.path == "/global/health":
                 self._send(200, {"healthy": True, "version": "stub"})
-            elif self.path == "/session":
-                # A stored session for this sandbox's own session, plus a
-                # stale one from another project that must not be picked.
-                self._send(200, [
-                    {
-                        "id": "ses_other",
-                        "title": session,
-                        "directory": "/elsewhere",
-                        "time": {"updated": 999},
-                    },
-                    {
-                        "id": "ses_stub",
-                        "title": session,
-                        "directory": workdir,
-                        "time": {"updated": 1},
-                    },
-                ])
             else:
                 self._send(404, {"error": "not found"})
 
         def do_POST(self):
+            global session_counter
             length = int(self.headers.get("Content-Length") or 0)
             self.rfile.read(length)
             if self.path == "/session":
-                self._send(200, {"id": "ses_new", "title": "stub"})
+                session_counter += 1
+                self._send(200, {"id": f"ses_{session_counter}", "title": "stub"})
+            else:
+                self._send(404, {"error": "not found"})
+
+        def do_DELETE(self):
+            if self.path.startswith("/session/ses_"):
+                self._send(200, True)
             else:
                 self._send(404, {"error": "not found"})
 
@@ -101,22 +93,37 @@ def _factory_for(script: Path):
     return factory
 
 
-async def test_ensure_spawns_once_and_reattaches(tmp_path):
+async def test_warm_server_gets_fresh_sessions_and_scrubbed_scratch(tmp_path):
     script = tmp_path / "stub_opencode.py"
     script.write_text(_STUB, encoding="utf-8")
     manager = SandboxManager(_config(tmp_path), command_factory=_factory_for(script))
     handle = await manager.ensure("s1")
     try:
-        assert handle.oc_session_id == "ses_stub"
-        assert handle.workdir == tmp_path / "sandboxes" / "s1"
-        # The workdir path opencode will store with the session must be
-        # absolute, or re-attachment can never match it.
+        assert handle.oc_session_id is None
+        assert handle.workdir == tmp_path / "sandboxes" / "s1" / "workspace"
         assert handle.workdir.is_absolute()
-        assert (handle.workdir / "opencode.json").is_file()
-        assert (handle.workdir / "researcher.md").is_file()
+        assert (handle.config_dir / "opencode.json").is_file()
+        assert list(handle.config_dir.iterdir()) == [
+            handle.config_dir / "opencode.json"
+        ]
         assert handle.process.returncode is None
         again = await manager.ensure("s1")
         assert again is handle  # no respawn while alive
+
+        (handle.workdir / "stale.txt").write_text("old call", encoding="utf-8")
+        first = await manager.begin_invocation("s1")
+        assert first.oc_session_id == "ses_1"
+        assert first.process_reused is True
+        assert not (handle.workdir / "stale.txt").exists()
+        (handle.workdir / "notes.md").write_text("secret", encoding="utf-8")
+        await manager.finish_invocation(first)
+        assert handle.oc_session_id is None
+        assert list(handle.workdir.iterdir()) == []
+
+        second = await manager.begin_invocation("s1")
+        assert second.oc_session_id == "ses_2"
+        assert second.oc_session_id != first.oc_session_id
+        await manager.finish_invocation(second)
     finally:
         await manager.teardown("s1")
     assert handle.process.returncode is not None
@@ -132,10 +139,55 @@ async def test_dead_handle_is_restarted(tmp_path):
     second = await manager.ensure("s1")
     try:
         assert second is not handle
-        assert second.oc_session_id == "ses_stub"
+        assert second.oc_session_id is None
         assert second.process.returncode is None
     finally:
         await manager.teardown("s1")
+
+
+async def test_failed_session_deletion_keeps_server_but_not_context(tmp_path):
+    created = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal created
+        if (request.method, request.url.path) == ("POST", "/session"):
+            created += 1
+            return httpx.Response(200, json={"id": f"ses_{created}"})
+        if (request.method, request.url.path) == ("DELETE", "/session/ses_1"):
+            return httpx.Response(500, json={"error": "cannot delete"})
+        if (request.method, request.url.path) == ("DELETE", "/session/ses_2"):
+            return httpx.Response(200, json=True)
+        return httpx.Response(404)
+
+    config = _config(tmp_path)
+    manager = SandboxManager(config)
+    workdir = Path(config.sandbox_root) / "s1" / "workspace"
+    workdir.mkdir(parents=True)
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://127.0.0.1:9",
+    )
+    handle = SandboxHandle(
+        session_id="s1",
+        workdir=workdir,
+        port=9,
+        password="pw",
+        process=None,
+        client=client,
+    )
+    manager._handles["s1"] = handle
+
+    first = await manager.begin_invocation("s1")
+    await manager.finish_invocation(first)
+    assert manager._handles["s1"] is handle
+    assert handle.busy is False
+
+    second = await manager.begin_invocation("s1")
+    assert second.oc_session_id == "ses_2"
+    assert second.oc_session_id != first.oc_session_id
+    assert second.process_reused is True
+    await manager.finish_invocation(second)
+    await manager.teardown("s1")
 
 
 async def test_spawn_surfaces_early_exit(tmp_path):

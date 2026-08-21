@@ -122,6 +122,7 @@ function toChatEvent(name: string, payload: unknown): ChatEvent | null {
         type: 'subagent_start',
         run_id: String(record.run_id ?? ''),
         task: String(record.task ?? ''),
+        effort: record.effort === 'deep' ? 'deep' : 'focused',
       }
     case 'subagent_step': {
       const step = record.step as Record<string, unknown> | undefined

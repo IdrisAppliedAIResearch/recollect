@@ -1,26 +1,19 @@
-"""One sandboxed opencode server per chat session.
+"""One warm, isolated OpenCode server per chat session.
 
-Each recollect session that delegates research gets an ``opencode serve``
-process in its own workdir under ``sandbox_root/<session_id>/`` (a
-machine-local directory, deliberately outside any repository - see
-``RecollectConfig.sandbox_root`` for why). The process is spawned with
-the generated config (``configgen``), a random per-spawn password, and
-an ephemeral local port; the workdir is its only reachable filesystem.
-
-Because opencode stores its sessions against the workdir, a restarted
-server can re-attach to the session it had before: after the idle reaper
-(or a server crash) tears a sandbox down, the next delegation re-spawns
-it and finds the stored conversation again. That is what keeps the
-sandbox persistent per user session in the Dispatch sense: context
-survives, the process does not have to.
+The container and external llama.cpp server stay warm between calls, but
+conversation and scratch state do not. ``begin_invocation`` scrubs the
+workspace and creates a unique OpenCode session; ``finish_invocation``
+deletes that session and scrubs again. Production never runs OpenCode
+under the host user's token: ``isolation`` builds and attests a hardened
+container, and startup fails closed when that boundary is unavailable.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
-import re
 import shutil
 import socket
 import time
@@ -33,6 +26,13 @@ import httpx
 
 from ...config import RecollectConfig
 from . import configgen
+from .isolation import (
+    ContainerLaunch,
+    IsolationError,
+    attest_container,
+    build_container_launch,
+    container_model_url,
+)
 
 
 class SandboxStartError(RuntimeError):
@@ -50,6 +50,9 @@ class SandboxHandle:
     password: str
     process: asyncio.subprocess.Process | None
     client: httpx.AsyncClient
+    config_dir: Path | None = None
+    container: ContainerLaunch | None = None
+    isolation: str = "test"
     oc_session_id: str | None = None
     busy: bool = False
     last_used: float = field(default_factory=time.monotonic)
@@ -58,13 +61,20 @@ class SandboxHandle:
         return self.process is None or self.process.returncode is None
 
 
+@dataclass(frozen=True)
+class SandboxInvocation:
+    """Fresh state for exactly one delegated call."""
+
+    handle: SandboxHandle
+    invocation_id: str
+    oc_session_id: str
+    process_reused: bool
+
+
 _START_TIMEOUT_S = 60.0
 _HEALTH_POLL_S = 0.5
 _KILL_GRACE_S = 5.0
 _REAPER_INTERVAL_S = 60.0
-
-#: npm-installed opencode is a .cmd shim around prebuilt opencode.exe.
-_EXE_RE = re.compile(r'"((?:[^"\\]|\\.)+?\.exe)"', re.IGNORECASE)
 
 # A factory seam (used by tests): (port, workdir, password) -> argv.
 CommandFactory = Callable[[int, Path, str], list[str]]
@@ -74,36 +84,6 @@ def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
-
-
-def _resolve_opencode(bin_name: str) -> str:
-    """Resolve the opencode binary to an actual executable.
-
-    Spawning the npm .cmd shim directly makes process management
-    unreliable (kill would leave the wrapped exe holding the port), so
-    when PATH resolves to a shim, the exe the shim wraps is extracted.
-    An explicit path - via ``RECOLLECT_SANDBOX_OPENCODE_BIN`` - passes
-    through as given.
-    """
-    resolved = shutil.which(bin_name) or bin_name
-    if os.name != "nt" or resolved.lower().endswith(".exe"):
-        return resolved
-    if resolved.lower().endswith((".cmd", ".bat")):
-        try:
-            text = Path(resolved).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            raise SandboxStartError(f"cannot read shim {resolved!r}") from None
-        match = _EXE_RE.search(text)
-        if match:
-            # npm shims quote the wrapped exe as "%dp0%\..." where dp0 is
-            # the shim's own directory; expand it before exec'ing.
-            target = match.group(1).replace("%dp0%", str(Path(resolved).parent))
-            if Path(target).is_file():
-                return target
-    raise SandboxStartError(
-        f"cannot resolve {bin_name!r} to an opencode executable; point "
-        "RECOLLECT_SANDBOX_OPENCODE_BIN at opencode.exe"
-    )
 
 
 class SandboxManager:
@@ -129,43 +109,146 @@ class SandboxManager:
     # -- lifecycle -------------------------------------------------------
 
     async def ensure(self, session_id: str) -> SandboxHandle:
-        """A live sandbox for this session, spawning (or re-attaching) if
-        necessary. Safe under concurrent delegation attempts from the
-        same session."""
+        """Return the warm server, spawning it when necessary."""
         lock = self._locks.setdefault(session_id, asyncio.Lock())
         async with lock:
-            handle = self._handles.get(session_id)
-            if handle is not None and handle.alive():
-                return handle
-            if handle is not None:
+            return await self._ensure_locked(session_id)
+
+    async def _ensure_locked(self, session_id: str) -> SandboxHandle:
+        handle = self._handles.get(session_id)
+        if handle is not None and handle.alive():
+            return handle
+        if handle is not None:
+            await self._shutdown(handle)
+        self._handles[session_id] = await self._spawn(session_id)
+        return self._handles[session_id]
+
+    async def begin_invocation(self, session_id: str) -> SandboxInvocation:
+        """Create fresh conversation and scratch state on the warm server."""
+        lock = self._locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            current = self._handles.get(session_id)
+            process_reused = current is not None and current.alive()
+            handle = await self._ensure_locked(session_id)
+            if handle.busy:
+                raise SandboxStartError("sandbox already has a running invocation")
+            await asyncio.to_thread(self._scrub_workspace, handle.workdir)
+            invocation_id = uuid.uuid4().hex
+            try:
+                response = await handle.client.post(
+                    "/session",
+                    json={"title": f"recollect:{session_id}:{invocation_id}"},
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                oc_session_id = (
+                    str(payload.get("id", "")).strip()
+                    if isinstance(payload, dict)
+                    else ""
+                )
+                if not oc_session_id:
+                    raise SandboxStartError(
+                        "opencode returned no id for the fresh session"
+                    )
+            except (SandboxStartError, httpx.HTTPError, ValueError):
+                # Unknown server state after a failed create is not reusable.
+                self._handles.pop(session_id, None)
                 await self._shutdown(handle)
-            self._handles[session_id] = await self._spawn(session_id)
-            return self._handles[session_id]
+                raise
+            handle.oc_session_id = oc_session_id
+            handle.busy = True
+            handle.last_used = time.monotonic()
+            return SandboxInvocation(
+                handle=handle,
+                invocation_id=invocation_id,
+                oc_session_id=oc_session_id,
+                process_reused=process_reused,
+            )
+
+    async def finish_invocation(self, invocation: SandboxInvocation) -> None:
+        """Delete one call's conversation and scratch state."""
+        handle = invocation.handle
+        lock = self._locks.setdefault(handle.session_id, asyncio.Lock())
+        async with lock:
+            if self._handles.get(handle.session_id) is not handle:
+                return
+            try:
+                response = await handle.client.delete(
+                    f"/session/{invocation.oc_session_id}", timeout=10.0
+                )
+                response.raise_for_status()
+            except httpx.HTTPError:
+                # The next call creates a distinct session, so an orphaned
+                # conversation is not a reason to take down warm shared
+                # infrastructure. Idle teardown remains the eventual cleanup.
+                pass
+            handle.oc_session_id = None
+            handle.busy = False
+            handle.last_used = time.monotonic()
+            with contextlib.suppress(OSError):
+                await asyncio.to_thread(self._scrub_workspace, handle.workdir)
+
+    @staticmethod
+    def _scrub_workspace(workdir: Path) -> None:
+        root = workdir.resolve(strict=True)
+        for child in root.iterdir():
+            if child.is_symlink() or child.is_file():
+                child.unlink()
+            elif child.is_dir():
+                shutil.rmtree(child)
 
     async def _spawn(self, session_id: str) -> SandboxHandle:
         cfg = self._config
-        workdir = self._root / session_id
+        root = self._root / session_id
+        workdir = root / "workspace"
+        config_dir = root / "config"
         workdir.mkdir(parents=True, exist_ok=True)
+        config_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(self._scrub_workspace, config_dir)
+        with contextlib.suppress(OSError):
+            (root / "opencode-stderr.log").unlink()
         port = _free_port()
         password = uuid.uuid4().hex
+        container: ContainerLaunch | None = None
+        if self._commands is None:
+            base_url = container_model_url(cfg.generator_base_url)
+            runtime_workdir = "/workspace"
+            prompt_dir = "/config"
+        else:
+            base_url = cfg.generator_base_url
+            runtime_workdir = str(workdir)
+            prompt_dir = str(config_dir)
         config_path = configgen.write_config(
-            workdir,
-            base_url=cfg.generator_base_url,
+            config_dir,
+            base_url=base_url,
             model=cfg.generator_model,
             api_key=cfg.generator_api_key,
             steps=cfg.sandbox_steps,
+            runtime_workdir=runtime_workdir,
+            prompt_dir=prompt_dir,
         )
         if self._commands is not None:
             argv = self._commands(port, workdir, password)
+            isolation = "test"
         else:
-            argv = [
-                _resolve_opencode(cfg.sandbox_opencode_bin),
-                "serve",
-                "--port",
-                str(port),
-                "--hostname",
-                "127.0.0.1",
-            ]
+            try:
+                container = build_container_launch(
+                    runtime=cfg.sandbox_container_runtime,
+                    image=cfg.sandbox_container_image,
+                    name=f"recollect-subagent-{uuid.uuid4().hex[:12]}",
+                    host_port=port,
+                    workspace=workdir,
+                    config_dir=config_dir,
+                    password=password,
+                    memory_mb=cfg.sandbox_container_memory_mb,
+                    pids=cfg.sandbox_container_pids,
+                    cpus=cfg.sandbox_container_cpus,
+                )
+            except IsolationError as error:
+                raise SandboxStartError(str(error)) from error
+            argv = container.argv
+            isolation = "container"
         env = {
             **os.environ,
             "OPENCODE_CONFIG": str(config_path),
@@ -174,19 +257,18 @@ class SandboxManager:
             # holds the credential.
             "OPENCODE_SERVER_PASSWORD": password,
         }
-        # The child inherits the log fd, so the parent may close its own
-        # copy straight after exec.
-        with open(workdir / "opencode-stderr.log", "ab") as err_file:
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *argv,
-                    cwd=str(workdir),
-                    env=env,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=err_file,
-                )
-            except (OSError, ValueError) as error:
-                raise SandboxStartError(f"exec {argv[0]!r}: {error}") from error
+        # Do not persist OpenCode diagnostics: provider errors can include
+        # delegated text, which is required to remain ephemeral.
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=str(workdir),
+                env=env,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except (OSError, ValueError) as error:
+            raise SandboxStartError(f"exec {argv[0]!r}: {error}") from error
 
         client = httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{port}",
@@ -200,10 +282,14 @@ class SandboxManager:
             password=password,
             process=process,
             client=client,
+            config_dir=config_dir,
+            container=container,
+            isolation=isolation,
         )
         try:
             await self._wait_healthy(handle)
-            handle.oc_session_id = await self._session_id(handle)
+            if container is not None:
+                await self._attest(handle)
         except BaseException:
             await self._shutdown(handle)
             raise
@@ -216,8 +302,7 @@ class SandboxManager:
             if handle.process is not None and handle.process.returncode is not None:
                 raise SandboxStartError(
                     f"opencode serve exited early (code "
-                    f"{handle.process.returncode}); see "
-                    f"{handle.workdir / 'opencode-stderr.log'}"
+                    f"{handle.process.returncode})"
                 )
             try:
                 response = await handle.client.get(
@@ -233,39 +318,41 @@ class SandboxManager:
             await asyncio.sleep(_HEALTH_POLL_S)
         raise SandboxStartError(f"opencode serve not healthy: {last!r}")
 
-    async def _session_id(self, handle: SandboxHandle) -> str:
-        """This sandbox's opencode session, re-attached when one exists.
-
-        opencode lists sessions globally, so the match is directory plus
-        the per-recollect-session title, taking the most recently updated
-        entry if a workdir somehow accumulates more than one.
-        """
-        want_dir = str(handle.workdir)
-        title = f"recollect:{handle.session_id}"
-        response = await handle.client.get("/session", timeout=10.0)
-        response.raise_for_status()
-        match: str | None = None
-        match_updated = 0
-        for entry in response.json():
-            if (
-                isinstance(entry, dict)
-                and entry.get("title") == title
-                and entry.get("directory") == want_dir
-            ):
-                updated = (entry.get("time") or {}).get("updated", 0)
-                if updated >= match_updated:
-                    match = str(entry["id"])
-                    match_updated = updated
-        if match:
-            return match
-        created = await handle.client.post(
-            "/session", json={"title": title}, timeout=10.0
+    async def _attest(self, handle: SandboxHandle) -> None:
+        container = handle.container
+        config_dir = handle.config_dir
+        if container is None or config_dir is None:
+            raise SandboxStartError("container metadata is missing")
+        process = await asyncio.create_subprocess_exec(
+            container.runtime,
+            "inspect",
+            container.name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        created.raise_for_status()
-        return str(created.json()["id"])
+        stdout, stderr = await process.communicate()
+        if process.returncode:
+            raise SandboxStartError(
+                f"cannot inspect sandbox container: {stderr.decode(errors='replace')}"
+            )
+        try:
+            inspection = json.loads(stdout)
+            attest_container(
+                inspection,
+                name=container.name,
+                image=self._config.sandbox_container_image,
+                workspace=handle.workdir,
+                config_dir=config_dir,
+                host_port=handle.port,
+                memory_mb=self._config.sandbox_container_memory_mb,
+                pids=self._config.sandbox_container_pids,
+                cpus=self._config.sandbox_container_cpus,
+            )
+        except (json.JSONDecodeError, IsolationError) as error:
+            raise SandboxStartError(f"sandbox attestation failed: {error}") from error
 
     async def teardown(self, session_id: str) -> None:
-        """Stop one sandbox (workdir kept for re-attachment)."""
+        """Stop one sandbox; its empty host directories may remain."""
         async with self._locks.setdefault(session_id, asyncio.Lock()):
             handle = self._handles.pop(session_id, None)
             if handle is not None:
@@ -273,6 +360,18 @@ class SandboxManager:
 
     async def _shutdown(self, handle: SandboxHandle) -> None:
         handle.busy = False
+        if handle.container is not None:
+            with contextlib.suppress(OSError):
+                cleanup = await asyncio.create_subprocess_exec(
+                    handle.container.runtime,
+                    "rm",
+                    "--force",
+                    handle.container.name,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(cleanup.wait(), timeout=_KILL_GRACE_S)
         process = handle.process
         if process is not None and process.returncode is None:
             with contextlib.suppress(ProcessLookupError):

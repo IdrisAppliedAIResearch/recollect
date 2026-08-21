@@ -55,10 +55,12 @@ from .engine.generator import (
 from .engine.sandbox import OpenCodeRunner, SandboxManager
 from .engine.subagent import (
     SubagentConfig,
+    SubagentEffort,
     SubagentResult,
     SubagentStep,
     run_subagent,
     run_subagent_tool,
+    transfer_task,
 )
 from .session import SessionInfo, SessionManager
 from .trace import SubagentTrace, ToolCallTrace, TurnSummary, TurnTrace
@@ -93,10 +95,10 @@ class AppState:
                 temperature=config.generator_temperature,
             )
         )
-        # Outbound web traffic for the research subagent. Deliberately a
+        # Outbound web traffic for the subagent. Deliberately a
         # separate client from the generator's: different destination,
         # different timeout posture, and it must never inherit the generator
-        # base URL. Redirects follow so web_fetch can report the final URL.
+        # base URL. web_fetch validates and follows each redirect itself.
         self.web_client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=10.0),
             follow_redirects=True,
@@ -297,18 +299,19 @@ def _sse(event: str, data: dict | str) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
-_RESEARCH_HANDOFF = (
-    "The research subagent returned the internal evidence below. Answer the "
+_SUBAGENT_HANDOFF = (
+    "The subagent returned the internal evidence below. Answer the "
     "user's original question now in clear natural language. Synthesize the "
     "findings; do not reproduce the JSON, tool-call syntax, or internal "
     "workflow. Cite useful source URLs. If the result says it is partial, "
-    "state that limitation briefly.\n\nINTERNAL RESEARCH RESULT:\n"
+    "state that limitation briefly.\n\nINTERNAL SUBAGENT RESULT:\n"
 )
 
-_RESEARCH_REPAIR = (
+_SUBAGENT_REPAIR = (
     "Your previous draft exposed an internal JSON/tool payload. Rewrite it as "
     "a direct natural-language answer to the user's original question. Do not "
-    "output JSON, XML tool syntax, or discuss the internal research process."
+    "output JSON, XML tool syntax, or discuss the internal subagent "
+    "process."
 )
 
 
@@ -340,7 +343,7 @@ def _looks_like_internal_payload(text: str) -> bool:
         return False
 
 
-def _research_fallback(result_json: str) -> str:
+def _subagent_fallback(result_json: str) -> str:
     """Render a safe answer if two model attempts expose internal payloads."""
     try:
         document = json.loads(result_json)
@@ -352,7 +355,7 @@ def _research_fallback(result_json: str) -> str:
     if isinstance(summary, str) and summary.strip():
         lines.append(summary.strip())
     else:
-        lines.append("The research run did not return a complete synthesis.")
+        lines.append("The subagent run did not return a complete synthesis.")
 
     findings = document.get("findings", []) if isinstance(document, dict) else []
     rendered_findings = []
@@ -454,12 +457,18 @@ async def _stream_turn(
 
         if delegation is not None:
             call, run_id = delegation
-            task = _subagent_task(call.arguments)
+            request = _subagent_request(call.arguments)
+            task = request[0] if request else None
+            effort = request[1] if request else "focused"
             subagent_result: SubagentResult | None = None
 
             yield _sse(
                 "subagent_start",
-                {"run_id": run_id, "task": task or "(unparseable task)"},
+                {
+                    "run_id": run_id,
+                    "task": task or "(unparseable task)",
+                    "effort": effort,
+                },
             )
 
             if task is None:
@@ -468,7 +477,7 @@ async def _stream_turn(
                 # the user a sane answer instead of a dead stream.
                 observation = (
                     "The subagent call was malformed (no 'task' field). "
-                    "No research was performed."
+                    "No subagent work was performed."
                 )
             else:
                 # Both backends yield SubagentStep / SubagentResult, so
@@ -476,7 +485,7 @@ async def _stream_turn(
                 if state.config.subagent_backend == "opencode":
                     stream = OpenCodeRunner(
                         state.sandboxes, state.config
-                    ).run(session_id, task)
+                    ).run(session_id, task, effort=effort)
                 else:
                     config = SubagentConfig(
                         max_steps=state.config.subagent_max_steps,
@@ -484,11 +493,13 @@ async def _stream_turn(
                         observation_chars=(
                             state.config.subagent_observation_chars
                         ),
-                        wallclock_s=state.config.subagent_wallclock_s,
                         max_tokens=state.config.subagent_max_tokens,
                     )
                     stream = run_subagent(
-                        state.web_client, state.generator, task, config=config
+                        state.web_client,
+                        state.generator,
+                        transfer_task(task, effort),
+                        config=config,
                     )
                 try:
                     async for item in stream:
@@ -508,6 +519,7 @@ async def _stream_turn(
                             )
                         else:
                             subagent_result = item
+                            subagent_result.effort = effort
                 except Exception as error:  # noqa: BLE001 - phase fails, turn lives
                     observation = f"the subagent failed: {error}"
                     yield _sse(
@@ -528,6 +540,11 @@ async def _stream_turn(
                 observation = subagent_result.result_json
                 subagent_trace = SubagentTrace(
                     task=task,
+                    effort=subagent_result.effort,
+                    backend=subagent_result.backend,
+                    isolation=subagent_result.isolation,
+                    fresh_context=subagent_result.fresh_context,
+                    server_reused=subagent_result.server_reused,
                     status=subagent_result.status,
                     steps=step_count,
                     tools_used=sorted({s.tool for s in subagent_result.steps}),
@@ -547,7 +564,7 @@ async def _stream_turn(
                     done_payload["error"] = subagent_result.error
                 yield _sse("subagent_done", done_payload)
 
-            # -- phase 2: the main model answers from the research ----------
+            # -- phase 2: the main model answers from the subagent ----------
             # Replay the delegation exactly as the server expects: the
             # assistant turn with its tool call, then the tool result.
             messages.append(
@@ -574,7 +591,7 @@ async def _stream_turn(
                 {
                     "role": "tool",
                     "tool_call_id": call.id,
-                    "content": _RESEARCH_HANDOFF + observation,
+                    "content": _SUBAGENT_HANDOFF + observation,
                 }
             )
 
@@ -598,7 +615,7 @@ async def _stream_turn(
                 messages.append(
                     {"role": "assistant", "content": final.response_text}
                 )
-                messages.append({"role": "system", "content": _RESEARCH_REPAIR})
+                messages.append({"role": "system", "content": _SUBAGENT_REPAIR})
                 repaired = _trace_for()
                 repair_chunks = []
                 try:
@@ -615,7 +632,7 @@ async def _stream_turn(
                     final = repaired
                     final_chunks = repair_chunks
                 else:
-                    fallback = _research_fallback(observation)
+                    fallback = _subagent_fallback(observation)
                     final = repaired
                     final.error = None
                     final.finish_reason = "stop"
@@ -667,16 +684,23 @@ def _find_run_subagent(tool_calls) -> tuple[ToolCallTrace, str] | None:
     return None
 
 
-def _subagent_task(arguments: str) -> str | None:
-    """Pull the ``task`` field out of a run_subagent call's JSON arguments."""
+def _subagent_request(
+    arguments: str,
+) -> tuple[str, SubagentEffort] | None:
+    """Parse the task and effort, accepting old task-only calls as focused."""
     try:
         decoded = json.loads(arguments)
     except json.JSONDecodeError:
         return None
     if isinstance(decoded, dict):
         task = decoded.get("task")
-        if isinstance(task, str) and task.strip():
-            return task.strip()
+        effort = decoded.get("effort", "focused")
+        if (
+            isinstance(task, str)
+            and task.strip()
+            and effort in ("focused", "deep")
+        ):
+            return task.strip(), effort
     return None
 
 

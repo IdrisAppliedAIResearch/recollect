@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
+import pytest
 
 import recollect.engine.webtools as webtools
 
@@ -201,3 +203,122 @@ async def test_new_scholarly_provider_payloads_are_normalized():
             "year": 2022,
         }
     ]
+
+
+@pytest.mark.parametrize(
+    ("status", "kind", "retryable"),
+    [
+        (403, "access_denied", False),
+        (404, "not_found", False),
+        (429, "rate_limited", True),
+        (503, "upstream_failure", True),
+    ],
+)
+async def test_fetch_classifies_non_success_statuses(
+    monkeypatch, status, kind, retryable
+):
+    monkeypatch.setattr(webtools, "_blocked_host", lambda hostname: "")
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        headers = {"Retry-After": "17"} if status == 429 else {}
+        return httpx.Response(status, headers=headers, text="do not use me")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        document = json.loads(await webtools.web_fetch(client, "https://example.com/x"))
+
+    assert document["status"] == status
+    assert document["error_kind"] == kind
+    assert document["retryable"] is retryable
+    assert "text" not in document
+    if status == 429:
+        assert document["retry_after_s"] == 17.0
+
+
+async def test_fetch_revalidates_every_redirect_target(monkeypatch):
+    monkeypatch.setattr(
+        webtools,
+        "_blocked_host",
+        lambda hostname: "refused private target" if hostname == "127.0.0.1" else "",
+    )
+    requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        return httpx.Response(302, headers={"Location": "http://127.0.0.1/a"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        document = json.loads(
+            await webtools.web_fetch(client, "https://public.example/start")
+        )
+
+    assert requests == ["https://public.example/start"]
+    assert document["error_kind"] == "blocked_address"
+    assert document["retryable"] is False
+
+
+async def test_fetch_stops_when_stream_crosses_the_byte_cap(monkeypatch):
+    monkeypatch.setattr(webtools, "_blocked_host", lambda hostname: "")
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"x" * (webtools._MAX_RESPONSE_BYTES + 1))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        document = json.loads(await webtools.web_fetch(client, "https://example.com/huge"))
+
+    assert document["error_kind"] == "response_too_large"
+    assert document["retryable"] is False
+
+
+async def test_duckduckgo_lite_is_the_general_web_fallback():
+    requested: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url.host)
+        if request.url.host == "html.duckduckgo.com":
+            return httpx.Response(403)
+        return httpx.Response(
+            200,
+            text=(
+                '<a class="result-link" href="https://example.com/doc">'
+                'Official doc</a><div class="result-snippet">Useful text</div>'
+            ),
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        results = await webtools._duckduckgo(client, "query", 3)
+
+    assert requested == ["html.duckduckgo.com", "lite.duckduckgo.com"]
+    assert results == [
+        {
+            "source": "web",
+            "title": "Official doc",
+            "url": "https://example.com/doc",
+            "snippet": "Useful text",
+        }
+    ]
+
+
+async def test_fresh_search_caches_share_provider_pacing(monkeypatch):
+    now = 100.0
+    sleeps: list[float] = []
+
+    def monotonic() -> float:
+        return now
+
+    async def sleep(delay: float) -> None:
+        nonlocal now
+        sleeps.append(delay)
+        now += delay
+
+    monkeypatch.setattr(webtools.time, "monotonic", monotonic)
+    monkeypatch.setattr(webtools.asyncio, "sleep", sleep)
+    providers = webtools.SearchProviderState()
+    first = webtools.SearchRunState(providers=providers)
+    second = webtools.SearchRunState(providers=providers)
+
+    await asyncio.gather(
+        first.before_request("web"), second.before_request("web")
+    )
+
+    assert first.cache is not second.cache
+    assert sleeps == [1.0]
