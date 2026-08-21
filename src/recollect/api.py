@@ -84,6 +84,10 @@ class AppState:
             config.embedding_model_path, n_threads=config.embedding_threads
         )
         self.sessions = SessionManager(config, self.embedder)
+        # llama.cpp is configured with one model slot. Main turns and the
+        # complete OpenCode workflow, including native child agents, queue
+        # on this lock rather than competing for the same server context.
+        self.model_slot = asyncio.Lock()
         self.generator = Generator(
             GeneratorSettings(
                 base_url=config.generator_base_url,
@@ -93,7 +97,8 @@ class AppState:
                 thinking=config.generator_thinking,
                 max_tokens=config.generator_max_tokens,
                 temperature=config.generator_temperature,
-            )
+            ),
+            model_slot=self.model_slot,
         )
         # Outbound web traffic for the subagent. Deliberately a
         # separate client from the generator's: different destination,
@@ -106,10 +111,9 @@ class AppState:
                 "User-Agent": "recollect-research/1.0 (local research agent)"
             },
         )
-        # One sandboxed opencode server per session for the opencode
-        # research backend. Created eagerly, spawned lazily on the first
-        # delegation, so the legacy backend pays nothing for it.
-        self.sandboxes = SandboxManager(config)
+        # One globally shared sandbox, spawned lazily. Every call gets a
+        # fresh OpenCode conversation and scrubbed scratch directory.
+        self.sandboxes = SandboxManager(config, model_slot=self.model_slot)
         self.embedder_health: dict = {}
         # A session is an append-only log with a turn counter; two turns
         # racing on one session would interleave episodes and corrupt the

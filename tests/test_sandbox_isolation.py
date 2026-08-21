@@ -55,7 +55,9 @@ def _inspection(workspace, config_dir) -> list[dict]:
                 "CgroupnsMode": "private",
                 "PidsLimit": 256,
                 "Memory": 1024 * 1024 * 1024,
+                "MemorySwap": 1024 * 1024 * 1024,
                 "NanoCpus": 2_000_000_000,
+                "Ulimits": [{"Name": "nofile", "Hard": 1024, "Soft": 1024}],
                 "Devices": [],
                 "DeviceRequests": [],
                 "PortBindings": {
@@ -110,6 +112,8 @@ def test_container_command_has_no_escape_hatches(tmp_path, monkeypatch):
         "--ipc none",
         "--pids-limit 256",
         "--memory 1024m",
+        "--memory-swap 1024m",
+        "--ulimit nofile=1024:1024",
         "--publish 127.0.0.1:41234:4096",
     ):
         assert required in joined
@@ -145,6 +149,7 @@ def test_container_attestation_accepts_only_the_fixed_profile(
         ("IpcMode", "host"),
         ("PidsLimit", 0),
         ("Memory", 0),
+        ("MemorySwap", -1),
         ("NanoCpus", 0),
         ("PidMode", "host"),
         ("UTSMode", "host"),
@@ -209,4 +214,4 @@ async def test_production_manager_fails_closed_without_a_runtime(
     )
     manager = SandboxManager(config)
     with pytest.raises(SandboxStartError, match="install Docker"):
-        await manager.ensure("s1")
+        await manager.ensure()

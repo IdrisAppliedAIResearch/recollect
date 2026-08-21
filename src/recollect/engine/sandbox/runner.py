@@ -12,8 +12,7 @@ What is different, and why it is safe against the single-model-slot
 server behind both backends: one delegation is one message to one
 opencode session, and the run is bounded by opencode's own step cap
 rather than a client-side wallclock, so a long research pass is never
-killed mid-flight; delegation attempts on one recollect session still
-serialize on the per-session turn lock.
+killed mid-flight. All delegations serialize through the shared sandbox.
 """
 
 from __future__ import annotations
@@ -113,6 +112,7 @@ class OpenCodeRunner:
             yield result
             return
 
+        completed = False
         try:
             async for item in self._run_invocation(
                 invocation,
@@ -127,8 +127,29 @@ class OpenCodeRunner:
                     item.fresh_context = True
                     item.server_reused = invocation.process_reused
                 yield item
+            completed = True
         finally:
-            await self._manager.finish_invocation(invocation)
+            cleanup = asyncio.create_task(
+                self._cleanup_invocation(invocation, abort=not completed)
+            )
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                # Do not release the global model slot until OpenCode has
+                # stopped and ephemeral state has been cleared.
+                await cleanup
+                raise
+
+    async def _cleanup_invocation(
+        self, invocation: SandboxInvocation, *, abort: bool
+    ) -> None:
+        if abort:
+            with contextlib.suppress(httpx.HTTPError):
+                response = await invocation.handle.client.post(
+                    f"/session/{invocation.oc_session_id}/abort", timeout=10.0
+                )
+                response.raise_for_status()
+        await self._manager.finish_invocation(invocation)
 
     async def _run_invocation(
         self,
@@ -179,6 +200,10 @@ class OpenCodeRunner:
             pump.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await pump
+            if not message.done():
+                message.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await message
 
         total_ms = (time.perf_counter() - started) * 1_000.0
 

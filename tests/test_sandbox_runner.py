@@ -149,10 +149,9 @@ def _inject(config: RecollectConfig, handler, **runner_kwargs):
         transport=httpx.MockTransport(lifecycle_handler),
         base_url="http://127.0.0.1:9",
     )
-    workdir = Path(config.sandbox_root) / "s1" / "workspace"
+    workdir = Path(config.sandbox_root) / "shared" / "workspace"
     workdir.mkdir(parents=True)
     handle = SandboxHandle(
-        session_id="s1",
         workdir=workdir,
         port=9,
         password="pw",
@@ -160,7 +159,7 @@ def _inject(config: RecollectConfig, handler, **runner_kwargs):
         client=client,
     )
     manager = SandboxManager(config)
-    manager._handles["s1"] = handle
+    manager._handle = handle
     return OpenCodeRunner(manager, config, **runner_kwargs), handle
 
 
@@ -331,6 +330,59 @@ async def test_slow_delegation_completes_without_abort(config):
     assert result.status == "ok"
     assert result.summary == "Mars research points one direction."
     assert result.sources == ["https://arxiv.org/abs/1"]
+
+
+async def test_stopped_consumer_aborts_and_releases_shared_sandbox(config):
+    aborts: list[str] = []
+    message_started = asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if (request.method, request.url.path) == ("GET", "/event"):
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=_sse(
+                    _part_updated(
+                        _tool_part(
+                            "c1",
+                            OC_ID,
+                            "recollect_research_web_search",
+                            {
+                                "status": "completed",
+                                "input": {"query": "mars"},
+                                "output": SEARCH_OUTPUT,
+                            },
+                        )
+                    )
+                ),
+            )
+        if (request.method, request.url.path) == (
+            "POST",
+            f"/session/{OC_ID}/message",
+        ):
+            message_started.set()
+            await asyncio.Event().wait()
+        if (request.method, request.url.path) == (
+            "POST",
+            f"/session/{OC_ID}/abort",
+        ):
+            aborts.append("abort")
+            return httpx.Response(200, json=True)
+        return httpx.Response(404, json={})
+
+    runner, handle = _inject(config, handler)
+    stream = runner.run("s1", "task")
+    item = await anext(stream)
+    assert isinstance(item, SubagentStep)
+    await message_started.wait()
+    await stream.aclose()
+
+    assert aborts == ["abort"]
+    assert handle.busy is False
+    assert handle.oc_session_id is None
+    assert not runner._manager._invocation_lock.locked()
+    assert not runner._manager._model_slot.locked()
+    await handle.client.aclose()
 
 
 async def test_request_failure_is_an_error_result(config):

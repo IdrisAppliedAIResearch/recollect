@@ -108,8 +108,12 @@ def build_container_launch(
         str(pids),
         "--memory",
         f"{memory_mb}m",
+        "--memory-swap",
+        f"{memory_mb}m",
         "--cpus",
         str(cpus),
+        "--ulimit",
+        "nofile=1024:1024",
         "--stop-timeout",
         "5",
         "--publish",
@@ -187,8 +191,13 @@ def attest_container(
         raise IsolationError("sandbox container PID limit mismatched")
     if int(host.get("Memory") or 0) < memory_mb * 1_000_000:
         raise IsolationError("sandbox container memory limit mismatched")
+    if int(host.get("MemorySwap") or 0) != memory_mb * 1024 * 1024:
+        raise IsolationError("sandbox container swap limit mismatched")
     if int(host.get("NanoCpus") or 0) != round(cpus * 1_000_000_000):
         raise IsolationError("sandbox container CPU limit mismatched")
+    ulimits = host.get("Ulimits") or []
+    if ulimits != [{"Name": "nofile", "Hard": 1024, "Soft": 1024}]:
+        raise IsolationError("sandbox container file limit mismatched")
     if host.get("Devices") or host.get("DeviceRequests"):
         raise IsolationError("sandbox container has host device access")
     if "unconfined" in security.lower():

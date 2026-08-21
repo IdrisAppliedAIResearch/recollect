@@ -1,4 +1,4 @@
-"""One warm, isolated OpenCode server per chat session.
+"""One globally shared, warm, isolated OpenCode server.
 
 The container and external llama.cpp server stay warm between calls, but
 conversation and scratch state do not. ``begin_invocation`` scrubs the
@@ -42,9 +42,8 @@ class SandboxStartError(RuntimeError):
 
 @dataclass
 class SandboxHandle:
-    """The live state of one session's sandbox server."""
+    """The live state of the shared sandbox server."""
 
-    session_id: str
     workdir: Path
     port: int
     password: str
@@ -87,13 +86,14 @@ def _free_port() -> int:
 
 
 class SandboxManager:
-    """Owns every live sandbox; one per recollect session."""
+    """Owns one warm sandbox and serializes every delegated invocation."""
 
     def __init__(
         self,
         config: RecollectConfig,
         *,
         command_factory: CommandFactory | None = None,
+        model_slot: asyncio.Lock | None = None,
     ) -> None:
         self._config = config
         # Absolute on purpose: a relative workdir lands the opencode
@@ -101,93 +101,117 @@ class SandboxManager:
         # and the session's stored directory (absolute) would never
         # match for re-attachment.
         self._root = Path(config.sandbox_root).resolve()
-        self._handles: dict[str, SandboxHandle] = {}
-        self._locks: dict[str, asyncio.Lock] = {}
+        self._handle: SandboxHandle | None = None
+        self._active: SandboxInvocation | None = None
+        self._lifecycle_lock = asyncio.Lock()
+        self._invocation_lock = asyncio.Lock()
+        self._model_slot = model_slot or asyncio.Lock()
         self._reaper: asyncio.Task | None = None
         self._commands = command_factory
 
     # -- lifecycle -------------------------------------------------------
 
-    async def ensure(self, session_id: str) -> SandboxHandle:
+    async def ensure(self) -> SandboxHandle:
         """Return the warm server, spawning it when necessary."""
-        lock = self._locks.setdefault(session_id, asyncio.Lock())
-        async with lock:
-            return await self._ensure_locked(session_id)
+        async with self._lifecycle_lock:
+            return await self._ensure_locked()
 
-    async def _ensure_locked(self, session_id: str) -> SandboxHandle:
-        handle = self._handles.get(session_id)
+    async def _ensure_locked(self) -> SandboxHandle:
+        handle = self._handle
         if handle is not None and handle.alive():
             return handle
         if handle is not None:
             await self._shutdown(handle)
-        self._handles[session_id] = await self._spawn(session_id)
-        return self._handles[session_id]
+        self._handle = await self._spawn()
+        return self._handle
 
     async def begin_invocation(self, session_id: str) -> SandboxInvocation:
         """Create fresh conversation and scratch state on the warm server."""
-        lock = self._locks.setdefault(session_id, asyncio.Lock())
-        async with lock:
-            current = self._handles.get(session_id)
-            process_reused = current is not None and current.alive()
-            handle = await self._ensure_locked(session_id)
-            if handle.busy:
-                raise SandboxStartError("sandbox already has a running invocation")
-            await asyncio.to_thread(self._scrub_workspace, handle.workdir)
-            invocation_id = uuid.uuid4().hex
-            try:
-                response = await handle.client.post(
-                    "/session",
-                    json={"title": f"recollect:{session_id}:{invocation_id}"},
-                    timeout=10.0,
-                )
-                response.raise_for_status()
-                payload = response.json()
-                oc_session_id = (
-                    str(payload.get("id", "")).strip()
-                    if isinstance(payload, dict)
-                    else ""
-                )
-                if not oc_session_id:
-                    raise SandboxStartError(
-                        "opencode returned no id for the fresh session"
+        await self._invocation_lock.acquire()
+        model_acquired = False
+        try:
+            # OpenCode may use several model calls, including native child
+            # agents. Hold the single hardware slot for the whole run.
+            await self._model_slot.acquire()
+            model_acquired = True
+            async with self._lifecycle_lock:
+                current = self._handle
+                process_reused = current is not None and current.alive()
+                handle = await self._ensure_locked()
+                await asyncio.to_thread(self._scrub_workspace, handle.workdir)
+                invocation_id = uuid.uuid4().hex
+                try:
+                    response = await handle.client.post(
+                        "/session",
+                        json={"title": f"recollect:{session_id}:{invocation_id}"},
+                        timeout=10.0,
                     )
-            except (SandboxStartError, httpx.HTTPError, ValueError):
-                # Unknown server state after a failed create is not reusable.
-                self._handles.pop(session_id, None)
-                await self._shutdown(handle)
-                raise
-            handle.oc_session_id = oc_session_id
-            handle.busy = True
-            handle.last_used = time.monotonic()
-            return SandboxInvocation(
-                handle=handle,
-                invocation_id=invocation_id,
-                oc_session_id=oc_session_id,
-                process_reused=process_reused,
-            )
+                    response.raise_for_status()
+                    payload = response.json()
+                    oc_session_id = (
+                        str(payload.get("id", "")).strip()
+                        if isinstance(payload, dict)
+                        else ""
+                    )
+                    if not oc_session_id:
+                        raise SandboxStartError(
+                            "opencode returned no id for the fresh session"
+                        )
+                except (SandboxStartError, httpx.HTTPError, ValueError):
+                    # Unknown server state after a failed create is not reusable.
+                    self._handle = None
+                    await self._shutdown(handle)
+                    raise
+                handle.oc_session_id = oc_session_id
+                handle.busy = True
+                handle.last_used = time.monotonic()
+                invocation = SandboxInvocation(
+                    handle=handle,
+                    invocation_id=invocation_id,
+                    oc_session_id=oc_session_id,
+                    process_reused=process_reused,
+                )
+                self._active = invocation
+                return invocation
+        except BaseException:
+            if model_acquired:
+                self._model_slot.release()
+            self._invocation_lock.release()
+            raise
 
     async def finish_invocation(self, invocation: SandboxInvocation) -> None:
         """Delete one call's conversation and scratch state."""
         handle = invocation.handle
-        lock = self._locks.setdefault(handle.session_id, asyncio.Lock())
-        async with lock:
-            if self._handles.get(handle.session_id) is not handle:
-                return
-            try:
-                response = await handle.client.delete(
-                    f"/session/{invocation.oc_session_id}", timeout=10.0
-                )
-                response.raise_for_status()
-            except httpx.HTTPError:
-                # The next call creates a distinct session, so an orphaned
-                # conversation is not a reason to take down warm shared
-                # infrastructure. Idle teardown remains the eventual cleanup.
-                pass
-            handle.oc_session_id = None
-            handle.busy = False
-            handle.last_used = time.monotonic()
-            with contextlib.suppress(OSError):
-                await asyncio.to_thread(self._scrub_workspace, handle.workdir)
+        release_slots = False
+        try:
+            async with self._lifecycle_lock:
+                if self._active is not invocation:
+                    return
+                release_slots = True
+                try:
+                    if self._handle is handle:
+                        response = await handle.client.delete(
+                            f"/session/{invocation.oc_session_id}", timeout=10.0
+                        )
+                        response.raise_for_status()
+                except httpx.HTTPError:
+                    # The next call creates a distinct session, so an orphaned
+                    # conversation is not a reason to take down warm shared
+                    # infrastructure. Idle teardown remains eventual cleanup.
+                    pass
+                finally:
+                    handle.oc_session_id = None
+                    handle.busy = False
+                    handle.last_used = time.monotonic()
+                    self._active = None
+                    with contextlib.suppress(OSError):
+                        await asyncio.to_thread(
+                            self._scrub_workspace, handle.workdir
+                        )
+        finally:
+            if release_slots:
+                self._model_slot.release()
+                self._invocation_lock.release()
 
     @staticmethod
     def _scrub_workspace(workdir: Path) -> None:
@@ -198,9 +222,9 @@ class SandboxManager:
             elif child.is_dir():
                 shutil.rmtree(child)
 
-    async def _spawn(self, session_id: str) -> SandboxHandle:
+    async def _spawn(self) -> SandboxHandle:
         cfg = self._config
-        root = self._root / session_id
+        root = self._root / "shared"
         workdir = root / "workspace"
         config_dir = root / "config"
         workdir.mkdir(parents=True, exist_ok=True)
@@ -276,7 +300,6 @@ class SandboxManager:
             timeout=httpx.Timeout(30.0, connect=10.0),
         )
         handle = SandboxHandle(
-            session_id=session_id,
             workdir=workdir,
             port=port,
             password=password,
@@ -351,10 +374,11 @@ class SandboxManager:
         except (json.JSONDecodeError, IsolationError) as error:
             raise SandboxStartError(f"sandbox attestation failed: {error}") from error
 
-    async def teardown(self, session_id: str) -> None:
-        """Stop one sandbox; its empty host directories may remain."""
-        async with self._locks.setdefault(session_id, asyncio.Lock()):
-            handle = self._handles.pop(session_id, None)
+    async def teardown(self) -> None:
+        """Stop the shared sandbox after any active invocation finishes."""
+        async with self._invocation_lock, self._lifecycle_lock:
+            handle = self._handle
+            self._handle = None
             if handle is not None:
                 await self._shutdown(handle)
 
@@ -381,10 +405,9 @@ class SandboxManager:
         await handle.client.aclose()
 
     async def close_all(self) -> None:
-        """Server shutdown: stop every sandbox and the reaper."""
+        """Server shutdown: stop the sandbox and the reaper."""
         await self.stop_reaper()
-        for session_id in list(self._handles):
-            await self.teardown(session_id)
+        await self.teardown()
 
     # -- idle reaping ------------------------------------------------------
 
@@ -407,7 +430,13 @@ class SandboxManager:
     async def _reap(self) -> None:
         now = time.monotonic()
         ttl = self._config.sandbox_idle_ttl_s
-        for session_id in list(self._handles):
-            handle = self._handles[session_id]
-            if handle.alive() and not handle.busy and now - handle.last_used > ttl:
-                await self.teardown(session_id)
+        async with self._lifecycle_lock:
+            handle = self._handle
+            if (
+                handle is not None
+                and handle.alive()
+                and not handle.busy
+                and now - handle.last_used > ttl
+            ):
+                self._handle = None
+                await self._shutdown(handle)

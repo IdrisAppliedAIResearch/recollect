@@ -7,6 +7,7 @@ code. The real opencode binary is never touched here.
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import textwrap
 from pathlib import Path
@@ -97,17 +98,17 @@ async def test_warm_server_gets_fresh_sessions_and_scrubbed_scratch(tmp_path):
     script = tmp_path / "stub_opencode.py"
     script.write_text(_STUB, encoding="utf-8")
     manager = SandboxManager(_config(tmp_path), command_factory=_factory_for(script))
-    handle = await manager.ensure("s1")
+    handle = await manager.ensure()
     try:
         assert handle.oc_session_id is None
-        assert handle.workdir == tmp_path / "sandboxes" / "s1" / "workspace"
+        assert handle.workdir == tmp_path / "sandboxes" / "shared" / "workspace"
         assert handle.workdir.is_absolute()
         assert (handle.config_dir / "opencode.json").is_file()
         assert list(handle.config_dir.iterdir()) == [
             handle.config_dir / "opencode.json"
         ]
         assert handle.process.returncode is None
-        again = await manager.ensure("s1")
+        again = await manager.ensure()
         assert again is handle  # no respawn while alive
 
         (handle.workdir / "stale.txt").write_text("old call", encoding="utf-8")
@@ -120,12 +121,12 @@ async def test_warm_server_gets_fresh_sessions_and_scrubbed_scratch(tmp_path):
         assert handle.oc_session_id is None
         assert list(handle.workdir.iterdir()) == []
 
-        second = await manager.begin_invocation("s1")
+        second = await manager.begin_invocation("s2")
         assert second.oc_session_id == "ses_2"
         assert second.oc_session_id != first.oc_session_id
         await manager.finish_invocation(second)
     finally:
-        await manager.teardown("s1")
+        await manager.teardown()
     assert handle.process.returncode is not None
 
 
@@ -133,16 +134,16 @@ async def test_dead_handle_is_restarted(tmp_path):
     script = tmp_path / "stub_opencode.py"
     script.write_text(_STUB, encoding="utf-8")
     manager = SandboxManager(_config(tmp_path), command_factory=_factory_for(script))
-    handle = await manager.ensure("s1")
+    handle = await manager.ensure()
     handle.process.kill()
     await handle.process.wait()
-    second = await manager.ensure("s1")
+    second = await manager.ensure()
     try:
         assert second is not handle
         assert second.oc_session_id is None
         assert second.process.returncode is None
     finally:
-        await manager.teardown("s1")
+        await manager.teardown()
 
 
 async def test_failed_session_deletion_keeps_server_but_not_context(tmp_path):
@@ -161,25 +162,24 @@ async def test_failed_session_deletion_keeps_server_but_not_context(tmp_path):
 
     config = _config(tmp_path)
     manager = SandboxManager(config)
-    workdir = Path(config.sandbox_root) / "s1" / "workspace"
+    workdir = Path(config.sandbox_root) / "shared" / "workspace"
     workdir.mkdir(parents=True)
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler),
         base_url="http://127.0.0.1:9",
     )
     handle = SandboxHandle(
-        session_id="s1",
         workdir=workdir,
         port=9,
         password="pw",
         process=None,
         client=client,
     )
-    manager._handles["s1"] = handle
+    manager._handle = handle
 
     first = await manager.begin_invocation("s1")
     await manager.finish_invocation(first)
-    assert manager._handles["s1"] is handle
+    assert manager._handle is handle
     assert handle.busy is False
 
     second = await manager.begin_invocation("s1")
@@ -187,7 +187,7 @@ async def test_failed_session_deletion_keeps_server_but_not_context(tmp_path):
     assert second.oc_session_id != first.oc_session_id
     assert second.process_reused is True
     await manager.finish_invocation(second)
-    await manager.teardown("s1")
+    await manager.teardown()
 
 
 async def test_spawn_surfaces_early_exit(tmp_path):
@@ -200,7 +200,7 @@ async def test_spawn_surfaces_early_exit(tmp_path):
         ],
     )
     with pytest.raises(SandboxStartError, match="exited early"):
-        await manager.ensure("s2")
+        await manager.ensure()
 
 
 async def test_reap_shuts_down_idle_sandboxes(tmp_path):
@@ -208,27 +208,47 @@ async def test_reap_shuts_down_idle_sandboxes(tmp_path):
     script.write_text(_STUB, encoding="utf-8")
     config = _config(tmp_path)
     manager = SandboxManager(config, command_factory=_factory_for(script))
-    handle = await manager.ensure("s3")
+    handle = await manager.ensure()
     handle.last_used -= config.sandbox_idle_ttl_s + 60.0
     await manager._reap()
-    assert "s3" not in manager._handles
+    assert manager._handle is None
     await handle.process.wait()
     assert handle.process.returncode is not None
 
 
-async def test_reap_leaves_busy_and_fresh_sandboxes(tmp_path):
+async def test_reap_leaves_busy_and_fresh_sandbox(tmp_path):
     script = tmp_path / "stub_opencode.py"
     script.write_text(_STUB, encoding="utf-8")
     config = _config(tmp_path)
     manager = SandboxManager(config, command_factory=_factory_for(script))
-    busy = await manager.ensure("busy")
-    await manager.ensure("fresh")
-    busy.busy = True
-    busy.last_used -= config.sandbox_idle_ttl_s + 60.0
+    invocation = await manager.begin_invocation("busy")
+    handle = invocation.handle
+    handle.last_used -= config.sandbox_idle_ttl_s + 60.0
     await manager._reap()
     try:
-        assert "busy" in manager._handles
-        assert "fresh" in manager._handles
+        assert manager._handle is handle
+        await manager.finish_invocation(invocation)
+        assert manager._handle is handle
     finally:
-        await manager.teardown("busy")
-        await manager.teardown("fresh")
+        await manager.teardown()
+
+
+async def test_different_chats_queue_on_the_shared_server(tmp_path):
+    script = tmp_path / "stub_opencode.py"
+    script.write_text(_STUB, encoding="utf-8")
+    manager = SandboxManager(_config(tmp_path), command_factory=_factory_for(script))
+
+    first = await manager.begin_invocation("chat-a")
+    waiting = asyncio.create_task(manager.begin_invocation("chat-b"))
+    await asyncio.sleep(0.05)
+    assert not waiting.done()
+
+    await manager.finish_invocation(first)
+    second = await waiting
+    try:
+        assert second.handle is first.handle
+        assert second.process_reused is True
+        assert second.oc_session_id != first.oc_session_id
+    finally:
+        await manager.finish_invocation(second)
+        await manager.teardown()

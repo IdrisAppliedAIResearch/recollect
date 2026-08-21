@@ -108,8 +108,8 @@ class RecollectConfig:
 
     # -- subagent backends ------------------------------------------------------
     # "legacy" runs the in-harness agent loop (engine/subagent.py);
-    # "opencode" runs the task in a sandboxed opencode server per chat
-    # session (engine/sandbox). Both emit the same SubagentStep /
+    # "opencode" runs the task in a globally shared sandboxed opencode
+    # server (engine/sandbox). Both emit the same SubagentStep /
     # SubagentResult shapes, so the turn pipeline and the one-line trace
     # are identical either way.
     subagent_backend: str = "legacy"
@@ -131,7 +131,7 @@ class RecollectConfig:
     sandbox_container_pids: int = 256
     sandbox_container_cpus: float = 2.0
 
-    #: Root for per-session sandbox workdirs (opencode backend). This must
+    #: Root for the shared sandbox workdir (opencode backend). This must
     #: sit outside any git repository: opencode scopes "the project" to
     #: the enclosing repo root, so a sandbox inside the recollect repo
     #: could read and edit this entire codebase, unfenced by any

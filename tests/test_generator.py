@@ -8,6 +8,7 @@ routed its output into a non-standard field.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from recollect.engine.generator import (
@@ -213,6 +214,48 @@ async def test_stream_strips_think_blocks_and_split_orphan_delimiters():
     assert trace.response_text == visible
     assert "hidden reasoning" not in visible
     assert "think" not in visible.lower()
+
+
+async def test_concurrent_generations_queue_on_one_model_slot():
+    import httpx
+
+    entered = 0
+    first_entered = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal entered
+        entered += 1
+        if entered == 1:
+            first_entered.set()
+            await release_first.wait()
+        return httpx.Response(200, content=PLAIN_SSE.encode("utf-8"))
+
+    generator = Generator(SETTINGS)
+    generator._client = httpx.AsyncClient(
+        base_url=SETTINGS.base_url.rstrip("/"),
+        transport=httpx.MockTransport(handler),
+    )
+
+    async def consume():
+        return [
+            chunk
+            async for chunk in generator.stream(
+                [{"role": "user", "content": "hi"}], trace=_trace()
+            )
+        ]
+
+    first = asyncio.create_task(consume())
+    await first_entered.wait()
+    second = asyncio.create_task(consume())
+    await asyncio.sleep(0.05)
+    assert entered == 1
+    release_first.set()
+    try:
+        await asyncio.gather(first, second)
+    finally:
+        await generator.aclose()
+    assert entered == 2
 
 
 TOOL_SSE = (

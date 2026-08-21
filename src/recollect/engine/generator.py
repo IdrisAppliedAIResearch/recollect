@@ -33,6 +33,7 @@ than assumed.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
@@ -143,8 +144,14 @@ class _ThinkMarkupFilter:
 class Generator:
     """An OpenAI-compatible streaming chat client."""
 
-    def __init__(self, settings: GeneratorSettings) -> None:
+    def __init__(
+        self,
+        settings: GeneratorSettings,
+        *,
+        model_slot: asyncio.Lock | None = None,
+    ) -> None:
         self.settings = settings
+        self._model_slot = model_slot or asyncio.Lock()
         self._client = httpx.AsyncClient(
             base_url=settings.base_url.rstrip("/"),
             timeout=httpx.Timeout(settings.timeout_s, connect=10.0),
@@ -187,6 +194,24 @@ class Generator:
     # -- streaming ----------------------------------------------------------
 
     async def stream(
+        self,
+        messages: list[dict],
+        *,
+        trace: GenerationTrace,
+        tools: list[dict] | None = None,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """Wait for the single local-model slot, then stream a completion."""
+        async with self._model_slot:
+            async for chunk in self._stream_unlocked(
+                messages,
+                trace=trace,
+                tools=tools,
+                max_tokens=max_tokens,
+            ):
+                yield chunk
+
+    async def _stream_unlocked(
         self,
         messages: list[dict],
         *,
