@@ -76,59 +76,107 @@ than plausible, and it is why the library is never forked to add logging.
 
 ---
 
-## Quickstart
+## Local quickstart
 
-**Prerequisites.** Python 3.13, [uv](https://docs.astral.sh/uv/), the carried
-`Qwen3-Embedding-0.6B-Q8_0.gguf` artifact, and any OpenAI-compatible chat
-server. See [docs/EMBEDDER.md](docs/EMBEDDER.md) first — the embedder has a
-binary-level pinning requirement that is not satisfied by installing the
-right version number.
+The default setup uses Docker for the isolated OpenCode research subagent.
+Three components remain running locally: Docker Engine (or Docker Desktop),
+the chat model server, and Recollect. Recollect starts and attests the OpenCode
+container itself on the first delegated research task; do not start that
+container manually.
 
-**The mechanism library is a sibling checkout, not a package download.**
-`episodic` is consumed as an editable path dependency at
-`../contextDecayWindow/episodic`, so the two repositories must sit next to
-each other. Cloning Recollect on its own will fail at `uv sync` with an
-unresolved `episodic`.
+### 1. Install prerequisites
+
+- Python 3.13 and [uv](https://docs.astral.sh/uv/)
+- Docker Engine on Linux, or Docker Desktop on Windows
+- A chat-model GGUF and `llama-server`
+- The carried `Qwen3-Embedding-0.6B-Q8_0.gguf` embedding artifact
+- The binary-pinned `llama_cpp` package described in
+  [docs/EMBEDDER.md](docs/EMBEDDER.md)
+
+The embedder requirement is stricter than a package version: a newly resolved
+`llama-cpp-python==0.3.25` build may produce different vectors. Provision the
+known-good binary build and let `recollect doctor` verify its identity.
+
+### 2. Clone both sibling repositories
+
+`episodic` is an editable path dependency at
+`../contextDecayWindow/episodic`. The repositories must therefore sit next to
+each other; cloning Recollect alone makes `uv sync` fail.
 
 ```bash
 git clone https://github.com/IdrisAppliedAIResearch/contextDecayWindow.git
 git clone https://github.com/IdrisAppliedAIResearch/recollect.git
 cd recollect
-```
-
-The path dependency is deliberate. The research repo is where the mechanism
-is developed, and an editable install means a change there is exercised
-against the shadow verification here immediately rather than at the next
-release. Pinning to a published artifact would hide exactly the drift this
-harness exists to catch.
-
-```bash
 uv sync
-cp .env.example .env      # then edit the model path
 ```
 
-Start a chat model (llama-server recommended over Ollama: it exposes the
-prefill/cache timings the trace records, and does not idle-unload):
+The path dependency is deliberate. Changes to the research implementation are
+exercised against Recollect's shadow verification immediately instead of being
+hidden until a package release.
+
+### 3. Configure the environment
 
 ```bash
-llama-server -m <model.gguf> --host 127.0.0.1 --port 8000 -ngl 999 -c 32768 --parallel 1 -fa on --no-webui
+cp .env.example .env
 ```
 
-Check everything before talking to it:
+At minimum, set the embedding artifact path and confirm the generator URL in
+`.env`. The OpenCode values shown here match the pinned image built below:
+
+```dotenv
+RECOLLECT_EMBEDDING_MODEL_PATH=/absolute/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf
+RECOLLECT_GENERATOR_BASE_URL=http://127.0.0.1:8000/v1
+RECOLLECT_SUBAGENT_BACKEND=opencode
+RECOLLECT_SANDBOX_CONTAINER_RUNTIME=docker
+RECOLLECT_SANDBOX_CONTAINER_IMAGE=recollect-opencode-sandbox:1.18.18
+```
+
+### 4. Prepare Docker and build the sandbox image
+
+Start Docker and verify that its Linux engine is reachable:
+
+```bash
+docker version
+docker build -f deploy/opencode-sandbox/Dockerfile -t recollect-opencode-sandbox:1.18.18 .
+docker image inspect recollect-opencode-sandbox:1.18.18
+```
+
+On Windows with Docker VMM, create
+`%LOCALAPPDATA%\recollect\sandboxes` and add only that directory under
+**Docker Desktop > Settings > Resources > File sharing**. Do not share the
+repository, home directory, or an entire drive. Linux Docker Engine needs no
+equivalent file-sharing configuration. See
+[deploy/opencode-sandbox/README.md](deploy/opencode-sandbox/README.md) for the
+isolation profile, resource limits, and live Docker tests.
+
+### 5. Start the one-slot model server
+
+Run this in its own long-running terminal. `--parallel 1` is intentional:
+main chat, OpenCode, and any native OpenCode subagents take turns using one
+model slot.
+
+```bash
+llama-server -m <chat-model.gguf> --host 127.0.0.1 --port 8000 -ngl 999 -c 32768 --parallel 1 -fa on --no-webui
+```
+
+### 6. Verify dependencies and start Recollect
+
+With Docker and the model server running:
 
 ```bash
 uv run recollect doctor
-```
-
-Then serve:
-
-```bash
 uv run recollect serve
 ```
 
-- Inspector UI — <http://127.0.0.1:8080/>
-- OpenAI-compatible API — `http://127.0.0.1:8080/v1`
-- Terminal client — `uv run recollect chat`
+Keep `recollect serve` in its own terminal. Then use one of:
+
+- Inspector UI: <http://127.0.0.1:8080/>
+- OpenAI-compatible API: `http://127.0.0.1:8080/v1`
+- Terminal client: `uv run recollect chat`
+
+The sandbox container is lazy. It will not appear in `docker ps` until a chat
+turn delegates research, and it remains warm afterward while every invocation
+gets a fresh OpenCode session and scrubbed workspace.
 
 ### The inspector
 

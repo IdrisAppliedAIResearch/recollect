@@ -211,9 +211,14 @@ export interface ToolCallTrace {
   arguments: string
 }
 
-/** One-line accounting for the research subagent of a turn, if one ran. */
+/** One-line accounting for the subagent of a turn, if one ran. */
 export interface SubagentTrace {
   task: string
+  effort: 'focused' | 'deep'
+  backend: 'legacy' | 'opencode'
+  isolation: string
+  fresh_context: boolean
+  server_reused: boolean
   /** 'ok' | 'partial' | 'error'. */
   status: string
   steps: number
@@ -273,7 +278,7 @@ export interface TurnTrace {
   report: ReportTrace
   verification: VerificationTrace
   generation: GenerationTrace | null
-  /** Present only when the turn delegated to the ephemeral research subagent. */
+  /** Present only when the turn delegated to the ephemeral subagent. */
   subagent: SubagentTrace | null
 }
 

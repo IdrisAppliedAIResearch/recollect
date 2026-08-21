@@ -432,6 +432,34 @@ table,
 .md del {
   color: var(--text-muted);
 }
+.md .md-table-wrap {
+  overflow-x: auto;
+  margin: 0 0 6px;
+}
+.md-table {
+  border-collapse: collapse;
+  font-size: 0.96em;
+}
+.md-table th,
+.md-table td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  vertical-align: top;
+}
+.md-table th {
+  background: var(--surface-inset);
+  font-weight: 640;
+  white-space: nowrap;
+}
+.md-task {
+  list-style: none;
+  margin-left: -18px;
+}
+.md-task-box {
+  margin-right: 6px;
+  vertical-align: -1px;
+  accent-color: var(--accent);
+}
 
 .caret {
   display: inline-block;
@@ -505,7 +533,7 @@ table,
 }
 
 /* ==========================================================================
-   Workpane — the ephemeral research subagent, live. React state only:
+   Workpane — the ephemeral subagent, live. React state only:
    visible above the composer while (and just after) its turn runs, gone on
    reload. The shell stays neutral when a capped run still produced an answer;
    red is reserved for the one state that matters: no answer came back.
@@ -761,7 +789,7 @@ table,
   color: var(--text-muted);
 }
 
-/* The Research card's source list, in the inspector. */
+/* The subagent card's source list, in the inspector. */
 .research__task {
   font-size: var(--fs-sm);
   overflow-wrap: anywhere;

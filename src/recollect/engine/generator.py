@@ -33,6 +33,7 @@ than assumed.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
@@ -143,8 +144,14 @@ class _ThinkMarkupFilter:
 class Generator:
     """An OpenAI-compatible streaming chat client."""
 
-    def __init__(self, settings: GeneratorSettings) -> None:
+    def __init__(
+        self,
+        settings: GeneratorSettings,
+        *,
+        model_slot: asyncio.Lock | None = None,
+    ) -> None:
         self.settings = settings
+        self._model_slot = model_slot or asyncio.Lock()
         self._client = httpx.AsyncClient(
             base_url=settings.base_url.rstrip("/"),
             timeout=httpx.Timeout(settings.timeout_s, connect=10.0),
@@ -194,6 +201,24 @@ class Generator:
         tools: list[dict] | None = None,
         max_tokens: int | None = None,
     ) -> AsyncIterator[StreamChunk]:
+        """Wait for the single local-model slot, then stream a completion."""
+        async with self._model_slot:
+            async for chunk in self._stream_unlocked(
+                messages,
+                trace=trace,
+                tools=tools,
+                max_tokens=max_tokens,
+            ):
+                yield chunk
+
+    async def _stream_unlocked(
+        self,
+        messages: list[dict],
+        *,
+        trace: GenerationTrace,
+        tools: list[dict] | None = None,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[StreamChunk]:
         """Stream a completion, filling ``trace`` in place as it goes.
 
         The trace object is mutated rather than returned so a caller can
@@ -206,7 +231,7 @@ class Generator:
         accumulation note below). Passing nothing reproduces the exact
         request this method has always sent, so callers that never delegate
         are unaffected. ``max_tokens`` overrides the settings cap for this
-        call only - the research subagent budgets its own generations
+        call only - the subagent budgets its own generations
         separately from the main model's.
         """
         payload = {

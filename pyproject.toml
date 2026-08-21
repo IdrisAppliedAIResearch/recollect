@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.28",
     "python-dotenv>=1.0",
     "trafilatura>=2.2.0",
+    "mcp>=1.2,<2",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +29,7 @@ dev = [
 
 [project.scripts]
 recollect = "recollect.cli:main"
+recollect-research-mcp = "recollect.engine.mcp_research:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -58,3 +60,6 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "docker: opt-in tests that require the pinned local sandbox image",
+]

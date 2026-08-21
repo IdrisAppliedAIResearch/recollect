@@ -43,8 +43,31 @@ DEFAULT_SYSTEM_PROMPT = (
     "Treat them as your memory, not as documents: do not mention the blocks, "
     "do not cite turn numbers, and do not say that something was retrieved. "
     "If the blocks do not contain what you need, say you do not recall it "
-    "rather than inventing a memory."
+    "rather than inventing a memory.\n\n"
+    "The run_subagent tool delegates a self-contained task to an autonomous "
+    "subagent. It works the task in its own context, with open-web and "
+    "scholarly research tools and a scratch workspace, and returns a compact "
+    "result with sources that you then answer from. Use it for current or "
+    "external research and genuinely sustained multi-step work. Do not "
+    "delegate ordinary reasoning, writing, or work answerable from this "
+    "conversation. Keep the task brief and self-contained: what to do, and "
+    "what a good result looks like. Mark narrow lookups and bounded tasks as "
+    "focused; reserve deep effort for substantial multi-source work."
 )
+
+
+def _default_sandbox_root() -> Path:
+    """The default sandbox workdir root: machine-local, outside any tree."""
+    override = os.environ.get("RECOLLECT_SANDBOX_ROOT")
+    if override:
+        return Path(override)
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or str(
+            Path.home() / ".local" / "share"
+        )
+    return Path(base) / "recollect" / "sandboxes"
 
 
 @dataclass(frozen=True)
@@ -72,8 +95,8 @@ class RecollectConfig:
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     episodic: EpisodicConfig = field(default_factory=EpisodicConfig)
 
-    # -- research subagent ----------------------------------------------------
-    # Deployment bounds for the ephemeral research subagent. These cap cost,
+    # -- subagent ---------------------------------------------------------------
+    # Deployment bounds for the ephemeral subagent. These cap cost,
     # not quality: a run that hits any of them stops with a *partial* result
     # rather than an empty one, so a loose value reads as a longer answer,
     # never as a broken server.
@@ -81,8 +104,40 @@ class RecollectConfig:
     subagent_max_steps: int = 8
     subagent_max_tool_calls: int = 8
     subagent_observation_chars: int = 4_000
-    subagent_wallclock_s: float = 180.0
     subagent_max_tokens: int = 1_024
+
+    # -- subagent backends ------------------------------------------------------
+    # "legacy" runs the in-harness agent loop (engine/subagent.py);
+    # "opencode" runs the task in a globally shared sandboxed opencode
+    # server (engine/sandbox). Both emit the same SubagentStep /
+    # SubagentResult shapes, so the turn pipeline and the one-line trace
+    # are identical either way.
+    subagent_backend: str = "legacy"
+    # Limits for the opencode backend. The step cap is handed to opencode
+    # (it forces a text-only final pass at the cap) and is the run's only
+    # bound: there is no client-side wallclock, so a long research pass is
+    # never killed mid-flight.
+    sandbox_steps: int = 24
+    # A sandbox idle this long with no running delegation is shut down.
+    # The server process may stay warm between calls, but every call gets a
+    # new OpenCode session and a scrubbed workspace.
+    sandbox_idle_ttl_s: float = 1_800.0
+    #: Production OpenCode runs only inside this container image. There is
+    #: intentionally no host-process fallback: OpenCode permissions are
+    #: defense in depth, not an operating-system security boundary.
+    sandbox_container_runtime: str = "docker"
+    sandbox_container_image: str = "recollect-opencode-sandbox:1.18.18"
+    sandbox_container_memory_mb: int = 1_024
+    sandbox_container_pids: int = 256
+    sandbox_container_cpus: float = 2.0
+
+    #: Root for the shared sandbox workdir (opencode backend). This must
+    #: sit outside any git repository: opencode scopes "the project" to
+    #: the enclosing repo root, so a sandbox inside the recollect repo
+    #: could read and edit this entire codebase, unfenced by any
+    #: permission (the repo *is* the project). Also kept off ``data_dir``
+    #: so a machine-local path cannot drag the repo into it.
+    sandbox_root: Path = field(default_factory=_default_sandbox_root)
 
     # -- storage / server ---------------------------------------------------
     data_dir: Path = Path("var")
@@ -100,10 +155,24 @@ class RecollectConfig:
             raise ValueError("subagent_max_tool_calls must be positive")
         if self.subagent_observation_chars < 1:
             raise ValueError("subagent_observation_chars must be positive")
-        if self.subagent_wallclock_s <= 0:
-            raise ValueError("subagent_wallclock_s must be positive")
         if self.subagent_max_tokens < 1:
             raise ValueError("subagent_max_tokens must be positive")
+        if self.subagent_backend not in ("legacy", "opencode"):
+            raise ValueError("subagent_backend must be 'legacy' or 'opencode'")
+        if self.sandbox_steps < 1:
+            raise ValueError("sandbox_steps must be positive")
+        if self.sandbox_idle_ttl_s <= 0:
+            raise ValueError("sandbox_idle_ttl_s must be positive")
+        if not self.sandbox_container_runtime.strip():
+            raise ValueError("sandbox_container_runtime must be non-empty")
+        if not self.sandbox_container_image.strip():
+            raise ValueError("sandbox_container_image must be non-empty")
+        if self.sandbox_container_memory_mb < 128:
+            raise ValueError("sandbox_container_memory_mb must be at least 128")
+        if self.sandbox_container_pids < 16:
+            raise ValueError("sandbox_container_pids must be at least 16")
+        if self.sandbox_container_cpus <= 0:
+            raise ValueError("sandbox_container_cpus must be positive")
 
     @property
     def sessions_dir(self) -> Path:
@@ -170,11 +239,29 @@ class RecollectConfig:
             subagent_observation_chars=int(
                 os.environ.get("RECOLLECT_SUBAGENT_OBSERVATION_CHARS", 4_000)
             ),
-            subagent_wallclock_s=float(
-                os.environ.get("RECOLLECT_SUBAGENT_WALLCLOCK_S", 180.0)
-            ),
             subagent_max_tokens=int(
                 os.environ.get("RECOLLECT_SUBAGENT_MAX_TOKENS", 1_024)
+            ),
+            subagent_backend=os.environ.get("RECOLLECT_SUBAGENT_BACKEND", "legacy"),
+            sandbox_steps=int(os.environ.get("RECOLLECT_SANDBOX_STEPS", 24)),
+            sandbox_idle_ttl_s=float(
+                os.environ.get("RECOLLECT_SANDBOX_IDLE_TTL_S", 1_800.0)
+            ),
+            sandbox_container_runtime=os.environ.get(
+                "RECOLLECT_SANDBOX_CONTAINER_RUNTIME", "docker"
+            ),
+            sandbox_container_image=os.environ.get(
+                "RECOLLECT_SANDBOX_CONTAINER_IMAGE",
+                "recollect-opencode-sandbox:1.18.18",
+            ),
+            sandbox_container_memory_mb=int(
+                os.environ.get("RECOLLECT_SANDBOX_CONTAINER_MEMORY_MB", 1_024)
+            ),
+            sandbox_container_pids=int(
+                os.environ.get("RECOLLECT_SANDBOX_CONTAINER_PIDS", 256)
+            ),
+            sandbox_container_cpus=float(
+                os.environ.get("RECOLLECT_SANDBOX_CONTAINER_CPUS", 2.0)
             ),
         )
 

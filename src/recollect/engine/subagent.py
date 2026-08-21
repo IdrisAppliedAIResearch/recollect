@@ -1,6 +1,6 @@
-"""The ephemeral research subagent.
+"""The ephemeral subagent.
 
-When the main model decides a question needs the open web, it makes one
+When the main model decides a task needs sustained work, it makes one
 ``run_subagent`` tool call with a natural-language task. This module runs
 the inner loop that call names: a *second*, independent generation context
 (the same model, a clean prompt, no memory block) that has the two web tools
@@ -13,7 +13,10 @@ The contract that makes it safe to keep this out of the episode store:
    that survives is a one-line ``SubagentTrace`` summary recorded on the
    turn, and the final JSON handed back to the main model.
 2. **Bounded.** A hard step cap, a per-observation character cap, and a
-   wallclock cap. A model that cannot stop is a cost we refuse to pay.
+    hard tool-call budget. A model that cannot stop is a cost we refuse to
+    pay. There is deliberately no wallclock: a timed-out run is a dead end
+    with its evidence, so the run may take as long as its structural caps
+    allow and always ends in a receipt, never in a kill.
 3. **Untrusted input.** Everything fetched or found is *data the model
    reads*, never *instructions it obeys*. The prompt names this explicitly
    because it is the one way a hostile page could otherwise steer the loop.
@@ -30,13 +33,34 @@ import re
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
 from ..trace import GenerationTrace
 from .generator import GenerationError, Generator
 from .webtools import SearchRunState, web_fetch, web_search
+
+SubagentEffort = Literal["focused", "deep"]
+
+_FOCUSED_PREFIX = "Quickly answer this focused task: "
+_FOCUSED_SUFFIX = (
+    " Use the shortest supported path and return a concise answer. Stop once "
+    "an authoritative source directly supports the answer. Do not retry an "
+    "unchanged failed request."
+)
+_DEEP_PREFIX = "Deep dive into this substantial research task: "
+_DEEP_SUFFIX = (
+    " Follow relevant sources to their underlying evidence, resolve important "
+    "ambiguity, and return a sourced synthesis."
+)
+
+
+def transfer_task(task: str, effort: SubagentEffort) -> str:
+    """Apply the benchmarked effort cue without changing agent policy."""
+    if effort == "deep":
+        return f"{_DEEP_PREFIX}{task}{_DEEP_SUFFIX}"
+    return f"{_FOCUSED_PREFIX}{task}{_FOCUSED_SUFFIX}"
 
 # The final answer the subagent must produce. Named fields keep the main
 # model's job of summarising it mechanical.
@@ -47,8 +71,8 @@ FINAL_SCHEMA_HINT = (
     '"sources": ["<url>", ...]}'
 )
 
-RESEARCHER_PROMPT = """You are a focused research subagent. You receive one \
-research task and have exactly two tools:
+RESEARCHER_PROMPT = """You are a focused subagent. You receive one \
+self-contained task and have exactly two web tools:
 
 - web_search(query, max_results): search the open web (DuckDuckGo) plus \
 scholarly indexes (arXiv, OpenAlex, Crossref, Europe PMC, Semantic Scholar). \
@@ -75,7 +99,7 @@ tools.
 #: the reason, so the main model can say "here is what I found, with a
 #: caveat" instead of inventing.
 _PARTIAL_NOTE = (
-    "The research subagent stopped before completing. Treat its findings as "
+    "The subagent stopped before completing. Treat its findings as "
     "partial and note that in your answer to the user."
 )
 
@@ -110,6 +134,11 @@ class SubagentResult:
     steps: list[SubagentStep] = field(default_factory=list)
     total_ms: float = 0.0
     error: str | None = None
+    effort: SubagentEffort = "focused"
+    backend: str = "legacy"
+    isolation: str = "in_process"
+    fresh_context: bool = True
+    server_reused: bool = False
 
     @property
     def ok(self) -> bool:
@@ -123,7 +152,6 @@ class SubagentConfig:
     max_steps: int = 8
     max_tool_calls: int = 8
     observation_chars: int = 4_000
-    wallclock_s: float = 180.0
     max_tokens: int = 1_024
 
 
@@ -132,12 +160,13 @@ _RUN_SUBAGENT_TOOL: dict[str, Any] = {
     "function": {
         "name": "run_subagent",
         "description": (
-            "Delegate a question about the open web or scholarly literature "
-            "to a research subagent. Use it when the answer is not in your "
-            "memory and needs current sources - recent events, named papers, "
-            "external facts. It searches, fetches, and returns a compact "
-            "JSON result with sources. Do not use it for anything you can "
-            "answer from the conversation."
+            "Delegate a self-contained task to an autonomous subagent. It "
+            "works the task in its own context with open-web and scholarly "
+            "research tools plus a scratch workspace, and returns a compact "
+            "JSON result with sources. Use it for current or external "
+            "research and genuinely sustained multi-step work. Do not "
+            "delegate ordinary reasoning, writing, or work answerable from "
+            "the conversation. Keep the task brief and self-contained."
         ),
         "parameters": {
             "type": "object",
@@ -145,14 +174,24 @@ _RUN_SUBAGENT_TOOL: dict[str, Any] = {
                 "task": {
                     "type": "string",
                     "description": (
-                        "The research task, self-contained and specific: "
-                        "what to find, and what a good answer looks like. "
+                        "The task, self-contained and specific: "
+                        "what to do, and what a good result looks like. "
                         "The subagent sees this text and nothing else about "
                         "the conversation."
                     ),
                 },
+                "effort": {
+                    "type": "string",
+                    "enum": ["focused", "deep"],
+                    "description": (
+                        "Use 'focused' for a narrow lookup or bounded task; "
+                        "use 'deep' only when the task needs substantial "
+                        "multi-source investigation. Both preserve the "
+                        "subagent's full workflow."
+                    ),
+                },
             },
-            "required": ["task"],
+            "required": ["task", "effort"],
         },
     },
 }
@@ -215,7 +254,7 @@ async def run_subagent(
     *,
     config: SubagentConfig | None = None,
 ) -> AsyncIterator[SubagentStep | SubagentResult]:
-    """Run the inner research loop, yielding steps as they happen.
+    """Run the inner loop, yielding steps as they happen.
 
     Yields a ``SubagentStep`` per tool call so the workspace can stream the
     work, and finishes with a single ``SubagentResult``. The caller decides
@@ -223,7 +262,6 @@ async def run_subagent(
     """
     config = config or SubagentConfig()
     started = time.perf_counter()
-    deadline = started + config.wallclock_s
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": RESEARCHER_PROMPT},
@@ -238,8 +276,6 @@ async def run_subagent(
     search_state = SearchRunState()
 
     for _ in range(config.max_steps):
-        if time.perf_counter() >= deadline:
-            break
         trace = _fresh_trace(task)
         try:
             chunks = generator.stream(
@@ -401,34 +437,33 @@ async def run_subagent(
         if stop_reason:
             break
 
-    # Fell off the end of the step cap, the wallclock expired, or the model
-    # was stuck repeating itself: stop partial, with the reason recorded.
+    # Fell off the end of the step cap, or the model was stuck repeating
+    # itself: stop partial, with the reason recorded.
     if stop_reason:
         cap_note = f"The subagent stopped: {stop_reason}."
         cap_error = stop_reason
     else:
-        cap_note = "The subagent reached its step or time limit."
-        cap_error = "step or wallclock limit reached"
+        cap_note = "The subagent reached its step limit."
+        cap_error = "step limit reached"
     # A cap ends browsing, not synthesis. Give the subagent one tools-disabled
     # pass to turn its already-gathered evidence into the same compact answer
     # shape a normally completed run returns.
-    if time.perf_counter() < deadline:
-        finalized = await _finalize_partial(generator, messages, task, config)
-        if finalized is not None:
-            document = json.loads(finalized["json"])
-            document["note"] = _PARTIAL_NOTE
-            document["stop_reason"] = cap_error
-            yield _result(
-                task=task,
-                status="partial",
-                result_json=json.dumps(document, ensure_ascii=False),
-                summary=finalized["summary"],
-                sources=[*sources, *finalized["sources"]],
-                steps=steps,
-                total_ms=_elapsed_ms(started),
-                error=cap_error,
-            )
-            return
+    finalized = await _finalize_partial(generator, messages, task, config)
+    if finalized is not None:
+        document = json.loads(finalized["json"])
+        document["note"] = _PARTIAL_NOTE
+        document["stop_reason"] = cap_error
+        yield _result(
+            task=task,
+            status="partial",
+            result_json=json.dumps(document, ensure_ascii=False),
+            summary=finalized["summary"],
+            sources=[*sources, *finalized["sources"]],
+            steps=steps,
+            total_ms=_elapsed_ms(started),
+            error=cap_error,
+        )
+        return
 
     yield _result(
         task=task,

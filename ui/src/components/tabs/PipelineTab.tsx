@@ -137,7 +137,7 @@ export function PipelineTab({ trace }: { trace: TurnTrace }) {
 }
 
 /**
- * The ephemeral research subagent's one-line record, if this turn ran one.
+ * The ephemeral subagent's one-line record, if this turn ran one.
  * The full arc (steps, observations) lives for the turn in the chat pane and
  * nowhere else; this card is what the persisted trace keeps.
  */
@@ -145,9 +145,10 @@ function ResearchCard({ sub, answered }: { sub: SubagentTrace; answered: boolean
   return (
     <section className="card">
       <div className="card__head">
-        <span className="card__title">Research subagent</span>
+        <span className="card__title">Subagent</span>
         <span className="card__note mono">
-          {int(sub.steps)} steps · {int(sub.sources.length)} sources · {ms(sub.total_ms)}
+          {sub.effort} · {sub.backend}/{sub.isolation} · {int(sub.steps)} steps ·{' '}
+          {int(sub.sources.length)} sources · {ms(sub.total_ms)}
         </span>
       </div>
       <div className="card__body">
@@ -160,7 +161,7 @@ function ResearchCard({ sub, answered }: { sub: SubagentTrace; answered: boolean
             <span className="callout__mark">!</span>
             <div className="callout__body">
               <div className="callout__title">The subagent returned no answer</div>
-              {sub.error ?? 'The research run ended without usable output.'}
+              {sub.error ?? 'The subagent run ended without usable output.'}
             </div>
           </div>
         )}
@@ -170,6 +171,11 @@ function ResearchCard({ sub, answered }: { sub: SubagentTrace; answered: boolean
           <Stat label="sources" value={int(sub.sources.length)} sub="collected" />
           <Stat label="returned" value={chars(sub.returned_chars)} sub="evidence characters" />
           <Stat label="tools" value={sub.tools_used.join(', ') || '—'} />
+          <Stat
+            label="context"
+            value={sub.fresh_context ? 'fresh' : 'reused'}
+            sub={sub.server_reused ? 'warm server' : 'new server'}
+          />
         </div>
 
         {sub.sources.length > 0 && (

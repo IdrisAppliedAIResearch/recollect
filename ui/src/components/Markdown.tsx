@@ -3,9 +3,10 @@
  *
  * The model answers in markdown (`**bold**`, lists, code fences) but the
  * bubble used to print it raw. This covers the subset chat actually uses:
- * headings, lists, blockquotes, horizontal rules, fenced and inline code,
- * bold, italic, strikethrough, links and bare URLs. It builds React elements
- * only, so model output can never inject markup.
+ * headings, lists (including task lists), blockquotes, horizontal rules,
+ * GFM tables, fenced and inline code, bold, italic, strikethrough, links
+ * and bare URLs. It builds React elements only, so model output can never
+ * inject markup.
  */
 import { type ReactNode, useMemo } from 'react'
 
@@ -217,15 +218,114 @@ function renderList(items: ListItem[], key: Key): ReactNode[] {
   }
 
   const renderNodes = (nodes: Node[]): ReactNode[] =>
-    nodes.map((node, index) => (
-      <li key={index}>
-        {parseInline(node.item.text, key)}
-        {node.children.length ? renderNodes(node.children) : null}
-      </li>
-    ))
+    nodes.map((node, index) => {
+      // `- [ ]` / `- [x]` task items: the checkbox is display-only; the
+      // model's list is data, not form state.
+      const task = node.item.text.match(/^\[([ xX])\]\s+(.*)$/)
+      return (
+        <li key={index} className={task ? 'md-task' : undefined}>
+          {task ? (
+            <>
+              <input
+                className="md-task-box"
+                type="checkbox"
+                readOnly
+                checked={task[1].toLowerCase() === 'x'}
+              />
+              {parseInline(task[2], key)}
+            </>
+          ) : (
+            parseInline(node.item.text, key)
+          )}
+          {node.children.length ? renderNodes(node.children) : null}
+        </li>
+      )
+    })
 
   const Tag = items[0].ordered ? 'ol' : 'ul'
   return [<Tag key={key()}>{renderNodes(roots)}</Tag>]
+}
+
+// GFM tables: a header row, a delimiter row on the very next line, then as
+// many body rows as follow. A header seen mid-stream before its delimiter
+// exists renders as paragraph text until the delimiter arrives, then the
+// re-parse turns the whole run into a table.
+type Align = 'left' | 'right' | 'center' | null
+
+function splitRow(line: string): string[] {
+  let t = line.trim()
+  if (t.startsWith('|')) t = t.slice(1)
+  if (t.endsWith('|') && t.length > 1) t = t.slice(0, -1)
+  const cells: string[] = []
+  let cur = ''
+  for (let k = 0; k < t.length; k++) {
+    if (t[k] === '\\' && t[k + 1] === '|') {
+      cur += '|'
+      k++
+    } else if (t[k] === '|') {
+      cells.push(cur.trim())
+      cur = ''
+    } else {
+      cur += t[k]
+    }
+  }
+  cells.push(cur.trim())
+  return cells
+}
+
+function tableAligns(line: string): Align[] | null {
+  const cells = splitRow(line)
+  if (!cells.length) return null
+  const out: Align[] = []
+  for (const cell of cells) {
+    const body = cell.replace(/:/g, '')
+    if (!/^-+$/.test(body)) return null
+    const left = cell.startsWith(':')
+    const right = cell.endsWith(':')
+    out.push(left && right ? 'center' : right ? 'right' : left ? 'left' : null)
+  }
+  return out
+}
+
+const isTableStart = (lines: string[], i: number): boolean =>
+  lines[i].includes('|') && i + 1 < lines.length && tableAligns(lines[i + 1]) !== null
+
+function renderTable(
+  header: string[],
+  aligns: Align[],
+  rows: string[][],
+  key: Key,
+): ReactNode {
+  const align = (c: number) =>
+    aligns[c] ? { textAlign: aligns[c] } : undefined
+  return (
+    <div className="md-table-wrap" key={key()}>
+      <table className="md-table">
+        <thead>
+          <tr>
+            {header.map((cell, c) => (
+              <th key={c} style={align(c)}>
+                {parseInline(cell, key)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        {rows.length ? (
+          <tbody>
+            {rows.map((cells, r) => (
+              <tr key={r}>
+                {header.map((_, c) => (
+                  <td key={c} style={align(c)}>
+                    {parseInline(cells[c] ?? '', key)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        ) : null}
+      </table>
+    </div>
+  )
 }
 
 const isBlockStart = (line: string): boolean =>
@@ -301,6 +401,20 @@ function renderBlocks(src: string, key: Key): ReactNode[] {
       continue
     }
 
+    if (isTableStart(lines, i)) {
+      const header = splitRow(line)
+      const aligns = tableAligns(lines[i + 1]) as Align[]
+      const rows: string[][] = []
+      let j = i + 2
+      while (j < lines.length && lines[j].trim() && lines[j].includes('|')) {
+        rows.push(splitRow(lines[j]))
+        j++
+      }
+      i = j
+      out.push(renderTable(header, aligns, rows, key))
+      continue
+    }
+
     if (ITEM_RE.test(line)) {
       const items: ListItem[] = []
       let j = i
@@ -328,7 +442,11 @@ function renderBlocks(src: string, key: Key): ReactNode[] {
     // paragraph: single newlines are chat line breaks, so join with <br/>
     const para: string[] = []
     let j = i
-    while (j < lines.length && !isBlockStart(lines[j])) {
+    while (
+      j < lines.length &&
+      !isBlockStart(lines[j]) &&
+      !isTableStart(lines, j)
+    ) {
       para.push(lines[j])
       j++
     }

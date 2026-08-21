@@ -423,7 +423,7 @@ class ToolCallTrace(BaseModel):
 
 
 class SubagentTrace(BaseModel):
-    """One-line accounting for the ephemeral research subagent, if one ran.
+    """One-line accounting for the ephemeral subagent, if one ran.
 
     Deliberately a *summary* and nothing more: the subagent's full arc —
     prompts, tool calls, observations — is an internal implementation detail
@@ -433,10 +433,25 @@ class SubagentTrace(BaseModel):
     """
 
     task: str
+    effort: Literal["focused", "deep"] = "focused"
+    backend: Literal["legacy", "opencode"] = "legacy"
+    isolation: str = Field(
+        default="in_process",
+        description="The effective execution boundary: container, "
+        "in_process, test, or unavailable.",
+    )
+    fresh_context: bool = Field(
+        default=True,
+        description="Whether this call started without prior subagent context.",
+    )
+    server_reused: bool = Field(
+        default=False,
+        description="Whether a warm OpenCode server process served this call.",
+    )
     status: str = Field(
-        description="'ok' when the subagent finished with a parsed final "
-        "result, 'partial' when a cap or a malformed final answer ended it "
-        "early, 'error' when it could not run at all."
+        description="'ok' when the subagent returned usable final output, "
+        "'partial' when a cap or missing final answer ended it early, "
+        "'error' when it could not run at all."
     )
     steps: int
     tools_used: list[str]
@@ -514,7 +529,7 @@ class TurnTrace(BaseModel):
 
     subagent: SubagentTrace | None = Field(
         default=None,
-        description="Summary of the ephemeral research subagent for this "
+        description="Summary of the ephemeral subagent for this "
         "turn, when the main model delegated to one. One line of accounting "
         "only - the subagent's content is never recorded. None on ordinary "
         "turns.",
