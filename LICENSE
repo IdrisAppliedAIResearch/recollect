@@ -1,0 +1,70 @@
+Recollect — Proprietary Software Licence
+Copyright © 2026 Idris Applied AI Research. All rights reserved.
+
+This software is proprietary. It is published as source-available, not as
+open source. You can read it; that is not the same as being allowed to use it.
+
+1. GRANT
+
+   You are permitted to view, read, and privately reference this source code
+   for the sole purposes of evaluation, security review, academic study, and
+   verifying the claims made about it.
+
+   That is the entire grant. Publishing source code does not place it in the
+   public domain and does not grant a licence to use it.
+
+2. RESTRICTIONS
+
+   Except as expressly permitted in section 1, or by separate written
+   agreement with Idris Applied AI Research, you may not:
+
+   (a) use, run, execute, or deploy this software, in whole or in part, for
+       any purpose, including internal, personal, research, and commercial
+       purposes;
+   (b) copy, reproduce, or redistribute it, in source or compiled form;
+   (c) modify it, or create derivative works from it;
+   (d) host it, or offer it to any third party as a service;
+   (e) incorporate it, or any part of it, into any other work;
+   (f) sublicense, sell, rent, lease, or otherwise transfer any rights in it;
+   (g) remove, obscure, or alter this notice or any copyright notice.
+
+   Forking this repository through the ordinary mechanics of the hosting
+   platform, in order to exercise the rights in section 1, is permitted. Doing
+   anything with that fork beyond section 1 is not.
+
+3. NO CONTRIBUTION LICENCE BY IMPLICATION
+
+   If you submit a contribution, you assign to Idris Applied AI Research all
+   right, title, and interest in it, or — where assignment is not possible —
+   grant a perpetual, worldwide, irrevocable, royalty-free licence to use it
+   for any purpose without restriction or attribution.
+
+   If you cannot make that grant, say so before your contribution is reviewed.
+
+4. THIRD-PARTY AND SEPARATELY LICENSED COMPONENTS
+
+   This software depends on components that are not covered by this licence
+   and are not owned by Idris Applied AI Research, and on one component that
+   is owned by Idris Applied AI Research but published separately under
+   different terms. Nothing in this licence grants, restricts, or modifies any
+   right in those components. See THIRD_PARTY_NOTICES.md.
+
+   In particular, this licence grants you no rights whatsoever in the
+   `episodic` library, which is published separately. Your rights in that
+   library come from its own licence and from nowhere in this document.
+
+5. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
+   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
+   FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+6. LICENSING ENQUIRIES
+
+   Commercial licences, evaluation licences, and deployment rights are
+   available. Contact idrisappliedairesearch@gmail.com with a description of
+   what you want to build and how it would be deployed.
