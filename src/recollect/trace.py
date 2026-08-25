@@ -9,12 +9,11 @@ Three rules shaped it.
 
 **Every scored candidate appears, not just the winners.** The research this
 harness deploys found its most important results in what was *not*
-delivered: a similarity path that fires at zero because its threshold sits
-at roughly twice the height genuine relevance reaches, and a coverage
-selector that chooses its set as though it owns the whole budget and is
-then handed the remainder. Neither is visible from the delivered set. So
-``candidates`` carries one row per episode in the store, with its cosine,
-its cluster, and the reason it did or did not land.
+delivered: episodes that top the CC80 rank yet never land because the
+initial half's walk skipped them, and candidates the ASPECT saturation
+rejected on marginal gain. Neither is visible from the delivered set. So
+``candidates`` carries one row per episode in the store, with its dense and
+BM25 terms, its fused score and rank, and the reason it did or did not land.
 
 **Text is not duplicated.** A candidate row carries a preview and a
 character cost, never the full episode body: a 1,000-turn session would
@@ -41,31 +40,35 @@ from pydantic import BaseModel, Field
 # Tier vocabulary
 # ---------------------------------------------------------------------------
 
-#: The three retrieval paths, in the order packing considers them. The short
-#: names are the research repository's; the labels are what the UI shows.
-TierName = Literal["recency", "similarity", "coverage"]
+#: The retrieval paths, the way the deployed CC-007 read path composes them:
+#: additive continuity, budgeted CC80 semantic admission, and the protected
+#: static ASPECT spread that carves out half of the long-term allowance.
+TierName = Literal["recency", "semantic", "aspect"]
 
 TIER_LABELS: dict[str, str] = {
     "recency": "RECENT",
-    "similarity": "RELATED",
-    "coverage": "SPREAD",
+    "semantic": "SEMANTIC",
+    "aspect": "ASPECT",
 }
 
 TIER_DESCRIPTIONS: dict[str, str] = {
     "recency": (
-        "The last N episodes in conversation order. No scoring involved. "
-        "Packed first, so it spends the budget before anything else is "
-        "considered."
+        "The last recency_window_n episodes in conversation order. Rendered "
+        "additively OUTSIDE the long-term budget: always delivered, never "
+        "dropped, and excluded from long-term admission by identity."
     ),
-    "similarity": (
-        "Episodes whose cosine against the query clears a fixed threshold. "
-        "Measured inert on the internal corpus: the threshold sits above the "
-        "highest score relevant content reaches."
+    "semantic": (
+        "Long-term admission ranked by frozen CC80 over the complete store: "
+        "dense cosine and BM25 each min-max normalized per query, fused "
+        "0.8 dense / 0.2 BM25, packed in rank order with skip-on-overflow. "
+        "On ASPECT turns this is the initial half plus whatever the slack "
+        "return rescued afterwards."
     ),
-    "coverage": (
-        "A budgeted greedy over the whole store: relevance plus a bonus for "
-        "entering a topic cluster not yet covered. It selects as though it "
-        "owns the entire budget, and is then packed last."
+    "aspect": (
+        "The protected static ASPECT half: a greedy saturation over frozen "
+        "parser facets (entity, date, number, event, relation, noun) that "
+        "admits episodes whose facets are not yet covered, scored by CC80 "
+        "score times facet idf, budgeted to the other half of the allowance."
     ),
 }
 
@@ -123,83 +126,168 @@ class CandidateTrace(BaseModel):
     )
     assistant_preview: str
 
-    relevance: float = Field(
+    dense_cosine: float = Field(
         description="Cosine of this episode's stored vector against the "
-        "query vector. Computed for every episode, every turn."
+        "query vector. Computed for every episode, every turn, and reported "
+        "as measured - no normalization is applied here."
     )
-    relevance_rank: int = Field(
-        description="1 = highest cosine this turn. Ties broken by turn."
+    dense_normalized: float = Field(
+        description="The dense term after per-query min-max scaling, as it "
+        "enters the CC80 fusion. Zero for every episode when the store has "
+        "only one candidate or all cosines tie: a constant component "
+        "contributes nothing rather than dividing by zero."
     )
-    cluster: int | None = Field(
-        default=None,
-        description="Which of the k deterministic clusters this episode fell "
-        "into. None when it was outside the candidate pool.",
+    bm25_score: float = Field(
+        description="Raw Robertson BM25 of this episode against the "
+        "tokenized query, before normalization."
+    )
+    bm25_normalized: float = Field(
+        description="The BM25 term after per-query min-max scaling, as it "
+        "enters the CC80 fusion."
+    )
+    cc80_score: float = Field(
+        description="The fused CC80 ranking score: semantic_dense_weight * "
+        "dense_normalized + (1 - weight) * bm25_normalized, under the "
+        "store-pinned weights (0.8 dense / 0.2 BM25 by default)."
+    )
+    cc80_rank: int = Field(
+        description="1 = highest CC80 score this turn. Ties broken by turn "
+        "number, then id, exactly as the library orders them."
     )
 
     render_chars: int = Field(
-        description="Exact serialized cost of admitting this episode, in "
-        "characters, as the renderer would write it."
+        description="Exact serialized size of this episode's element, in "
+        "characters. The admission charge is this plus one separator "
+        "character - see the packing decisions."
     )
 
-    in_recency_window: bool
-    passes_similarity_threshold: bool
-    selected_by_coverage: bool
+    in_recency_window: bool = Field(
+        description="Within the trailing recency_window_n slice. If so, the "
+        "episode is delivered additively and is never considered by "
+        "long-term admission."
+    )
+    in_semantic_initial: bool = Field(
+        description="Admitted by the initial budgeted CC80 walk (rank order, "
+        "skipping what does not fit the half allowance)."
+    )
+    selected_by_aspect: bool = Field(
+        description="Admitted by the protected ASPECT spread: the greedy "
+        "facet-saturation half."
+    )
+    returned_semantic: bool = Field(
+        description="Rejected by the initial and spread packs, then rescued "
+        "by the final slack walk while budget still remained."
+    )
 
     delivered: bool
     delivered_via: TierName | None = Field(
         default=None,
-        description="The path that claimed it first. Attribution follows the "
-        "packing order, so an episode in both the recency window and the "
-        "coverage selection is attributed to recency.",
+        description="The path that claimed it first. Attribution follows "
+        "decision order, so an episode in both the recency window and the "
+        "CC80 selection is attributed to recency.",
     )
     drop_reason: str | None = Field(
         default=None,
-        description="Why a proposed episode did not land. None when it was "
-        "never proposed, or when it was delivered.",
+        description="Why a proposed episode did not land: the reason of its "
+        "last admission attempt that proposed it. None when it was never "
+        "proposed, or when it was delivered.",
     )
 
 
-class SelectorStepTrace(BaseModel):
-    """One greedy step of the coverage selector, with its arithmetic shown."""
+class AspectStepTrace(BaseModel):
+    """One greedy step of the ASPECT facet saturation, arithmetic shown."""
 
     step: int
     candidate_id: str
     source_turn: int
-    relevance: float = Field(description="The modular relevance term.")
-    objective_gain: float = Field(
-        description="Marginal gain: relevance plus the cluster-novelty bonus "
-        "if this episode enters an uncovered cluster."
+    score: float = Field(
+        description="This episode's CC80 score, the multiplier in every "
+        "facet marginal of the step."
     )
-    scaled_gain: float = Field(
-        description="Objective gain divided by cost^r. With r=0 this equals "
-        "the objective gain and cost does not influence the choice."
+    marginal: float = Field(
+        description="Sum, over this episode's facets, of "
+        "max(0, score * idf(facet) - coverage(facet)): how much uncovered "
+        "faceted relevance it adds over what earlier choices already carry."
+    )
+    ratio: float = Field(
+        description="marginal divided by the episode's additive character "
+        "cost. The greedy takes the highest ratio, ties broken by CC80 rank "
+        "then store index, so long episodes are penalized."
     )
     additive_chars: int
     cumulative_chars: int
-    entered_new_cluster: bool
-    cluster: int | None = None
-
-
-class ClusterTrace(BaseModel):
-    """One deterministic topic cluster over the candidate pool."""
-
-    id: int
-    size: int
-    member_ids: list[str]
-    mean_relevance: float
-    max_relevance: float
-    selected_ids: list[str] = Field(
-        default_factory=list,
-        description="Members the coverage selector chose.",
-    )
-    delivered_ids: list[str] = Field(
-        default_factory=list,
-        description="Members that survived packing and reached the model.",
+    covered_total: int = Field(
+        description="Size of the coverage map after this admission: how many "
+        "distinct facets the running selection accounts for."
     )
 
-    @property
-    def covered(self) -> bool:
-        return bool(self.selected_ids)
+
+class CC80Detail(BaseModel):
+    """How this turn's CC80 fusion was scaled.
+
+    Broken out because min-max normalization makes every ranking number
+    query-relative: the same episode scores 0.00 on one turn and 0.84 on
+    another. A constant component (one candidate, an empty query token
+    stream, or all-equal vectors) normalizes to all zeros and is flagged
+    rather than silently diluted.
+    """
+
+    dense_weight: float
+    bm25_k1: float
+    bm25_b: float
+    dense_min: float
+    dense_max: float
+    dense_constant: bool
+    bm25_min: float
+    bm25_max: float
+    bm25_constant: bool
+
+
+class AspectDetail(BaseModel):
+    """The protected ASPECT half: what it admitted and why it stopped.
+
+    ``mode`` says which path this turn actually took:
+
+    - ``off``      - ASPECT disabled in the store's config.
+    - ``protected`` - full pipeline: initial CC80 half, facet-spread half,
+      slack return.
+    - ``fallback``  - ASPECT was enabled but either no eligible episode
+      remained or the initial half admitted nothing; the full budget went
+      to a single CC80 walk instead.
+
+    ``initial_ids`` and the returned list are long-term admissions that the
+    semantic path owns, even on a protected turn, because they come from the
+    CC80 walk; ``spread_ids`` are the ones only the saturation produced.
+    """
+
+    enabled: bool
+    share: float
+    model: str
+    mode: Literal["off", "protected", "fallback"]
+    facet_latency_ms: float | None = Field(
+        default=None,
+        description="Wall time of parsing the store into facets this turn. "
+        "None when no spread ran. Excluded from verification: latency is "
+        "not byte-reproducible.",
+    )
+    initial_ids: list[str]
+    spread_ids: list[str]
+    returned_ids: list[str] = Field(
+        description="Candidates the slack walk admitted after initial plus "
+        "spread, in CC80 rank order."
+    )
+    solo_chars: int | None = Field(
+        default=None,
+        description="The spread's own accounting: starting from the empty "
+        "tags, how many characters its running selection spent against the "
+        "half allowance. None when no spread ran.",
+    )
+    stopping_reason: str | None = Field(
+        default=None,
+        description="Why the saturation stopped: no_complete_candidate_fits "
+        "or no_positive_marginal. None when no spread ran.",
+    )
+    steps: list[AspectStepTrace] = Field(default_factory=list)
 
 
 class TierTrace(BaseModel):
@@ -260,34 +348,13 @@ class TierTrace(BaseModel):
         return bool(self.delivered_ids)
 
 
-class SimilarityTierDetail(BaseModel):
-    """Why the similarity path fired or did not.
-
-    Broken out because a bare count of zero is the single most misleading
-    number this system can report. Zero hits at a threshold of 0.48 when
-    the best cosine in the store is 0.27 is not a quiet turn - it is a
-    path that cannot fire, and the margin says so.
-    """
-
-    threshold: float
-    hit_count: int
-    max_relevance_observed: float
-    margin_to_threshold: float = Field(
-        description="threshold minus the best cosine observed. Positive "
-        "means nothing in the store could have cleared the bar this turn."
-    )
-    inert: bool = Field(
-        description="True when no episode reached the threshold. Reported "
-        "as a distinct condition rather than as an empty result."
-    )
-
-
 class PackingDecision(BaseModel):
     """One admission attempt, in the order packing made it."""
 
     order: int
     candidate_id: str
     tier: TierName
+    phase: Literal["full", "initial", "spread", "slack"]
     cost_chars: int
     payload_chars_after: int
     admitted: bool
@@ -295,15 +362,30 @@ class PackingDecision(BaseModel):
 
 
 class PackingTrace(BaseModel):
-    """How the budget was spent, decision by decision."""
+    """How the long-term budget was spent, decision by decision.
+
+    Decisions are ordered exactly as the library made them, across the
+    phases that ran this turn: ``full`` (a single CC80 walk over the whole
+    allowance - the off and fallback shapes), ``initial`` (the CC80 half
+    walk), ``spread`` (the ASPECT-selected candidates packed against the
+    other half), and ``slack`` (the final return, charged at exact
+    additive cost until the allowance ran out).
+    """
 
     policy: str = Field(
         description="The named drop policy from the library. Candidates are "
-        "considered in tier order and a candidate that does not fit is "
+        "considered in decision order and a candidate that does not fit is "
         "skipped rather than ending the walk."
     )
-    tier_order: list[TierName]
-    budget_chars: int
+    phases: list[Literal["full", "initial", "spread", "slack"]]
+    budget_chars: int = Field(
+        description="The long-term allowance this walk governed. Recent "
+        "continuity is additive and sits outside it."
+    )
+    half_chars: int = Field(
+        description="int(budget * aspect_share): each protected half's "
+        "allowance. Zero when no protected turn ran."
+    )
     empty_payload_chars: int = Field(
         description="Cost of the two empty block tags. No payload is cheaper, "
         "so a budget below this cannot express any answer at all."
@@ -329,13 +411,14 @@ class ReportTrace(BaseModel):
     """The library's own ContextReport, carried verbatim.
 
     This is the authority. Every richer number in the trace is checked
-    against it.
+    against it. On the CC-007 path ``chars_delivered`` is the total output
+    and may exceed ``budget_chars`` because recency is additive; the pair
+    ``retrieval_chars_delivered`` / ``retrieval_budget_chars`` is the part
+    the allowance governed.
     """
 
     chars_delivered: int
     chars_wanted: int
-    chars_available: int
-    shortfall_chars: int
     episodes_delivered: int
     episodes_dropped: int
     truncated: bool
@@ -347,6 +430,40 @@ class ReportTrace(BaseModel):
     dropped_ids: list[str]
     drop_policy: str
     budget_chars: int
+    retrieval_chars_delivered: int | None = None
+    retrieval_budget_chars: int | None = None
+    recency_count: int = 0
+    semantic_count: int = 0
+    aspect_count: int = 0
+    returned_semantic_count: int = 0
+    aspect_enabled: bool = False
+    recent_ids: list[str] = Field(default_factory=list)
+    recency_additive: bool = False
+
+    @property
+    def chars_available(self) -> int:
+        """Unused long-term allowance, excluding additive recent continuity."""
+        delivered = (
+            self.chars_delivered
+            if self.retrieval_chars_delivered is None
+            else self.retrieval_chars_delivered
+        )
+        budget = (
+            self.budget_chars
+            if self.retrieval_budget_chars is None
+            else self.retrieval_budget_chars
+        )
+        return budget - delivered
+
+    @property
+    def shortfall_chars(self) -> int:
+        """How much more allowance the proposed selection would have needed."""
+        delivered = (
+            self.chars_delivered
+            if self.retrieval_chars_delivered is None
+            else self.retrieval_chars_delivered
+        )
+        return max(0, self.chars_wanted - delivered)
 
 
 class VerificationTrace(BaseModel):
@@ -504,7 +621,7 @@ class GenerationTrace(BaseModel):
 class TurnTrace(BaseModel):
     """One complete turn: retrieval, assembly, generation, and the proof."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
 
     turn_id: str
     session_id: str
@@ -516,10 +633,9 @@ class TurnTrace(BaseModel):
     store: StoreTrace
 
     candidates: list[CandidateTrace]
-    clusters: list[ClusterTrace]
     tiers: list[TierTrace]
-    similarity_detail: SimilarityTierDetail
-    selector_steps: list[SelectorStepTrace]
+    cc80_detail: CC80Detail
+    aspect_detail: AspectDetail
     packing: PackingTrace
 
     context_block: ContextBlockTrace
@@ -554,9 +670,17 @@ class TurnTrace(BaseModel):
 
     @property
     def budget_utilization(self) -> float:
-        if self.report.budget_chars <= 0:
+        """How much of the long-term allowance the retrieval block used.
+
+        Measured on the retrieval pair, not the total: recent continuity is
+        additive and renders outside the allowance, so a fully packed
+        retrieval plus a recent window would read over 100% of the total.
+        """
+        budget = self.report.retrieval_budget_chars
+        delivered = self.report.retrieval_chars_delivered
+        if not budget or budget <= 0 or delivered is None:
             return 0.0
-        return self.report.chars_delivered / self.report.budget_chars
+        return delivered / budget
 
 
 class TurnSummary(BaseModel):
@@ -577,3 +701,6 @@ class TurnSummary(BaseModel):
     coverage_count: int
     starved_tiers: list[str]
     trace_trustworthy: bool
+    recency_count: int = 0
+    semantic_count: int = 0
+    aspect_count: int = 0
