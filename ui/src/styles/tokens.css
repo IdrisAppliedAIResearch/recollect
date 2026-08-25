@@ -52,13 +52,13 @@
   --tier-recency-soft: #e2eef8;
   --tier-recency-line: #8fbfe0;
 
-  --tier-similarity: #a86400;
-  --tier-similarity-soft: #f9eeda;
-  --tier-similarity-line: #dcb26c;
+  --tier-semantic: #a86400;
+  --tier-semantic-soft: #f9eeda;
+  --tier-semantic-line: #dcb26c;
 
-  --tier-coverage: #00745c;
-  --tier-coverage-soft: #dff0ea;
-  --tier-coverage-line: #7cc0ac;
+  --tier-aspect: #00745c;
+  --tier-aspect-soft: #dff0ea;
+  --tier-aspect-line: #7cc0ac;
 
   /* Anything no tier claimed. */
   --tier-none: #86867c;
@@ -125,13 +125,13 @@
     --tier-recency-soft: #10293a;
     --tier-recency-line: #2b5c7d;
 
-    --tier-similarity: #e8a33d;
-    --tier-similarity-soft: #33260d;
-    --tier-similarity-line: #705220;
+    --tier-semantic: #e8a33d;
+    --tier-semantic-soft: #33260d;
+    --tier-semantic-line: #705220;
 
-    --tier-coverage: #4cc4a2;
-    --tier-coverage-soft: #0f2f28;
-    --tier-coverage-line: #276050;
+    --tier-aspect: #4cc4a2;
+    --tier-aspect-soft: #0f2f28;
+    --tier-aspect-line: #276050;
 
     --tier-none: #7d7d74;
     --tier-none-soft: #23241f;
@@ -180,13 +180,13 @@
   --tier-recency-soft: #10293a;
   --tier-recency-line: #2b5c7d;
 
-  --tier-similarity: #e8a33d;
-  --tier-similarity-soft: #33260d;
-  --tier-similarity-line: #705220;
+  --tier-semantic: #e8a33d;
+  --tier-semantic-soft: #33260d;
+  --tier-semantic-line: #705220;
 
-  --tier-coverage: #4cc4a2;
-  --tier-coverage-soft: #0f2f28;
-  --tier-coverage-line: #276050;
+  --tier-aspect: #4cc4a2;
+  --tier-aspect-soft: #0f2f28;
+  --tier-aspect-line: #276050;
 
   --tier-none: #7d7d74;
   --tier-none-soft: #23241f;
@@ -206,15 +206,15 @@
   --tier-soft: var(--tier-recency-soft);
   --tier-line: var(--tier-recency-line);
 }
-[data-tier='similarity'] {
-  --tier: var(--tier-similarity);
-  --tier-soft: var(--tier-similarity-soft);
-  --tier-line: var(--tier-similarity-line);
+[data-tier='semantic'] {
+  --tier: var(--tier-semantic);
+  --tier-soft: var(--tier-semantic-soft);
+  --tier-line: var(--tier-semantic-line);
 }
-[data-tier='coverage'] {
-  --tier: var(--tier-coverage);
-  --tier-soft: var(--tier-coverage-soft);
-  --tier-line: var(--tier-coverage-line);
+[data-tier='aspect'] {
+  --tier: var(--tier-aspect);
+  --tier-soft: var(--tier-aspect-soft);
+  --tier-line: var(--tier-aspect-line);
 }
 [data-tier='none'] {
   --tier: var(--tier-none);

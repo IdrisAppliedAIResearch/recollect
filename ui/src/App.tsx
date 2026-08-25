@@ -498,10 +498,16 @@ function ConfigChip({ health }: { health: HealthResponse }) {
   if (n !== null) configParts.push(`N=${int(n)}`)
   const threshold = numOf(cfg, 'k_threshold')
   if (threshold !== null) configParts.push(`K≥${threshold}`)
-  const lambda = numOf(cfg, 'selector_lambda')
-  const clusters = numOf(cfg, 'selector_cluster_count')
-  if (lambda !== null && clusters !== null) {
-    configParts.push(`${strOf(cfg, 'selector') ?? 'A3'} λ=${lambda} k=${int(clusters)}`)
+  const aspectEnabled = (cfg as Record<string, unknown>)['aspect_enabled']
+  if (typeof aspectEnabled === 'boolean') {
+    const share = numOf(cfg, 'aspect_share')
+    configParts.push(
+      aspectEnabled && share !== null ? `A on ${pct(share, 0)}` : aspectEnabled ? 'A on' : 'A off',
+    )
+  }
+  const denseWeight = numOf(cfg, 'semantic_dense_weight')
+  if (denseWeight !== null) {
+    configParts.push(`CC80 ${denseWeight.toFixed(2)}/${(1 - denseWeight).toFixed(2)}`)
   }
   const budget = numOf(health, 'budget_chars')
   if (budget !== null) configParts.push(`budget ${chars(budget)}`)
@@ -536,9 +542,9 @@ function ConfigChip({ health }: { health: HealthResponse }) {
       ? `config ${keyValues(health.episodic_config, [
           'recency_window_n',
           'k_threshold',
-          'selector',
-          'selector_lambda',
-          'selector_cluster_count',
+          'aspect_enabled',
+          'aspect_share',
+          'semantic_dense_weight',
         ])}`
       : null,
     health.budget_chars !== undefined ? `budget_chars=${health.budget_chars}` : null,

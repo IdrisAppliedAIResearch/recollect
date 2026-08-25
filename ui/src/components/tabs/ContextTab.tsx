@@ -9,7 +9,7 @@
  */
 import { useMemo, useState } from 'react'
 
-import { chars, pct } from '../../lib/format.ts'
+import { chars } from '../../lib/format.ts'
 import { orderedTiers } from '../../lib/derive.ts'
 import type { TierName, TurnTrace } from '../../types/trace.ts'
 
@@ -135,7 +135,12 @@ export function ContextTab({ trace }: { trace: TurnTrace }) {
 }
 
 function Ruler({ trace }: { trace: TurnTrace }) {
-  const budget = Math.max(trace.report.budget_chars, 1)
+  const report = trace.report
+  const budget = Math.max(report.budget_chars, 1)
+  const total = report.chars_delivered
+  // Recent continuity renders past the allowance, so the track is scaled to
+  // the larger of the two and the allowance is placed, not pinned.
+  const scale = Math.max(total, budget, 1)
   const tiers = orderedTiers(trace)
 
   return (
@@ -143,18 +148,29 @@ function Ruler({ trace }: { trace: TurnTrace }) {
       {/* The track is its own bounded box: the fill's segment percentages are
           relative to it, and the legend sits under it rather than inside an
           overflow-clipped bar. */}
-      <div className="ruler__track">
+      <div
+        className="ruler__track"
+        title={
+          total > budget
+            ? `Total ${chars(total)} chars exceeds the long-term allowance: recent continuity renders additively outside it.`
+            : undefined
+        }
+      >
         <div className="ruler__fill">
           {tiers.map((tier) => (
             <div
               key={tier.name}
               className="ruler__seg"
               data-tier={tier.name}
-              style={{ width: `${(tier.chars_delivered / budget) * 100}%` }}
+              style={{ width: `${(tier.chars_delivered / scale) * 100}%` }}
               title={`${tier.label}: ${chars(tier.chars_delivered)} chars`}
             />
           ))}
-          <div className="ruler__cap" />
+          <div
+            className="ruler__cap"
+            style={{ left: `${(budget / scale) * 100}%` }}
+            title={`long-term allowance: ${chars(budget)} chars`}
+          />
         </div>
       </div>
       <div className="ruler__legend mono">
@@ -165,8 +181,8 @@ function Ruler({ trace }: { trace: TurnTrace }) {
           </span>
         ))}
         <span className="ruler__total">
-          {chars(trace.report.chars_delivered)} / {chars(trace.report.budget_chars)} (
-          {pct(trace.report.chars_delivered / budget)})
+          {chars(report.retrieval_chars_delivered ?? total)} / {chars(budget)} allowance
+          {total > budget && ` · ${chars(total)} total (+${chars(total - budget)} additive)`}
         </span>
       </div>
     </div>

@@ -44,6 +44,9 @@ function summarize(trace: TurnTrace): TurnSummary {
     starved_tiers: starvedTiers(trace),
     trace_trustworthy:
       trace.verification.payload_identical && trace.verification.report_fields_identical,
+    recency_count: trace.report.recency_count,
+    semantic_count: trace.report.semantic_count,
+    aspect_count: trace.report.aspect_count,
   }
 }
 
@@ -86,13 +89,20 @@ export function createMockSource(scenario: MockScenario = 'deployed'): DataSourc
           reachable: false,
           note: 'mock data source — no generator contacted',
         },
-        library_version: '0.1.0',
+        library_version: '0.2.0',
         episodic_config: {
+          aspect_enabled: true,
+          aspect_model: 'en_core_web_sm',
+          aspect_share: 0.5,
+          bm25_b: 0.75,
+          bm25_k1: 1.2,
           budget_accounting: 'exact_serialized',
           candidate_policy: 'full_store',
           embed_call_shape: 'solo',
           k_threshold: 0.48,
           recency_window_n: 32,
+          retrieval_budget_chars: 32_000,
+          semantic_dense_weight: 0.8,
           seed: 5005,
           selector: 'A3',
           selector_cluster_count: 16,

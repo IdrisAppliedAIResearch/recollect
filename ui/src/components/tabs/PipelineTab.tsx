@@ -6,13 +6,25 @@
  * episodes" summary, and it is the failure the underlying research spent
  * eleven studies finding.
  */
-import { chars, cosine, int, ms, truncate } from '../../lib/format.ts'
-import { hasContributed, isFullyOverlapped, isStarved, orderedTiers } from '../../lib/derive.ts'
+import { chars, int, ms, truncate } from '../../lib/format.ts'
+import {
+  charsAvailable,
+  hasContributed,
+  isFullyOverlapped,
+  isStarved,
+  orderedTiers,
+  shortfallChars,
+} from '../../lib/derive.ts'
 import type { SubagentTrace, TierTrace, TurnTrace } from '../../types/trace.ts'
 
 export function PipelineTab({ trace }: { trace: TurnTrace }) {
   const tiers = orderedTiers(trace)
   const starved = tiers.filter(isStarved)
+  const aspect = trace.aspect_detail
+  const report = trace.report
+  const unused = charsAvailable(report)
+  const shortfall = shortfallChars(report)
+  const recencyChars = tiers.find((t) => t.name === 'recency')?.chars_delivered ?? 0
 
   return (
     <div className="stack">
@@ -24,22 +36,20 @@ export function PipelineTab({ trace }: { trace: TurnTrace }) {
               {starved.map((t) => t.label).join(' and ')} proposed episodes that never
               arrived
             </div>
-            The budget was spent by an earlier path before these were considered.
+            The allowance was spent by an earlier path before these were considered.
             They were not outscored — they were never weighed.
           </div>
         </div>
       )}
 
-      {trace.similarity_detail.inert && (
+      {aspect.mode === 'fallback' && (
         <div className="callout callout--warn">
           <span className="callout__mark">!</span>
           <div className="callout__body">
-            <div className="callout__title">The RELATED path could not fire</div>
-            Its threshold is {trace.similarity_detail.threshold}, and the best cosine
-            anything in this store reached was{' '}
-            {cosine(trace.similarity_detail.max_relevance_observed)} — short by{' '}
-            {cosine(trace.similarity_detail.margin_to_threshold)}. This is a bar set
-            above what relevance reaches, not a quiet turn.
+            <div className="callout__title">The protected 50/50 split did not run</div>
+            The initial half admitted nothing, so one CC80 walk owned the whole
+            allowance. There is no ASPECT block on this turn — the semantic claim is
+            the entire long-term selection.
           </div>
         </div>
       )}
@@ -53,7 +63,10 @@ export function PipelineTab({ trace }: { trace: TurnTrace }) {
           </span>
         </div>
         <div className="card__body">
-          <div className="pipe-title">Three paths compete for one budget</div>
+          <div className="pipe-title">
+            RECENT renders additively, outside the long-term allowance. SEMANTIC and
+            ASPECT divide the allowance half-and-half.
+          </div>
           <div className="two-col">
             {tiers.map((tier) => (
               <TierCard key={tier.name} tier={tier} />
@@ -69,13 +82,20 @@ export function PipelineTab({ trace }: { trace: TurnTrace }) {
         </div>
         <div className="card__body">
           <p className="section-note">
-            Candidates are considered in that order — RECENT, then RELATED, then
-            SPREAD — and charged the exact characters they serialize to. One that
-            does not fit is skipped, and the walk continues to the next.
+            The long-term allowance is walked in phases — initial CC80, then the
+            ASPECT spread, then a slack return; when the split did not run, a single
+            full walk owns it. Each candidate is charged the exact characters it
+            serializes to. One that does not fit is skipped, and the walk continues
+            to the next.
           </p>
           <div className="statgrid">
-            <Stat label="admitted" value={int(trace.report.episodes_delivered)} />
-            <Stat label="dropped" value={int(trace.report.episodes_dropped)} />
+            <Stat label="admitted" value={int(report.episodes_delivered)} />
+            <Stat label="dropped" value={int(report.episodes_dropped)} />
+            <Stat
+              label="phases"
+              value={trace.packing.phases.join(' → ')}
+              sub="in this order"
+            />
             <Stat
               label="decisions"
               value={int(trace.packing.decisions.length)}
@@ -94,7 +114,7 @@ export function PipelineTab({ trace }: { trace: TurnTrace }) {
         <div className="card__head">
           <span className="card__title">Context window</span>
           <span className="card__note mono">
-            {chars(trace.context_block.chars)} / {chars(trace.report.budget_chars)} chars
+            {chars(trace.context_block.chars)} total · {chars(unused)} unused allowance
           </span>
         </div>
         <div className="card__body">
@@ -102,22 +122,22 @@ export function PipelineTab({ trace }: { trace: TurnTrace }) {
             <Stat
               label="recent block"
               value={int(trace.context_block.recent_episode_count)}
-              sub="episodes"
+              sub={`${chars(recencyChars)} additive`}
             />
             <Stat
               label="retrieved block"
               value={int(trace.context_block.retrieved_episode_count)}
-              sub="episodes"
+              sub="long-term episodes"
             />
             <Stat
-              label="unused budget"
-              value={chars(trace.report.chars_available)}
-              sub="characters"
+              label="unused allowance"
+              value={chars(unused)}
+              sub={`of ${chars(report.budget_chars)}`}
             />
-            {trace.report.shortfall_chars > 0 && (
+            {shortfall > 0 && (
               <Stat
                 label="shortfall"
-                value={chars(trace.report.shortfall_chars)}
+                value={chars(shortfall)}
                 sub="more was wanted"
                 tone="warn"
               />

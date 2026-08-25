@@ -1,49 +1,51 @@
 /**
- * Hand-written mirror of `src/recollect/trace.py`.
+ * Hand-written mirror of `src/recollect/trace.py` (schema v2, CC-007 read
+ * path).
  *
  * Kept field-for-field with the Pydantic models. Two deliberate differences:
  *
  * 1. `datetime` fields arrive as ISO-8601 strings.
  * 2. Pydantic `@property` accessors (`TierTrace.starved`,
- *    `VerificationTrace.trustworthy`, `ClusterTrace.covered`,
- *    `TurnTrace.starved_tiers`, `TurnTrace.budget_utilization`,
- *    `PromptCacheTrace.cache_hit_ratio`) are NOT part of `model_dump()`, so
- *    they are absent from the wire. They are recomputed in `src/lib/derive.ts`
- *    from the same definitions.
+ *    `TierTrace.fully_overlapped`, `TierTrace.contributed`,
+ *    `ReportTrace.chars_available`, `ReportTrace.shortfall_chars`,
+ *    `VerificationTrace.trustworthy`, `TurnTrace.starved_tiers`,
+ *    `TurnTrace.budget_utilization`, `PromptCacheTrace.cache_hit_ratio`) are
+ *    NOT part of `model_dump()`, so they are absent from the wire. They are
+ *    recomputed in `src/lib/derive.ts` from the same definitions.
  */
 
 // ---------------------------------------------------------------------------
 // Tier vocabulary
 // ---------------------------------------------------------------------------
 
-export type TierName = 'recency' | 'similarity' | 'coverage'
+export type TierName = 'recency' | 'semantic' | 'aspect'
 
 export const TIER_ORDER: readonly TierName[] = [
   'recency',
-  'similarity',
-  'coverage',
+  'semantic',
+  'aspect',
 ] as const
 
 export const TIER_LABELS: Record<TierName, string> = {
   recency: 'RECENT',
-  similarity: 'RELATED',
-  coverage: 'SPREAD',
+  semantic: 'SEMANTIC',
+  aspect: 'ASPECT',
 }
 
-/** The report-field shorthand the research uses: stm_count / k_count / coverage_count. */
+/** The report-field shorthand: recency_count / semantic_count / aspect_count. */
 export const TIER_CODES: Record<TierName, string> = {
   recency: 'N',
-  similarity: 'K',
-  coverage: 'A3',
+  semantic: 'K',
+  aspect: 'A',
 }
 
 export const TIER_DESCRIPTIONS: Record<TierName, string> = {
   recency:
-    'The last N episodes in conversation order. No scoring involved. Packed first, so it spends the budget before anything else is considered.',
-  similarity:
-    'Episodes whose cosine against the query clears a fixed threshold. Measured inert on the internal corpus: the threshold sits above the highest score relevant content reaches.',
-  coverage:
-    'A budgeted greedy over the whole store: relevance plus a bonus for entering a topic cluster not yet covered. It selects as though it owns the entire budget, and is then packed last.',
+    'The last recency_window_n episodes in conversation order. Rendered additively OUTSIDE the long-term budget: always delivered, never dropped, and excluded from long-term admission by identity.',
+  semantic:
+    'Long-term admission ranked by frozen CC80 over the complete store: dense cosine and BM25 each min-max normalized per query, fused 0.8 dense / 0.2 BM25, packed in rank order with skip-on-overflow. On ASPECT turns this is the initial half plus whatever the slack return rescued afterwards.',
+  aspect:
+    'The protected static ASPECT half: a greedy saturation over frozen parser facets (entity, date, number, event, relation, noun) that admits episodes whose facets are not yet covered, scored by CC80 score times facet idf, budgeted to the other half of the allowance.',
 }
 
 // ---------------------------------------------------------------------------
@@ -74,44 +76,85 @@ export interface CandidateTrace {
   preview: string
   assistant_preview: string
 
-  relevance: number
-  /** 1 = highest cosine this turn. */
-  relevance_rank: number
-  cluster: number | null
+  /** Measured cosine, unnormalized. */
+  dense_cosine: number
+  /** The dense term after per-query min-max scaling, as it enters the CC80 fusion. */
+  dense_normalized: number
+  /** Raw Robertson BM25 against the tokenized query, before normalization. */
+  bm25_score: number
+  /** The BM25 term after per-query min-max scaling, as it enters the CC80 fusion. */
+  bm25_normalized: number
+  /** The fused CC80 score: 0.8 * dense_normalized + 0.2 * bm25_normalized. */
+  cc80_score: number
+  /** 1 = highest CC80 score this turn. Ties broken by turn number, then id. */
+  cc80_rank: number
 
   render_chars: number
 
   in_recency_window: boolean
-  passes_similarity_threshold: boolean
-  selected_by_coverage: boolean
+  in_semantic_initial: boolean
+  selected_by_aspect: boolean
+  returned_semantic: boolean
 
   delivered: boolean
-  /** The path that claimed it first; attribution follows packing order. */
+  /** The path that claimed it first; attribution follows decision order. */
   delivered_via: TierName | null
   drop_reason: string | null
 }
 
-export interface SelectorStepTrace {
+/** One greedy step of the ASPECT facet saturation, arithmetic shown. */
+export interface AspectStepTrace {
   step: number
   candidate_id: string
   source_turn: number
-  relevance: number
-  objective_gain: number
-  scaled_gain: number
+  /** The episode's CC80 score, the multiplier in every facet marginal of the step. */
+  score: number
+  /** Sum, over the episode's facets, of max(0, score * idf - coverage(facet)). */
+  marginal: number
+  /** marginal divided by the episode's additive character cost. */
+  ratio: number
   additive_chars: number
+  /** The spread's own running spend, against the half allowance. */
   cumulative_chars: number
-  entered_new_cluster: boolean
-  cluster: number | null
+  /** Distinct facets the running selection accounts for after this admission. */
+  covered_total: number
 }
 
-export interface ClusterTrace {
-  id: number
-  size: number
-  member_ids: string[]
-  mean_relevance: number
-  max_relevance: number
-  selected_ids: string[]
-  delivered_ids: string[]
+/** How this turn's CC80 fusion was scaled. */
+export interface CC80Detail {
+  dense_weight: number
+  bm25_k1: number
+  bm25_b: number
+  dense_min: number
+  dense_max: number
+  dense_constant: boolean
+  bm25_min: number
+  bm25_max: number
+  bm25_constant: boolean
+}
+
+export type AspectMode = 'off' | 'protected' | 'fallback'
+
+/** The protected ASPECT half: what it admitted and why it stopped. */
+export interface AspectDetail {
+  enabled: boolean
+  share: number
+  model: string
+  /** off = disabled in config; protected = full pipeline; fallback = one CC80 walk. */
+  mode: AspectMode
+  /** Wall time of parsing the store into facets. Null when no spread ran. */
+  facet_latency_ms: number | null
+  /** Long-term admissions from the initial CC80 half. */
+  initial_ids: string[]
+  /** The ones only the facet saturation produced. */
+  spread_ids: string[]
+  /** Slacked-back CC80 admits after initial plus spread. */
+  returned_ids: string[]
+  /** The spread's own spend against the half. Null when no spread ran. */
+  solo_chars: number | null
+  /** no_complete_candidate_fits or no_positive_marginal. Null when no spread ran. */
+  stopping_reason: string | null
+  steps: AspectStepTrace[]
 }
 
 export interface TierTrace {
@@ -129,19 +172,13 @@ export interface TierTrace {
   chars_proposed: number
 }
 
-export interface SimilarityTierDetail {
-  threshold: number
-  hit_count: number
-  max_relevance_observed: number
-  /** threshold - best cosine. Positive means nothing could have cleared the bar. */
-  margin_to_threshold: number
-  inert: boolean
-}
+export type PackPhase = 'full' | 'initial' | 'spread' | 'slack'
 
 export interface PackingDecision {
   order: number
   candidate_id: string
   tier: TierName
+  phase: PackPhase
   cost_chars: number
   payload_chars_after: number
   admitted: boolean
@@ -150,8 +187,12 @@ export interface PackingDecision {
 
 export interface PackingTrace {
   policy: string
-  tier_order: TierName[]
+  /** The phases that ran this turn, in the order they first made decisions. */
+  phases: PackPhase[]
+  /** The long-term allowance this walk governed. Recent continuity is outside it. */
   budget_chars: number
+  /** int(budget * aspect_share). Zero when no protected turn ran. */
+  half_chars: number
   /** Cost of the two empty block tags; a budget below this expresses nothing. */
   empty_payload_chars: number
   decisions: PackingDecision[]
@@ -167,21 +208,35 @@ export interface ContextBlockTrace {
 }
 
 export interface ReportTrace {
+  /** Total output. May EXCEED budget_chars: recency renders additively outside the allowance. */
   chars_delivered: number
+  /** How much the proposed long-term selection would have needed. */
   chars_wanted: number
-  chars_available: number
-  shortfall_chars: number
   episodes_delivered: number
   episodes_dropped: number
   truncated: boolean
+  /** Legacy names, carried verbatim from the library report. */
   stm_count: number
   k_count: number
   coverage_count: number
   latency_ms: number
+  /** The whole store. */
   pool_size: number
+  /** Long-term candidates that never reached the context, in rank order. */
   dropped_ids: string[]
   drop_policy: string
+  /** The long-term allowance. */
   budget_chars: number
+  /** Null on pre-CC-007 reports; the CC-007 path always carries the pair. */
+  retrieval_chars_delivered: number | null
+  retrieval_budget_chars: number | null
+  recency_count: number
+  semantic_count: number
+  aspect_count: number
+  returned_semantic_count: number
+  aspect_enabled: boolean
+  recent_ids: string[]
+  recency_additive: boolean
 }
 
 export interface VerificationTrace {
@@ -256,7 +311,7 @@ export interface GenerationTrace {
 // ---------------------------------------------------------------------------
 
 export interface TurnTrace {
-  schema_version: 1
+  schema_version: 2
   turn_id: string
   session_id: string
   turn_index: number
@@ -268,10 +323,9 @@ export interface TurnTrace {
   store: StoreTrace
 
   candidates: CandidateTrace[]
-  clusters: ClusterTrace[]
   tiers: TierTrace[]
-  similarity_detail: SimilarityTierDetail
-  selector_steps: SelectorStepTrace[]
+  cc80_detail: CC80Detail
+  aspect_detail: AspectDetail
   packing: PackingTrace
 
   context_block: ContextBlockTrace
@@ -298,4 +352,7 @@ export interface TurnSummary {
   coverage_count: number
   starved_tiers: string[]
   trace_trustworthy: boolean
+  recency_count: number
+  semantic_count: number
+  aspect_count: number
 }

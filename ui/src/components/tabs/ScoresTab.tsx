@@ -1,19 +1,20 @@
 /**
- * What the embeddings scored — for every episode in the store, not just the
- * ones that arrived.
+ * The CC80 ranking — for every episode in the store, not just the ones that
+ * arrived.
  *
- * The undelivered rows are the point. An episode that ranked third by cosine
- * and never reached the model is the single most informative thing this
+ * The undelivered rows are the point. An episode that ranked third by fused
+ * score and never reached the model is the single most informative thing this
  * screen can show, and it exists nowhere in the delivered set.
  */
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
-import { chars, cosine, int, truncate } from '../../lib/format.ts'
+import { chars, cosine, gain, int, truncate } from '../../lib/format.ts'
 import { proposingTiers } from '../../lib/derive.ts'
 import type { DataSource, EpisodeBody } from '../../types/api.ts'
+import { TIER_CODES } from '../../types/trace.ts'
 import type { CandidateTrace, TierName, TurnTrace } from '../../types/trace.ts'
 
-type SortKey = 'relevance' | 'turn_number' | 'render_chars' | 'cluster'
+type SortKey = 'cc80' | 'dense' | 'bm25' | 'turn_number' | 'render_chars'
 type Filter = 'all' | 'delivered' | 'dropped' | 'proposed'
 
 export function ScoresTab({
@@ -23,7 +24,7 @@ export function ScoresTab({
   trace: TurnTrace
   source: DataSource
 }) {
-  const [sort, setSort] = useState<SortKey>('relevance')
+  const [sort, setSort] = useState<SortKey>('cc80')
   const [descending, setDescending] = useState(true)
   const [filter, setFilter] = useState<Filter>('all')
   const [tierFilter, setTierFilter] = useState<TierName | 'any'>('any')
@@ -122,7 +123,7 @@ export function ScoresTab({
           </button>
         ))}
         <span className="faint">·</span>
-        {(['any', 'recency', 'similarity', 'coverage'] as const).map((option) => (
+        {(['any', 'recency', 'semantic', 'aspect'] as const).map((option) => (
           <button
             key={option}
             type="button"
@@ -142,10 +143,10 @@ export function ScoresTab({
           <thead>
             <tr>
               <th>#</th>
-              <Header label="cosine" active={sort === 'relevance'} desc={descending} onClick={() => toggle('relevance')} />
-              <th>relevance</th>
+              <Header label="dense" active={sort === 'dense'} desc={descending} onClick={() => toggle('dense')} />
+              <Header label="bm25" active={sort === 'bm25'} desc={descending} onClick={() => toggle('bm25')} />
+              <Header label="cc80" active={sort === 'cc80'} desc={descending} onClick={() => toggle('cc80')} />
               <Header label="turn" active={sort === 'turn_number'} desc={descending} onClick={() => toggle('turn_number')} />
-              <Header label="cluster" active={sort === 'cluster'} desc={descending} onClick={() => toggle('cluster')} />
               <th>paths</th>
               <Header label="chars" active={sort === 'render_chars'} desc={descending} onClick={() => toggle('render_chars')} />
               <th>outcome</th>
@@ -156,22 +157,30 @@ export function ScoresTab({
             {rows.map((candidate) => (
               <Fragment key={candidate.id}>
                 <tr data-delivered={candidate.delivered}>
-                  <td className="n faint">{candidate.relevance_rank}</td>
-                  <td className="n">{cosine(candidate.relevance)}</td>
+                  <td className="n faint">{candidate.cc80_rank}</td>
+                  <td className="n" title="raw cosine, before per-query min-max scaling">
+                    {cosine(candidate.dense_cosine)}
+                  </td>
+                  <td className="n" title="raw Robertson BM25, before per-query min-max scaling">
+                    {gain(candidate.bm25_score)}
+                  </td>
                   <td>
-                    <span className="relbar">
+                    <span
+                      className="relbar"
+                      title={`fused ${candidate.cc80_score.toFixed(4)} = ${trace.cc80_detail.dense_weight} dense + ${1 - trace.cc80_detail.dense_weight} bm25, each min-max normalized`}
+                    >
                       <span
                         className="relbar__fill"
-                        style={{ width: `${Math.max(0, Math.min(1, candidate.relevance)) * 100}%` }}
+                        style={{ width: `${Math.max(0, Math.min(1, candidate.cc80_score)) * 100}%` }}
                       />
                     </span>
+                    {cosine(candidate.cc80_score)}
                   </td>
                   <td className="n">{candidate.turn_number}</td>
-                  <td className="n">{candidate.cluster ?? '—'}</td>
                   <td>
                     {proposingTiers(candidate).map((tier) => (
                       <span key={tier} className="tiermark" data-tier={tier}>
-                        <span className="tiermark__code">{tier.slice(0, 3)}</span>
+                        <span className="tiermark__code">{TIER_CODES[tier]}</span>
                       </span>
                     ))}
                     {proposingTiers(candidate).length === 0 && <span className="faint">—</span>}
@@ -181,7 +190,7 @@ export function ScoresTab({
                     {candidate.delivered ? (
                       <span className="tiermark" data-tier={candidate.delivered_via ?? 'none'}>
                         <span className="tiermark__code">
-                          {candidate.delivered_via ?? 'delivered'}
+                          {candidate.delivered_via ? TIER_CODES[candidate.delivered_via] : '—'}
                         </span>
                       </span>
                     ) : (
@@ -214,7 +223,7 @@ export function ScoresTab({
                 </tr>
                 {expandedId === candidate.id && (
                   <tr className="epbody-row">
-                    <td colSpan={9}>
+                    <td colSpan={10}>
                       <div className="epbody">
                         {bodyLoading && <div className="epbody__state faint">fetching full body…</div>}
                         {bodyError && <div className="callout callout--bad">{bodyError}</div>}
@@ -271,13 +280,15 @@ function Header({
 
 function value(candidate: CandidateTrace, key: SortKey): number {
   switch (key) {
-    case 'relevance':
-      return candidate.relevance
+    case 'cc80':
+      return candidate.cc80_score
+    case 'dense':
+      return candidate.dense_cosine
+    case 'bm25':
+      return candidate.bm25_score
     case 'turn_number':
       return candidate.turn_number
     case 'render_chars':
       return candidate.render_chars
-    case 'cluster':
-      return candidate.cluster ?? -1
   }
 }

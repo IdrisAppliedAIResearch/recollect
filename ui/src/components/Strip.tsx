@@ -13,16 +13,16 @@ export function Strip({ trace }: { trace: TurnTrace }) {
     <div className="strip mono">
       <Cell label="delivered" value={String(head.delivered)} sub={`${head.dropped} dropped`} />
       <Cell
-        label="budget"
-        value={`${chars(head.charsDelivered)} / ${chars(head.budget)}`}
+        label="allowance"
+        value={`${chars(head.retrievalCharsDelivered)} / ${chars(head.budget)}`}
         sub={pct(head.utilization)}
       />
       <div className="strip__cell">
         <span className="strip__label">tiers</span>
         <span className="strip__tiers">
-          <Pip code="N" n={head.stm} tier="recency" />
-          <Pip code="K" n={head.k} tier="similarity" />
-          <Pip code="A3" n={head.coverage} tier="coverage" />
+          <Pip code="N" n={head.recency} tier="recency" />
+          <Pip code="K" n={head.semantic} tier="semantic" />
+          <Pip code="A" n={head.aspect} tier="aspect" />
         </span>
       </div>
       <Cell label="store" value={String(trace.store.episode_count)} sub="episodes" />
@@ -41,15 +41,12 @@ export function Strip({ trace }: { trace: TurnTrace }) {
           ) : (
             <span className="badge badge--bad">NOT VERIFIED</span>
           )}
-          {head.inert && (
+          {head.aspectMode === 'fallback' && (
             <span
               className="badge badge--warn"
-              title={
-                `Nothing in the store reached the ${trace.similarity_detail.threshold} ` +
-                `threshold. Best cosine was ${trace.similarity_detail.max_relevance_observed.toFixed(4)}.`
-              }
+              title="The initial half admitted nothing; one CC80 walk owned the whole allowance."
             >
-              RELATED inert
+              ASPECT fallback
             </span>
           )}
           {head.starved.map((name) => (
