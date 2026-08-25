@@ -58,7 +58,7 @@ from episodic._store import EpisodeStore
 #: The library version this instrumentation was written against. Recorded in
 #: every trace so a trace is interpretable years later, and compared on
 #: startup so a silent upgrade is announced rather than discovered.
-EXPECTED_LIBRARY_VERSION = "0.1.0"
+EXPECTED_LIBRARY_VERSION = "0.2.0"
 
 LIBRARY_VERSION = episodic.__version__
 
