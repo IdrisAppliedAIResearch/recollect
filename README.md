@@ -18,36 +18,32 @@ What Recollect adds is everything needed to *use* it as a product and to
 
 On every turn, instead of resending a growing transcript, the system
 rebuilds a small context window from scratch out of stored conversation
-episodes. Three retrieval paths compete for a fixed character budget:
+episodes.
 
 | path | label | what it does |
 |---|---|---|
-| recency | **RECENT** | the last N episodes in order, no scoring |
-| similarity | **RELATED** | episodes whose cosine clears a fixed threshold |
-| coverage | **SPREAD** | a budgeted greedy: relevance plus a bonus for entering an uncovered topic cluster |
+| recency | **RECENT** | the last N episodes, rendered additively — outside the budget, never dropped |
+| semantic | **SEMANTIC** | CC80 ranking (0.8 dense / 0.2 BM25) over the whole store, packed in rank order |
+| aspect | **ASPECT** | a protected facet spread: the episodes with the most uncovered topical value per character |
 
-They are packed in that order, each admission charged the exact serialized
-characters it costs, and the budget is a hard ceiling.
+The long-term block splits its character budget 50/50 between the two
+ranked paths, whatever remains is returned to CC80, and every admission is
+charged the exact serialized characters it costs. When nothing is eligible
+for the split, a single CC80 walk owns the whole budget.
 
 ## Why the instrumentation is the point
 
 The research this deploys found its most important results in what was
-*not* delivered:
+*not* delivered, and the current pipeline has the same failure shapes:
+an episode that ranks high but never fits, a semantic half that admits
+nothing and silently hands the budget to the fallback, an ASPECT spread
+that never runs because the store is still younger than the recency
+window. A count of "7 episodes retrieved" is compatible with a healthy
+system and with a system where two of its three paths never fire.
 
-- The similarity path is **inert on the internal corpus**. Its threshold
-  sits at 0.48 while the highest cosine ever recorded for known-relevant
-  content is 0.2779 — roughly twice the height genuine relevance reaches.
-  It delivered zero episodes at 8 of 8 probes.
-- The coverage selector **chooses as though it owns the whole budget**,
-  then gets packed last, after recency has already spent it. The set it
-  picked is not the set it would have picked had it known what it would
-  actually be given.
-
-Neither is visible from looking at what came back. A count of "7 episodes
-retrieved" is compatible with both a healthy system and a system where two
-of its three paths never fire. So Recollect records a cosine for **every**
-episode, a cluster for every candidate, every greedy step with its
-arithmetic, and every packing decision with its reason — delivered or not.
+So Recollect records a score for **every** episode, every facet-spread
+step with its arithmetic, and every packing decision with its reason —
+delivered or not.
 
 ## The trace is checked, not trusted
 
@@ -180,17 +176,16 @@ gets a fresh OpenCode session and scrubbed workspace.
 
 ### The inspector
 
-Chat on the left, seven views of the turn on the right, and a headline strip
+Chat on the left, six views of the turn on the right, and a headline strip
 that stays put whichever view is open.
 
 | tab | answers |
 |---|---|
-| **Pipeline** | what each path proposed, delivered, overlapped, and lost — with starvation and an inert similarity path called out in words |
+| **Pipeline** | what each path proposed, delivered, overlapped, and lost — with starvation and an ASPECT fallback called out in words |
 | **Context** | the block exactly as the model received it, colour-coded by delivering path, with a character ruler against the budget |
-| **Scores** | every episode in the store with its cosine, rank, cluster, paths, cost, and the reason it was dropped |
-| **Clusters** | which topic regions the selector entered, and which it entered and then lost to packing |
-| **Selector** | the greedy walk step by step, with the gain arithmetic behind each choice |
-| **Budget** | where the characters went, and every admission decision in order |
+| **Scores** | every episode in the store with its CC80 components, rank, path claims, cost, and the reason it was dropped |
+| **Aspect** | the protected spread step by step — marginal, ratio, and coverage arithmetic — or the fallback reason when it did not run |
+| **Budget** | where the characters went, allowance versus total output, and every admission decision in order |
 | **Verify** | whether the trace reproduces the library, plus embedding identity and generation timings |
 
 Retrieval is emitted as its own event before the model starts, so the
