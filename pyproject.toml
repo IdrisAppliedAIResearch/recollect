@@ -3,6 +3,13 @@ name = "recollect"
 version = "0.1.0"
 description = "A deployable harness for episodic conversational memory, instrumented so every retrieval decision is visible."
 requires-python = ">=3.13"
+# Proprietary, source-available. Not open source, and not publishable to PyPI.
+# LICENSE carries the grant; THIRD_PARTY_NOTICES.md covers the separately
+# licensed components, including why a proprietary product may build on
+# `episodic` when that library is published under the AGPL.
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     # [aspect] is a base dependency on purpose: this deployment runs the
     # deployed read path with ASPECT on by default (see .agent decision D1),

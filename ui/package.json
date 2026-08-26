@@ -1,6 +1,7 @@
 {
   "name": "recollect-ui",
   "private": true,
+  "license": "UNLICENSED",
   "version": "0.1.0",
   "type": "module",
   "description": "Inspector UI for the Recollect memory harness.",

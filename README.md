@@ -271,3 +271,30 @@ zero, one character, and exactly the cost of the empty block tags — and
 asserts byte equality between the library and the reconstruction every
 time. It uses a deterministic fake embedder, so it needs no model file and
 runs in about ten seconds.
+
+## Licence
+
+**Proprietary. Source-available, not open source.**
+Copyright © 2026 Idris Applied AI Research. All rights reserved.
+
+This repository is public so the mechanism can be read, reviewed, and checked
+against the claims made about it. That is the whole of the grant: you may read
+this source, and you may not run, deploy, copy, modify, or build on it. See
+[`LICENSE`](LICENSE).
+
+Deployment and commercial licences are available —
+**idrisappliedairesearch@gmail.com**.
+
+### On `episodic` and the AGPL
+
+Recollect builds on the `episodic` library, which is dual licensed
+AGPL-3.0-or-later **or** commercial. A proprietary product built on AGPL code
+would normally be a violation; it is not one here, because Idris Applied AI
+Research holds the copyright in `episodic` and uses it under its own commercial
+licence rather than under the AGPL.
+
+That reasoning applies to the copyright holder and to nobody else. If you obtain
+`episodic`, you get it under the AGPL — including section 13, which reaches
+network use, not just distribution — unless you hold a separate agreement.
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) has the full chain, along
+with every other dependency and its terms.
