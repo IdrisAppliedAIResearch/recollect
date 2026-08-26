@@ -87,7 +87,9 @@ class RecollectConfig:
     #: leave `content` empty while thinking. Off by default so a first
     #: conversation returns visible text.
     generator_thinking: bool = False
-    generator_max_tokens: int = 1024
+    #: The 1024 cap truncated real replies (finish_reason "length"); the
+    #: generator's context is 32k tokens, so 4096 leaves headroom.
+    generator_max_tokens: int = 4_096
     generator_temperature: float = 0.7
 
     # -- memory -------------------------------------------------------------
@@ -153,6 +155,8 @@ class RecollectConfig:
     def __post_init__(self) -> None:
         if self.budget_chars < 0:
             raise ValueError("budget_chars must be non-negative")
+        if self.generator_max_tokens < 1:
+            raise ValueError("generator_max_tokens must be positive")
         if self.embedding_threads < 1:
             raise ValueError("embedding_threads must be positive")
         if self.subagent_max_steps < 1:
@@ -236,6 +240,9 @@ class RecollectConfig:
                 "RECOLLECT_GENERATOR_API_KEY", "not-needed"
             ),
             generator_thinking=_flag(os.environ.get("RECOLLECT_GENERATOR_THINKING")),
+            generator_max_tokens=int(
+                os.environ.get("RECOLLECT_GENERATOR_MAX_TOKENS", 4_096)
+            ),
             budget_chars=int(
                 os.environ.get("RECOLLECT_BUDGET_CHARS", DEFAULT_BUDGET_CHARS)
             ),

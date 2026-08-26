@@ -11,9 +11,13 @@ export function Strip({ trace }: { trace: TurnTrace }) {
 
   return (
     <div className="strip mono">
-      <Cell label="delivered" value={String(head.delivered)} sub={`${head.dropped} dropped`} />
       <Cell
-        label="allowance"
+        label="delivered"
+        value={chars(head.charsDelivered)}
+        sub={`${head.delivered} episodes · ${head.dropped} dropped`}
+      />
+      <Cell
+        label="long-term"
         value={`${chars(head.retrievalCharsDelivered)} / ${chars(head.budget)}`}
         sub={pct(head.utilization)}
       />
