@@ -71,10 +71,14 @@ Recollect makes a researched conversational-memory mechanism usable, and
 shows what it is doing while it runs.
 
 Each turn, instead of resending the whole chat transcript, the system
-rebuilds a small context window from stored episodes. Three paths compete
-for a fixed character budget: **RECENT** (last N), **RELATED** (cosine over
-a threshold), **SPREAD** (topic-diversity greedy). They pack in that order
-against a hard ceiling.
+rebuilds a small context window from stored episodes. **RECENT** (last N)
+is additive: rendered outside the character budget and never dropped. The
+long-term block spends the budget under a protected 50/50 split: **CC80**
+(0.8 dense / 0.2 BM25 over the complete store, skip-on-overflow) walks one
+half, and a static **ASPECT** facet spread takes the other, admitting the
+episodes with the most uncovered topical value per character; whatever the
+split leaves over is returned to CC80 in rank order. When no eligible
+episode remains for the split, a single CC80 walk owns the whole budget.
 
 The mechanism itself lives in a separate library called `episodic`, at
 `../contextDecayWindow/episodic`. **This repo does not contain it and must
@@ -230,7 +234,7 @@ src/recollect/
     shadow.py       the double-compute + verification  ← most delicate file
     embedder.py     in-process pinned embedder
     generator.py    chat client
-ui/src/             React inspector (7 tabs)
+ui/src/             React inspector (6 tabs)
 tests/              shadow-vs-library sweep
 docs/EMBEDDER.md    read before touching anything that makes a vector
 ```
