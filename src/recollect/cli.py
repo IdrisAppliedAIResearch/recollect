@@ -1,10 +1,10 @@
 """Command line entry points.
 
-``doctor`` exists because this system has three things that can be wrong
-before a single word is exchanged - the embedder artifact, the store's
-call-shape gate, and the generator - and each fails in a way that is
-obvious once named and baffling otherwise. It checks all three and says
-which one is broken.
+``doctor`` exists because this system has four things that can be wrong
+before a single word is exchanged - the embedder artifact, the ASPECT
+parser, the store's call-shape gate, and the generator - and each fails in
+a way that is obvious once named and baffling otherwise. It checks all of
+them and says which one is broken.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def _serve(args) -> int:
 
 
 async def _doctor() -> int:
-    from .engine._internals import LIBRARY_VERSION
+    from .engine._internals import LIBRARY_VERSION, load_aspect_model
     from .engine.embedder import EXPECTED_SENTINEL_SHA256, HarnessEmbedder
     from .engine.generator import Generator, GeneratorSettings
 
@@ -106,6 +106,21 @@ async def _doctor() -> int:
     except Exception as error:  # noqa: BLE001 - doctor reports, never raises
         ok = False
         print(f"  FAIL: {error}")
+
+    print("\naspect (protected spread, frozen parser)")
+    if not config.aspect_enabled:
+        print("  disabled by deployment (RECOLLECT_ASPECT_ENABLED=0); no model needed.")
+    else:
+        try:
+            model = await asyncio.to_thread(
+                load_aspect_model, config.episodic.aspect_model
+            )
+            version = str(model.meta.get("version"))
+            print(f"  parser model     : {config.episodic.aspect_model} {version}")
+            print("  OK: the frozen ASPECT parser loads and is version-checked.")
+        except Exception as error:  # noqa: BLE001 - doctor reports, never raises
+            ok = False
+            print(f"  FAIL: {error}")
 
     print("\ngenerator (HTTP, OpenAI-compatible)")
     generator = Generator(
@@ -196,13 +211,18 @@ async def _chat(session_id: str | None) -> int:
                                 if starved
                                 else ""
                             )
+                            allowance = report.get(
+                                "retrieval_budget_chars"
+                            ) or report["budget_chars"]
                             print(
                                 f"  [memory] {report['episodes_delivered']} episodes"
                                 f" · {report['chars_delivered']}/"
-                                f"{report['budget_chars']} chars"
-                                f" · N={report['stm_count']}"
-                                f" K={report['k_count']}"
-                                f" A3={report['coverage_count']}" + note
+                                f"{allowance} chars"
+                                f" + {report['recency_count']} recent (additive)"
+                                f" · S={report['semantic_count']}"
+                                f" A={report['aspect_count']}"
+                                f" (+{report['returned_semantic_count']} returned)"
+                                + note
                             )
                         elif event == "error":
                             print(f"  [error] {json.loads(payload)['message']}")

@@ -1336,12 +1336,12 @@ table,
   background: var(--border-strong);
   opacity: 0.55;
 }
-/* The budget ceiling: pinned to the track's right edge. */
+/* The long-term allowance: placed in the track, not pinned to its edge —
+   recent continuity can render past it. */
 .ruler__cap {
   position: absolute;
   top: 0;
   bottom: 0;
-  right: 0;
   width: 2px;
   background: var(--bad);
 }
@@ -1390,7 +1390,7 @@ table,
   color: var(--accent);
 }
 .xml-attr {
-  color: var(--tier-similarity);
+  color: var(--tier-semantic);
 }
 .xml-role {
   color: var(--text-faint);
@@ -1570,7 +1570,7 @@ table,
   font-variant-numeric: tabular-nums;
 }
 
-/* relevance micro-bar inside a cell */
+/* score micro-bar inside a cell */
 .relbar {
   display: inline-block;
   width: 54px;
@@ -1585,110 +1585,6 @@ table,
   display: block;
   height: 100%;
   background: var(--accent);
-}
-
-/* ==========================================================================
-   Clusters
-   ========================================================================== */
-
-.clustergrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 8px;
-}
-.clustercell {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  padding: 8px 9px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  position: relative;
-}
-.clustercell[data-state='delivered'] {
-  border-color: var(--tier-coverage-line);
-  background: var(--tier-coverage-soft);
-}
-.clustercell[data-state='lost'] {
-  border-color: var(--warn-line);
-  background: var(--warn-soft);
-}
-.clustercell[data-state='idle'] {
-  border-style: dashed;
-  color: var(--text-faint);
-}
-.clustercell__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
-}
-.clustercell__id {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: var(--fs-sm);
-}
-.clustercell__size {
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-}
-.clustercell__dots {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-}
-.memberdot {
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-  background: var(--surface-3);
-  border: 1px solid var(--border);
-}
-/* Cells and dots carry data-state (see ClustersTab); the state values are
-   delivered / selected / idle, not the old selected / untouched pair. */
-.memberdot[data-state='selected'] {
-  background: var(--warn);
-  border-color: var(--warn);
-  border-radius: 50%;
-}
-.memberdot[data-state='delivered'] {
-  background: var(--tier-coverage);
-  border-color: var(--tier-coverage);
-}
-.clustercell__meta {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  display: flex;
-  justify-content: space-between;
-  gap: 6px;
-}
-.clustercell__state {
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  font-weight: 700;
-}
-
-.legendrow {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  margin-bottom: 10px;
-  align-items: center;
-}
-.legendrow span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.legendrow .memberdot {
-  margin-right: 4px;
 }
 
 /* ==========================================================================
@@ -1772,7 +1668,7 @@ table,
 }
 
 /* ==========================================================================
-   Selector walk
+   Aspect walk
    ========================================================================== */
 
 .step {

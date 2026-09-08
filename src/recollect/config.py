@@ -17,7 +17,7 @@ deployment convenience from silently becoming a mechanism change.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -94,6 +94,12 @@ class RecollectConfig:
     budget_chars: int = DEFAULT_BUDGET_CHARS
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     episodic: EpisodicConfig = field(default_factory=EpisodicConfig)
+    #: Deployment choice (D1, locked 2026-08-25): the protected static
+    #: ASPECT spread runs by default here, so the base dependency carries
+    #: the [aspect] extra. It overrides the library's own aspect_enabled,
+    #: which defaults off; a store created under an explicit config keeps
+    #: pinning it at first open.
+    aspect_enabled: bool = True
 
     # -- subagent ---------------------------------------------------------------
     # Deployment bounds for the ephemeral subagent. These cap cost,
@@ -173,6 +179,15 @@ class RecollectConfig:
             raise ValueError("sandbox_container_pids must be at least 16")
         if self.sandbox_container_cpus <= 0:
             raise ValueError("sandbox_container_cpus must be positive")
+        if not isinstance(self.aspect_enabled, bool):
+            raise ValueError("aspect_enabled must be a boolean")
+        # The deployment owns switch on or off; the mechanism constants stay
+        # frozen. Frozen dataclass, hence the setattr.
+        object.__setattr__(
+            self,
+            "episodic",
+            replace(self.episodic, aspect_enabled=self.aspect_enabled),
+        )
 
     @property
     def sessions_dir(self) -> Path:
@@ -224,6 +239,7 @@ class RecollectConfig:
             budget_chars=int(
                 os.environ.get("RECOLLECT_BUDGET_CHARS", DEFAULT_BUDGET_CHARS)
             ),
+            aspect_enabled=_flag(os.environ.get("RECOLLECT_ASPECT_ENABLED", "1")),
             data_dir=Path(os.environ.get("RECOLLECT_DATA_DIR", "var")),
             host=os.environ.get("RECOLLECT_HOST", "127.0.0.1"),
             port=int(os.environ.get("RECOLLECT_PORT", 8080)),

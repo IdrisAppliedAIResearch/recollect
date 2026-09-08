@@ -2,15 +2,16 @@
 
 Every private import in this project lives here, on purpose.
 
-**Why reach in at all.** The library's ``context()`` returns a payload and a
-``ContextReport`` of counts. Inside, it computes far more than it returns:
-a cosine for every episode, a cluster assignment for every candidate, and
-the coverage selector's full step-by-step arithmetic with the marginal gain
-behind each choice. All of it is discarded at the return boundary. That
-discarded detail is precisely what this harness exists to show, and the
-research it deploys found its central results there - a similarity path
-that never fires, a coverage selector starved by packing order. Counts
-cannot show either.
+**Why reach in at all.** The library's ``build_chat_context`` returns a
+payload and a ``ContextReport`` of counts. Inside, it computes far more than
+it returns: a dense cosine and a BM25 term for every episode, the min-max
+scaling each went through, the fused CC80 rank, the ASPECT saturation's
+step-by-step marginal arithmetic, and every packing decision with its exact
+serialized cost. All of it is discarded at the return boundary. That
+discarded detail is precisely what this harness exists to show - a top-rank
+candidate skipped by the initial half, a spread admission bought at a low
+ratio, a slack return that only happened because budget remained. Counts
+cannot show any of it.
 
 **Why not fork the library instead.** Because the library is certified
 behavior-preserving against committed artifacts, and a fork with print
@@ -30,44 +31,40 @@ the contract; these imports are just how it is implemented.
 from __future__ import annotations
 
 import episodic
-from episodic._config import EpisodicConfig
-from episodic._context import (
-    _candidate_pool as candidate_pool,
+from episodic._aspect import (
+    _load_spacy_model as load_aspect_model,
 )
+from episodic._aspect import (
+    aspect_spread,
+    prepare_facets,
+)
+from episodic._chat_context import build_chat_context
+from episodic._config import EpisodicConfig
 from episodic._context import (
     _recency_window as recency_window,
 )
-from episodic._context import build_context
 from episodic._packing import (
     DROP_POLICY,
     EMPTY_PAYLOAD_CHARS,
-    pack_stm_payload,
 )
+from episodic._ranking import rank_cc80
 from episodic._render import render_episode_element, render_stm_payload
-from episodic._selection import (
-    ClusterDiversitySelector,
-    SelectionResult,
-    additive_weight,
-    deterministic_clusters,
-    relevance_vector,
-    select,
-    vector,
-)
+from episodic._selection import additive_weight
 from episodic._store import EpisodeStore
 
 #: The library version this instrumentation was written against. Recorded in
 #: every trace so a trace is interpretable years later, and compared on
 #: startup so a silent upgrade is announced rather than discovered.
-EXPECTED_LIBRARY_VERSION = "0.1.0"
+EXPECTED_LIBRARY_VERSION = "0.2.0"
 
 LIBRARY_VERSION = episodic.__version__
 
 
 def read_episodes(store: EpisodeStore) -> list[dict]:
-    """Every stored episode in the order ``context()`` reads them.
+    """Every stored episode in the order ``build_chat_context`` reads them.
 
     Ordering is load-bearing: the recency window is a tail slice of this
-    list, and the selector's tie-breaks resolve on turn number and id. The
+    list, and CC80's tie-breaks resolve on turn number and id. The
     library's own accessor is used rather than a reimplemented query so the
     two cannot drift apart silently.
     """
@@ -84,21 +81,17 @@ __all__ = [
     "EMPTY_PAYLOAD_CHARS",
     "EXPECTED_LIBRARY_VERSION",
     "LIBRARY_VERSION",
-    "ClusterDiversitySelector",
     "EpisodeStore",
     "EpisodicConfig",
-    "SelectionResult",
     "additive_weight",
-    "build_context",
-    "candidate_pool",
-    "deterministic_clusters",
-    "pack_stm_payload",
+    "aspect_spread",
+    "build_chat_context",
+    "load_aspect_model",
+    "prepare_facets",
+    "rank_cc80",
     "read_episodes",
     "recency_window",
-    "relevance_vector",
     "render_episode_element",
     "render_stm_payload",
-    "select",
     "store_meta",
-    "vector",
 ]

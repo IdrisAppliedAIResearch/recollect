@@ -25,12 +25,13 @@ the embedder's memo cache answers without touching the model.
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from episodic import EpisodeStore
+from episodic import EpisodeStore, EpisodicConfig, EpisodicError
 from episodic._embedding import embed_solo
 from pydantic import BaseModel
 
@@ -120,8 +121,62 @@ class SessionManager:
         path = self.config.store_path(session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         return EpisodeStore(
-            path, self.config.episodic, embedder=self.embedder
+            path, self._offer_config(session_id), embedder=self.embedder
         )
+
+    def _offer_config(self, session_id: str) -> EpisodicConfig:
+        """The config to offer this session's store at open.
+
+        A store's numbers are only meaningful under the config that produced
+        them, so an existing store is opened under the config it was created
+        with - not the deployment's current one, which a later deployment
+        change (say, switching ASPECT on) would otherwise fail it with on
+        every open. New stores pin the deployment config at first open. No
+        ``override_config`` anywhere: a store that cannot be parsed back into
+        the current config schema is stopped, not silently rebound.
+        """
+        path = self.config.store_path(session_id)
+        if not path.is_file():
+            return self.config.episodic
+        stored = self._stored_config_json(path)
+        if stored is None or stored == self.config.episodic.to_json():
+            return self.config.episodic
+        try:
+            offered = EpisodicConfig.from_json(stored)
+        except EpisodicError as error:
+            raise ValueError(
+                f"Session {session_id}'s store carries a config the current "
+                f"library cannot parse ({error}); it predates or postdates "
+                "this build. Delete the session directory to start clean."
+            ) from error
+        if offered.to_json() != stored:
+            raise ValueError(
+                f"Session {session_id}'s store was created under a config "
+                "schema that no longer round-trips (it predates the CC-007 "
+                "adoption). Its numbers came from the retired pipeline, so "
+                "opening it here would mix two mechanisms. Delete the "
+                "session directory to start clean."
+            )
+        return offered
+
+    @staticmethod
+    def _stored_config_json(path: Path) -> str | None:
+        """Read the config pin out of an existing store without opening it.
+
+        A direct SQLite read with an explicit close: EpisodeStore would open
+        (and therefore already need to know) the very config we are trying
+        to discover.
+        """
+        connection = sqlite3.connect(str(path))
+        try:
+            row = connection.execute(
+                "SELECT value FROM episodic_meta WHERE key = 'config'"
+            ).fetchone()
+        except sqlite3.Error:
+            return None
+        finally:
+            connection.close()
+        return None if row is None else str(row[0])
 
     def episode(self, session_id: str, episode_id: str) -> dict | None:
         """Full body of one episode. Trace rows carry only previews."""
@@ -148,6 +203,10 @@ class SessionManager:
         """
         info = self.get_session(session_id)
         store = self.open_store(session_id)
+        # The store's own pinned config governs the turn: retrieval must run
+        # under the config the episodes were created with, which for an
+        # existing store may differ from the deployment's current one.
+        store_config = store.config
         try:
             episodes = read_episodes(store)
 
@@ -167,16 +226,17 @@ class SessionManager:
             store_trace = StoreTrace(
                 path=str(self.config.store_path(session_id)),
                 episode_count=len(episodes),
-                config_json=self.config.episodic.to_json(),
+                config_json=store_config.to_json(),
                 sentinel_sha256=store_meta(store, "sentinel_sha256") or "",
-                embedder_model_sha256=self.config.episodic.embedder_sha256,
+                embedder_model_sha256=store_config.embedder_sha256,
             )
 
             retrieval = retrieve_with_trace(
                 episodes=episodes,
+                query_text=user_message,
                 query_embedding=query_embedding,
                 budget=self.config.budget_chars,
-                config=self.config.episodic,
+                config=store_config,
                 strict=True,
             )
         finally:
@@ -190,10 +250,9 @@ class SessionManager:
             query=query_trace,
             store=store_trace,
             candidates=retrieval.candidates,
-            clusters=retrieval.clusters,
             tiers=retrieval.tiers,
-            similarity_detail=retrieval.similarity_detail,
-            selector_steps=retrieval.selector_steps,
+            cc80_detail=retrieval.cc80_detail,
+            aspect_detail=retrieval.aspect_detail,
             packing=retrieval.packing,
             context_block=retrieval.context_block,
             report=retrieval.report,
@@ -244,16 +303,25 @@ class SessionManager:
         path = self.config.traces_dir(session_id) / f"{turn_id}.json"
         if not path.is_file():
             return None
-        return TurnTrace.model_validate_json(path.read_text(encoding="utf-8"))
+        try:
+            return TurnTrace.model_validate_json(path.read_text(encoding="utf-8"))
+        except ValueError:
+            # A trace written before schema v2 does not validate against it.
+            # Report it as absent rather than as an error: it is a record of
+            # a different mechanism, not a failed record of this one.
+            return None
 
     def find_trace(self, turn_id: str) -> TurnTrace | None:
         """Locate a turn without knowing its session."""
         for candidate in self.config.sessions_dir.glob(
             f"*/traces/{turn_id}.json"
         ):
-            return TurnTrace.model_validate_json(
-                candidate.read_text(encoding="utf-8")
-            )
+            try:
+                return TurnTrace.model_validate_json(
+                    candidate.read_text(encoding="utf-8")
+                )
+            except ValueError:
+                return None
         return None
 
     def list_turns(self, session_id: str) -> list[TurnSummary]:
@@ -288,6 +356,9 @@ def summarize(trace: TurnTrace) -> TurnSummary:
         stm_count=trace.report.stm_count,
         k_count=trace.report.k_count,
         coverage_count=trace.report.coverage_count,
+        recency_count=trace.report.recency_count,
+        semantic_count=trace.report.semantic_count,
+        aspect_count=trace.report.aspect_count,
         starved_tiers=list(trace.starved_tiers),
         trace_trustworthy=trace.verification.trustworthy,
     )

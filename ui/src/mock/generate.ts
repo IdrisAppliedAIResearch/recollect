@@ -1,24 +1,31 @@
 /**
  * A mock TurnTrace, simulated rather than hard-coded.
  *
- * The retrieval pipeline is replayed here in TypeScript against the same
- * rules the library uses — the same greedy selector (lambda 0.1, r 0, k 16),
- * the same skip-on-overflow packing walk in recency→similarity→coverage
- * order, the same renderer. Every number in the resulting trace therefore
- * agrees with every other number, and `context_block.payload` really is what
- * the reported packing decisions produced.
+ * The deployed CC-007 read path is replayed here in TypeScript against the
+ * corpus: the additive recency window rendered outside the budget, CC80
+ * fusion over the complete store (dense cosine and BM25 each min-max
+ * normalized per query, fused 0.8 / 0.2), the protected 50/50 ASPECT split
+ * and its greedy facet-saturation, and skip-on-overflow packing with
+ * slack return. Every number in the resulting trace agrees with every other
+ * number, and `context_block.payload` really is what the reported packing
+ * decisions produced.
  *
- * The measured constants it reproduces:
- *   - similarity threshold 0.48, best cosine ~0.27, so the path is inert
- *   - recency window 32, packed first, spending the budget
- *   - coverage selecting as though it owns all 32,000 characters
+ * What is stood in for:
+ *   - dense cosine: the topic-affinity model scaled to the measured ceiling
+ *     (~0.28) the research recorded for known-relevant content;
+ *   - BM25: real Robertson BM25 (k1 1.2, b 0.75) over tokenized text;
+ *   - the frozen spacy facets: per-episode subsets of the topic word banks,
+ *     with the library's idf formula log((N+1)/(df+1)) + 1.
  */
 import type {
+  AspectDetail,
+  AspectStepTrace,
   CandidateTrace,
-  ClusterTrace,
+  CC80Detail,
   GenerationTrace,
   PackingDecision,
-  SelectorStepTrace,
+  PackPhase,
+  ReportTrace,
   TierName,
   TierTrace,
   TurnTrace,
@@ -31,24 +38,26 @@ import {
 } from '../lib/render.ts'
 import { TOPICS, buildCorpus, mulberry32, type MockEpisode } from './corpus.ts'
 
-// -- mechanism constants, from EpisodicConfig -------------------------------
+// -- mechanism constants, from the store-pinned EpisodicConfig ---------------
 const RECENCY_WINDOW_N = 32
-const K_THRESHOLD = 0.48
-const SELECTOR_LAMBDA = 0.1
-const SELECTOR_COST_EXPONENT = 0.0
-const CLUSTER_COUNT = 16
-const BUDGET_CHARS = 32_000
+const RETRIEVAL_BUDGET_CHARS = 32_000
+const DENSE_WEIGHT = 0.8
+const BM25_K1 = 1.2
+const BM25_B = 0.75
+const ASPECT_SHARE = 0.5
+const ASPECT_MODEL = 'en_core_web_sm'
 const DROP_POLICY = 'marginal_gain_order_skip_on_overflow'
-const LIBRARY_VERSION = '0.1.0'
-/** _selection.wrapper_chars(): fixed two-block cost of a non-empty selection. */
-const WRAPPER_CHARS = 51
+const LIBRARY_VERSION = '0.2.0'
+const CARRIED_EMBEDDER_SHA256 =
+  '06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439'
+const ASPECT_ENABLED = true // Recollect deploys ASPECT on by default
 
 const STORE_SIZE = 120
 
 export type MockScenario = 'deployed' | 'diverged'
 
 // ---------------------------------------------------------------------------
-// Pseudo-embedding: a topic-similarity model scaled to the measured ceiling
+// Pseudo-embeddings and pseudo-lexical scores
 // ---------------------------------------------------------------------------
 
 /** Fixed cross-topic affinity. Same every run, so cosines are reproducible. */
@@ -70,10 +79,11 @@ const TOPIC_AFFINITY: number[][] = (() => {
 })()
 
 /**
- * Cosines for one query. Scaled so the best in the store lands near 0.2779 —
- * the highest score the research ever recorded for known-relevant content.
+ * Dense cosines for one query. Scaled so the best in the store lands near
+ * 0.2779 - the highest score the research ever recorded for known-relevant
+ * content.
  */
-function relevanceFor(
+function denseFor(
   episodes: MockEpisode[],
   queryTopic: number,
   seed: number,
@@ -95,181 +105,339 @@ function relevanceFor(
   return result
 }
 
+const TOKEN = /[a-z0-9]+(?:[-'][a-z0-9]+)*/g
+
+function tokenize(text: string): string[] {
+  return text.toLowerCase().match(TOKEN) ?? []
+}
+
 /**
- * Cluster assignment. Real `deterministic_clusters` is farthest-first plus
- * Lloyd over the actual vectors; here topic is the signal with a realistic
- * bleed, so cluster sizes come out uneven the way k-means output does.
+ * Robertson BM25 straight from the library's frozen constants, over the
+ * episode's user + assistant text. A query with no lexical overlap at all
+ * yields an all-zero (constant) component, which min-max scaling turns into
+ * zeros - the same degenerate branch the real ranker takes.
  */
-function clusterAssignments(episodes: MockEpisode[], seed: number): Map<string, number> {
-  const random = mulberry32(seed ^ 0x9e37)
-  const assignments = new Map<string, number>()
-  for (const episode of episodes) {
-    let cluster = episode.topic
-    if (random() < 0.14) {
-      cluster = (cluster + 1 + Math.floor(random() * 3)) % CLUSTER_COUNT
-    }
-    assignments.set(episode.id, cluster)
+function bm25For(
+  episodes: MockEpisode[],
+  queryText: string,
+): Map<string, number> {
+  const queryTokens = tokenize(queryText)
+  const result = new Map<string, number>()
+  if (queryTokens.length === 0) {
+    for (const episode of episodes) result.set(episode.id, 0)
+    return result
   }
-  return assignments
+  const docs = episodes.map((episode) =>
+    tokenize(`${episode.user_message} ${episode.assistant_message}`),
+  )
+  const uniqueQuery = [...new Set(queryTokens)]
+  const df = new Map<string, number>()
+  for (const token of uniqueQuery) {
+    let count = 0
+    for (const doc of docs) {
+      if (doc.includes(token)) count += 1
+    }
+    df.set(token, count)
+  }
+  const totalLength = docs.reduce((sum, doc) => sum + doc.length, 0)
+  const avgLength = totalLength / Math.max(1, docs.length)
+  const n = docs.length
+
+  episodes.forEach((episode, index) => {
+    const doc = docs[index]!
+    const frequency = new Map<string, number>()
+    for (const token of doc) frequency.set(token, (frequency.get(token) ?? 0) + 1)
+    let score = 0
+    for (const token of uniqueQuery) {
+      const tf = frequency.get(token) ?? 0
+      if (tf === 0) continue
+      const docFreq = df.get(token) ?? 0
+      const idf = Math.log(1 + (n - docFreq + 0.5) / (docFreq + 0.5))
+      const lengthNorm =
+        1 - BM25_B + BM25_B * (doc.length / Math.max(1e-9, avgLength))
+      score += idf * ((tf * (BM25_K1 + 1)) / (tf + BM25_K1 * lengthNorm))
+    }
+    result.set(episode.id, Number(score.toFixed(6)))
+  })
+  return result
+}
+
+/**
+ * Per-episode facet sets, standing in for the frozen spacy extraction. The
+ * topic word banks carry the structure idf needs: the shared subject is
+ * common (low idf), the per-episode nouns are rare (high idf).
+ */
+function facetsFor(episode: MockEpisode): Set<string> {
+  const topic = TOPICS[episode.topic]!
+  const salt = episode.turn_number
+  const facets = new Set<string>()
+  facets.add(`entity:misc:${topic.subject}`)
+  facets.add(`noun:${topic.nouns[salt % topic.nouns.length]}`)
+  const action = topic.actions[(salt * 3) % topic.actions.length]!
+  facets.add(`event:${tokenize(action)[0] ?? 'act'}`)
+  if (mulberry32(0xf4c5 * (salt + 1))() < 0.5) {
+    facets.add(`number:${[32, 16, 8, 5][salt % 4]}`)
+  }
+  return facets
+}
+
+function facetIdf(all: Set<string>[]): Map<string, number> {
+  const count = all.length
+  const df = new Map<string, number>()
+  for (const set of all) {
+    for (const facet of set) df.set(facet, (df.get(facet) ?? 0) + 1)
+  }
+  const idf = new Map<string, number>()
+  for (const [facet, frequency] of df) {
+    idf.set(facet, Math.log((count + 1) / (frequency + 1)) + 1.0)
+  }
+  return idf
+}
+
+// ---------------------------------------------------------------------------
+// Normalization and ranking
+// ---------------------------------------------------------------------------
+
+interface Normalized {
+  values: number[]
+  min: number
+  max: number
+  constant: boolean
+}
+
+function minMax(values: number[]): Normalized {
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  if (max === min) return { values: values.map(() => 0), min, max, constant: true }
+  return {
+    values: values.map((value) => (value - min) / (max - min)),
+    min,
+    max,
+    constant: false,
+  }
+}
+
+interface RankedEpisode {
+  episode: MockEpisode
+  dense: number
+  denseNormalized: number
+  bm25: number
+  bm25Normalized: number
+  score: number
+  /** 1 = highest, ties broken by turn number then id, as the library orders. */
+  rank: number
+}
+
+function rankAll(
+  episodes: MockEpisode[],
+  dense: Map<string, number>,
+  bm25: Map<string, number>,
+): { ranked: RankedEpisode[]; detail: CC80Detail } {
+  const denseNorm = minMax(episodes.map((e) => dense.get(e.id) ?? 0))
+  const bm25Norm = minMax(episodes.map((e) => bm25.get(e.id) ?? 0))
+  const rows: RankedEpisode[] = episodes.map((episode, index) => {
+    const d = dense.get(episode.id) ?? 0
+    const b = bm25.get(episode.id) ?? 0
+    const dn = denseNorm.values[index]!
+    const bn = bm25Norm.values[index]!
+    return {
+      episode,
+      dense: d,
+      denseNormalized: dn,
+      bm25: b,
+      bm25Normalized: bn,
+      score: DENSE_WEIGHT * dn + (1 - DENSE_WEIGHT) * bn,
+      rank: 0,
+    }
+  })
+  const order = rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      if (b.row.score !== a.row.score) return b.row.score - a.row.score
+      if (a.row.episode.turn_number !== b.row.episode.turn_number) {
+        return a.row.episode.turn_number - b.row.episode.turn_number
+      }
+      return a.row.episode.id < b.row.episode.id ? -1 : a.row.episode.id > b.row.episode.id ? 1 : 0
+    })
+    .map(({ index }) => index)
+  order.forEach((index, position) => {
+    rows[index]!.rank = position + 1
+  })
+  return {
+    ranked: rows,
+    detail: {
+      dense_weight: DENSE_WEIGHT,
+      bm25_k1: BM25_K1,
+      bm25_b: BM25_B,
+      dense_min: denseNorm.min,
+      dense_max: denseNorm.max,
+      dense_constant: denseNorm.constant,
+      bm25_min: bm25Norm.min,
+      bm25_max: bm25Norm.max,
+      bm25_constant: bm25Norm.constant,
+    },
+  }
 }
 
 // ---------------------------------------------------------------------------
 // The mechanism, replayed
 // ---------------------------------------------------------------------------
 
-interface SelectionOutcome {
-  selectedIds: string[]
-  steps: SelectorStepTrace[]
-}
-
-/** `_selection.select` with ClusterDiversitySelector. */
-function runSelector(
-  pool: MockEpisode[],
-  relevance: Map<string, number>,
-  clusters: Map<string, number>,
-  budget: number,
-): SelectionOutcome {
-  const costs = new Map(pool.map((e) => [e.id, additiveWeight(e)]))
-  const remaining = new Set(pool.map((e) => e.id));
-  const byId = new Map(pool.map((e) => [e.id, e]))
-  const covered = new Set<number>()
-  const selectedIds: string[] = []
-  const steps: SelectorStepTrace[] = []
-  let spent = 0
-
-  for (;;) {
-    const affordable = pool.filter(
-      (e) => remaining.has(e.id) && WRAPPER_CHARS + spent + costs.get(e.id)! <= budget,
-    )
-    if (affordable.length === 0) break
-
-    let best: MockEpisode | null = null
-    let bestKey: [number, number, number, string] | null = null
-    for (const episode of affordable) {
-      const rel = Math.max(relevance.get(episode.id) ?? 0, 0)
-      const novel = covered.has(clusters.get(episode.id)!) ? 0 : 1
-      const objective = rel + SELECTOR_LAMBDA * novel
-      // r = 0, so cost^r is 1 and cost does not influence the choice.
-      const scaled = objective / Math.pow(costs.get(episode.id)!, SELECTOR_COST_EXPONENT)
-      const key: [number, number, number, string] = [
-        -scaled,
-        costs.get(episode.id)!,
-        episode.turn_number,
-        episode.id,
-      ]
-      if (bestKey === null || compareKey(key, bestKey) < 0) {
-        best = episode
-        bestKey = key
-      }
-    }
-    if (!best) break
-
-    const rel = Math.max(relevance.get(best.id) ?? 0, 0)
-    const cluster = clusters.get(best.id)!
-    const enteredNew = !covered.has(cluster)
-    const objective = rel + SELECTOR_LAMBDA * (enteredNew ? 1 : 0)
-    const cost = costs.get(best.id)!
-    spent += cost
-    covered.add(cluster)
-    remaining.delete(best.id)
-    selectedIds.push(best.id)
-    steps.push({
-      step: steps.length + 1,
-      candidate_id: best.id,
-      source_turn: byId.get(best.id)!.turn_number,
-      relevance: rel,
-      objective_gain: objective,
-      scaled_gain: objective / Math.pow(cost, SELECTOR_COST_EXPONENT),
-      additive_chars: cost,
-      cumulative_chars: WRAPPER_CHARS + spent,
-      entered_new_cluster: enteredNew,
-      cluster,
-    })
-  }
-  return { selectedIds, steps }
-}
-
-function compareKey(
-  a: [number, number, number, string],
-  b: [number, number, number, string],
-): number {
-  if (a[0] !== b[0]) return a[0] - b[0]
-  if (a[1] !== b[1]) return a[1] - b[1]
-  if (a[2] !== b[2]) return a[2] - b[2]
-  return a[3] < b[3] ? -1 : a[3] > b[3] ? 1 : 0
-}
-
-interface PackingOutcome {
-  decisions: PackingDecision[]
-  packedRecent: MockEpisode[]
-  packedStm: MockEpisode[]
-  duplicates: string[]
-}
-
-/** `shadow._replay_packing`. Skip-on-overflow, not stop-on-overflow. */
-function replayPacking(
-  recent: MockEpisode[],
-  stmCandidates: MockEpisode[],
-  budget: number,
-): PackingOutcome {
-  const packedRecent: MockEpisode[] = []
-  const packedStm: MockEpisode[] = []
-  const decisions: PackingDecision[] = []
-  const duplicates: string[] = []
-  const seen = new Set<string>()
-
-  const walk: Array<[MockEpisode, TierName]> = [
-    ...recent.map((e) => [e, 'recency'] as [MockEpisode, TierName]),
-    ...stmCandidates.map((e) => [e, 'coverage'] as [MockEpisode, TierName]),
-  ]
-
-  let order = 0
-  for (const [candidate, tier] of walk) {
-    order += 1
-    const cost = additiveWeight(candidate)
-
-    if (seen.has(candidate.id)) {
-      duplicates.push(candidate.id)
+/**
+ * `pack_stm_payload` over the long-term block only: recent continuity is
+ * additive and never charged here, so the running serialization is the
+ * two-block payload with an empty recent block. Skip-on-overflow.
+ */
+function packWalk(
+  candidates: RankedEpisode[],
+  allowance: number,
+  phase: PackPhase,
+  tier: TierName,
+  decisions: PackingDecision[],
+): string[] {
+  const picked: RankedEpisode[] = []
+  for (const candidate of candidates) {
+    const test = [...picked, candidate]
+    const payloadChars = renderStmPayload([], test.map((row) => row.episode)).length
+    if (payloadChars <= allowance) {
+      picked.push(candidate)
       decisions.push({
-        order,
-        candidate_id: candidate.id,
+        order: decisions.length + 1,
+        candidate_id: candidate.episode.id,
         tier,
-        cost_chars: cost,
-        payload_chars_after: renderStmPayload(packedRecent, packedStm).length,
-        admitted: false,
-        reason: 'already admitted by an earlier path; charged once',
-      })
-      continue
-    }
-
-    const target = tier === 'recency' ? packedRecent : packedStm
-    target.push(candidate)
-    const payload = renderStmPayload(packedRecent, packedStm)
-    if (payload.length <= budget) {
-      seen.add(candidate.id)
-      decisions.push({
-        order,
-        candidate_id: candidate.id,
-        tier,
-        cost_chars: cost,
-        payload_chars_after: payload.length,
+        phase,
+        cost_chars: additiveWeight(candidate.episode),
+        payload_chars_after: payloadChars,
         admitted: true,
         reason: 'fits',
       })
-      continue
+    } else {
+      decisions.push({
+        order: decisions.length + 1,
+        candidate_id: candidate.episode.id,
+        tier,
+        phase,
+        cost_chars: additiveWeight(candidate.episode),
+        payload_chars_after: renderStmPayload(
+          [],
+          picked.map((row) => row.episode),
+        ).length,
+        admitted: false,
+        reason:
+          `would reach ${payloadChars} characters, past the ${allowance} ` +
+          'allowance; skipped and the walk continued',
+      })
     }
-    target.pop()
-    decisions.push({
-      order,
-      candidate_id: candidate.id,
-      tier,
-      cost_chars: cost,
-      payload_chars_after: renderStmPayload(packedRecent, packedStm).length,
-      admitted: false,
-      reason: `would reach ${payload.length} characters, past the ${budget} budget; skipped and the walk continued`,
+  }
+  return [
+    ...picked.map((row) => row.episode.id),
+  ]
+}
+
+interface SpreadResult {
+  chosen: RankedEpisode[]
+  steps: AspectStepTrace[]
+  soloChars: number
+  stoppingReason: 'no_complete_candidate_fits' | 'no_positive_marginal'
+}
+
+/**
+ * `aspect_spread`: greedy CC80-weighted facet saturation over the half.
+ * Recency is excluded by identity: the library never long-term-admits an
+ * episode the recency block already carries.
+ */
+function runSpread(
+  ranked: RankedEpisode[],
+  initial: RankedEpisode[],
+  half: number,
+  idf: Map<string, number>,
+  facetsById: Map<string, Set<string>>,
+  recentIds: Set<string>,
+): SpreadResult {
+  const storeIndex = new Map(ranked.map((row, index) => [row.episode.id, index]))
+  const scoreOf = new Map(ranked.map((row) => [row.episode.id, row.score]))
+  const rankOf = new Map(ranked.map((row) => [row.episode.id, row.rank]))
+
+  const covered = new Map<string, number>()
+  for (const seed of initial) {
+    for (const facet of facetsById.get(seed.episode.id) ?? []) {
+      const value = (scoreOf.get(seed.episode.id) ?? 0) * (idf.get(facet) ?? 0)
+      covered.set(facet, Math.max(covered.get(facet) ?? 0, value))
+    }
+  }
+
+  const excluded = new Set<string>(initial.map((row) => row.episode.id))
+  for (const id of recentIds) excluded.add(id)
+  const chosen: RankedEpisode[] = []
+  const steps: AspectStepTrace[] = []
+  let spent = EMPTY_PAYLOAD_CHARS
+  let stoppingReason: SpreadResult['stoppingReason'] = 'no_positive_marginal'
+
+  for (;;) {
+    const fit = ranked.filter(
+      (row) =>
+        !excluded.has(row.episode.id) &&
+        spent + additiveWeight(row.episode) <= half,
+    )
+    if (fit.length === 0) {
+      stoppingReason = 'no_complete_candidate_fits'
+      break
+    }
+    let best: RankedEpisode | null = null
+    let bestKey: [number, number, number] | null = null
+    let bestMarginal = 0
+    for (const row of fit) {
+      const score = row.score
+      let marginal = 0
+      for (const facet of facetsById.get(row.episode.id) ?? []) {
+        marginal += Math.max(
+          0,
+          score * (idf.get(facet) ?? 0) - (covered.get(facet) ?? 0),
+        )
+      }
+      const ratio = marginal / additiveWeight(row.episode)
+      const key: [number, number, number] = [
+        ratio,
+        -(rankOf.get(row.episode.id) ?? 0),
+        -(storeIndex.get(row.episode.id) ?? 0),
+      ]
+      if (bestKey === null || compareKey(key, bestKey) > 0) {
+        best = row
+        bestKey = key
+        bestMarginal = marginal
+      }
+    }
+    if (best === null || bestMarginal <= 1e-12) {
+      stoppingReason = 'no_positive_marginal'
+      break
+    }
+
+    excluded.add(best.episode.id)
+    chosen.push(best)
+    spent += additiveWeight(best.episode)
+    const score = best.score
+    for (const facet of facetsById.get(best.episode.id) ?? []) {
+      covered.set(facet, Math.max(covered.get(facet) ?? 0, score * (idf.get(facet) ?? 0)))
+    }
+    steps.push({
+      step: steps.length + 1,
+      candidate_id: best.episode.id,
+      source_turn: best.episode.turn_number,
+      score: best.score,
+      marginal: bestMarginal,
+      ratio: bestMarginal / additiveWeight(best.episode),
+      additive_chars: additiveWeight(best.episode),
+      cumulative_chars: spent,
+      covered_total: covered.size,
     })
   }
-  return { decisions, packedRecent, packedStm, duplicates }
+  return { chosen, steps, soloChars: spent, stoppingReason }
+}
+
+function compareKey(a: [number, number, number], b: [number, number, number]): number {
+  if (a[0] !== b[0]) return a[0] - b[0]
+  if (a[1] !== b[1]) return a[1] - b[1]
+  return a[2] - b[2]
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +469,30 @@ function fakeSha(input: string): string {
   return out
 }
 
+function storeConfigJson(): string {
+  return JSON.stringify({
+    recency_window_n: RECENCY_WINDOW_N,
+    retrieval_budget_chars: RETRIEVAL_BUDGET_CHARS,
+    semantic_dense_weight: DENSE_WEIGHT,
+    bm25_k1: BM25_K1,
+    bm25_b: BM25_B,
+    aspect_enabled: ASPECT_ENABLED,
+    aspect_share: ASPECT_SHARE,
+    aspect_model: ASPECT_MODEL,
+    k_threshold: 0.48,
+    candidate_policy: 'full_store',
+    unsafe_cosine_top_n: 100,
+    selector: 'A3',
+    selector_lambda: 0.1,
+    selector_cost_exponent: 0.0,
+    selector_cluster_count: 16,
+    budget_accounting: 'exact_serialized',
+    embedder_sha256: CARRIED_EMBEDDER_SHA256,
+    embed_call_shape: 'solo',
+    seed: 5005,
+  })
+}
+
 export interface MockTurnInput {
   sessionId: string
   turnIndex: number
@@ -324,158 +516,192 @@ export function generateTurn(input: MockTurnInput): TurnTrace {
   } = input
 
   const episodes = buildCorpus(storeSize)
+  const byId = new Map(episodes.map((e) => [e.id, e]))
   const seed = 5005 + turnIndex * 17
-  const relevance = relevanceFor(episodes, queryTopic, seed)
-  const clusters = clusterAssignments(episodes, seed)
+  const dense = denseFor(episodes, queryTopic, seed)
+  const bm25 = bm25For(episodes, queryText)
+  const { ranked, detail: cc80Detail } = rankAll(episodes, dense, bm25)
+  const rankByEpisode = new Map(ranked.map((row) => [row.episode.id, row]))
 
-  // -- ranks -----------------------------------------------------------
-  const ranked = [...episodes].sort((a, b) => {
-    const diff = (relevance.get(b.id) ?? 0) - (relevance.get(a.id) ?? 0)
-    if (diff !== 0) return diff
-    return a.turn_number - b.turn_number
-  })
-  const rankOf = new Map(ranked.map((e, i) => [e.id, i + 1]))
-
-  // -- tiers -----------------------------------------------------------
+  // -- recency: additive, outside the allowance --------------------------
   const recent = episodes.slice(Math.max(0, episodes.length - RECENCY_WINDOW_N))
   const recentIds = new Set(recent.map((e) => e.id))
+  const eligible = ranked.filter((row) => !recentIds.has(row.episode.id))
 
-  const similarityHits = episodes.filter((e) => (relevance.get(e.id) ?? 0) >= K_THRESHOLD)
-  const similarityIds = new Set(similarityHits.map((e) => e.id))
-
-  const pool = episodes // candidate_policy = full_store
-  const selection = runSelector(pool, relevance, clusters, BUDGET_CHARS)
-  const byId = new Map(episodes.map((e) => [e.id, e]))
-  const coverage = selection.selectedIds.map((id) => byId.get(id)!)
-  const coverageIds = new Set(selection.selectedIds)
-
-  // -- packing ---------------------------------------------------------
-  const stmCandidates = [...similarityHits, ...coverage]
-  const packed = replayPacking(recent, stmCandidates, BUDGET_CHARS)
-  const payload = renderStmPayload(packed.packedRecent, packed.packedStm)
-  const deliveredIds = new Set([
-    ...packed.packedRecent.map((e) => e.id),
-    ...packed.packedStm.map((e) => e.id),
-  ])
-
-  // -- what the paths wanted -------------------------------------------
-  const wantedStm: MockEpisode[] = []
-  const wantedSeen = new Set(recentIds)
-  for (const episode of stmCandidates) {
-    if (wantedSeen.has(episode.id)) continue
-    wantedSeen.add(episode.id)
-    wantedStm.push(episode)
+  // -- the long-term walk --------------------------------------------------
+  const budget = RETRIEVAL_BUDGET_CHARS
+  const half = Math.floor(budget * ASPECT_SHARE)
+  const decisions: PackingDecision[] = []
+  const phases: PackPhase[] = []
+  const markPhase = (phase: PackPhase) => {
+    if (!phases.includes(phase)) phases.push(phase)
   }
-  const charsWanted = renderStmPayload(recent, wantedStm).length
-  const droppedIds = [...recent, ...wantedStm]
-    .filter((e) => !deliveredIds.has(e.id))
-    .map((e) => e.id)
+  let mode: 'protected' | 'fallback' = 'protected'
+  let initial: RankedEpisode[] = []
+  let initialIds: string[] = []
+  let spreadChosen: RankedEpisode[] = []
+  let spreadIds: string[] = []
+  let spreadInputIds: string[] = []
+  let returned: RankedEpisode[] = []
+  let spread: SpreadResult | null = null
+  let facetLatencyMs: number | null = null
 
-  // -- candidate rows ---------------------------------------------------
-  const dropReasonOf = new Map<string, string>()
-  for (const decision of packed.decisions) {
-    if (!decision.admitted && !dropReasonOf.has(decision.candidate_id)) {
-      dropReasonOf.set(decision.candidate_id, decision.reason)
+  if (!ASPECT_ENABLED || eligible.length === 0) {
+    if (ASPECT_ENABLED) mode = 'fallback'
+    markPhase('full')
+    initialIds = packWalk(eligible, budget, 'full', 'semantic', decisions)
+  } else {
+    markPhase('initial')
+    initialIds = packWalk(eligible, half, 'initial', 'semantic', decisions)
+    initial = initialIds.map((id) => rankByEpisode.get(id)!)
+    if (initial.length === 0) {
+      // The initial half admitted nothing: one CC80 walk owns the allowance.
+      mode = 'fallback'
+      decisions.length = 0
+      phases.length = 0
+      markPhase('full')
+      initialIds = packWalk(eligible, budget, 'full', 'semantic', decisions)
+      initial = initialIds.map((id) => rankByEpisode.get(id)!)
+    } else {
+      facetLatencyMs = 41.6 + (turnIndex % 5) * 2.2
+      const facetsById = new Map(episodes.map((e) => [e.id, facetsFor(e)]))
+      const idf = facetIdf([...facetsById.values()])
+      spread = runSpread(ranked, initial, half, idf, facetsById, recentIds)
+      spreadChosen = spread.chosen
+      spreadInputIds = spread.chosen.map((row) => row.episode.id)
+      markPhase('spread')
+      spreadIds = packWalk(spreadChosen, half, 'spread', 'aspect', decisions)
     }
   }
 
+  const initialSet = new Set(initialIds)
+  const spreadSet = new Set(spreadIds)
+  const finalLongTerm = [
+    ...initialIds.map((id) => byId.get(id)!),
+    ...spreadIds.map((id) => byId.get(id)!),
+  ]
+  let currentChars = renderStmPayload([], finalLongTerm).length
+  const admittedSet = new Set([...initialIds, ...spreadIds])
+  if (ASPECT_ENABLED && eligible.length > 0 && mode === 'protected') {
+    markPhase('slack')
+    for (const row of eligible) {
+      if (admittedSet.has(row.episode.id)) continue
+      const cost = additiveWeight(row.episode)
+      if (currentChars + cost <= budget) {
+        finalLongTerm.push(row.episode)
+        admittedSet.add(row.episode.id)
+        currentChars += cost
+        returned.push(row)
+        decisions.push({
+          order: decisions.length + 1,
+          candidate_id: row.episode.id,
+          tier: 'semantic',
+          phase: 'slack',
+          cost_chars: cost,
+          payload_chars_after: currentChars,
+          admitted: true,
+          reason: 'fits the remaining budget; returned',
+        })
+      }
+    }
+  }
+  const finalIds = finalLongTerm.map((e) => e.id)
+  const finalSet = new Set(finalIds)
+
+  // -- the payload the model saw ------------------------------------------
+  const payload =
+    budget >= EMPTY_PAYLOAD_CHARS ? renderStmPayload(recent, finalLongTerm) : ''
+  const deliveredIds = new Set([...recentIds, ...finalIds])
+
+  // -- what the selection would have wanted --------------------------------
+  const charsWanted =
+    eligible.length === 0
+      ? EMPTY_PAYLOAD_CHARS
+      : renderStmPayload([], eligible.map((row) => row.episode)).length
+  const droppedIds = eligible
+    .filter((row) => !finalSet.has(row.episode.id))
+    .map((row) => row.episode.id)
+
+  // -- candidate rows -------------------------------------------------------
+  const lastDecision = new Map<string, PackingDecision>()
+  for (const decision of decisions) {
+    if (!decision.admitted) lastDecision.set(decision.candidate_id, decision)
+  }
+  const returnedSet = new Set(returned.map((row) => row.episode.id))
+
   const candidates: CandidateTrace[] = episodes.map((episode) => {
+    const row = rankByEpisode.get(episode.id)!
     const delivered = deliveredIds.has(episode.id)
     const via: TierName | null = !delivered
       ? null
       : recentIds.has(episode.id)
         ? 'recency'
-        : similarityIds.has(episode.id)
-          ? 'similarity'
-          : 'coverage'
-    const proposed =
-      recentIds.has(episode.id) || similarityIds.has(episode.id) || coverageIds.has(episode.id)
-    const dropReason = delivered
-      ? null
-      : proposed
-        ? (dropReasonOf.get(episode.id) ?? 'proposed but not admitted')
-        : 'not proposed by any path this turn'
-
+        : initialSet.has(episode.id)
+          ? 'semantic'
+          : spreadSet.has(episode.id)
+            ? 'aspect'
+            : returnedSet.has(episode.id)
+              ? 'semantic'
+              : null
+    const decision = lastDecision.get(episode.id)
     return {
       id: episode.id,
       turn_number: episode.turn_number,
       preview: preview(episode.user_message),
       assistant_preview: preview(episode.assistant_message),
-      relevance: relevance.get(episode.id) ?? 0,
-      relevance_rank: rankOf.get(episode.id)!,
-      cluster: clusters.get(episode.id) ?? null,
+      dense_cosine: row.dense,
+      dense_normalized: row.denseNormalized,
+      bm25_score: row.bm25,
+      bm25_normalized: row.bm25Normalized,
+      cc80_score: row.score,
+      cc80_rank: row.rank,
       render_chars: additiveWeight(episode),
       in_recency_window: recentIds.has(episode.id),
-      passes_similarity_threshold: similarityIds.has(episode.id),
-      selected_by_coverage: coverageIds.has(episode.id),
+      in_semantic_initial: initialSet.has(episode.id),
+      selected_by_aspect: spreadSet.has(episode.id),
+      returned_semantic: returnedSet.has(episode.id),
       delivered,
       delivered_via: via,
-      drop_reason: dropReason,
+      drop_reason: delivered ? null : (decision?.reason ?? null),
     }
   })
 
-  // -- cluster rows -----------------------------------------------------
-  const membersByCluster = new Map<number, string[]>()
-  for (const episode of pool) {
-    const cluster = clusters.get(episode.id)!
-    const bucket = membersByCluster.get(cluster) ?? []
-    bucket.push(episode.id)
-    membersByCluster.set(cluster, bucket)
-  }
-  const clusterRows: ClusterTrace[] = [...membersByCluster.keys()]
-    .sort((a, b) => a - b)
-    .map((id) => {
-      const members = membersByCluster.get(id)!
-      const scores = members.map((memberId) => relevance.get(memberId) ?? 0)
-      return {
-        id,
-        size: members.length,
-        member_ids: members,
-        mean_relevance: scores.reduce((a, b) => a + b, 0) / (scores.length || 1),
-        max_relevance: scores.length ? Math.max(...scores) : 0,
-        selected_ids: members.filter((memberId) => coverageIds.has(memberId)),
-        delivered_ids: members.filter((memberId) => deliveredIds.has(memberId)),
-      }
-    })
+  // -- tier rows ----------------------------------------------------------
+  const weights = new Map(episodes.map((e) => [e.id, additiveWeight(e)]))
+  const contextIds = deliveredIds
 
-  // -- tier rows --------------------------------------------------------
-  const similarityClaim = new Set([...similarityIds].filter((id) => !recentIds.has(id)))
-  const coverageClaim = new Set(
-    [...coverageIds].filter((id) => !recentIds.has(id) && !similarityIds.has(id)),
-  )
-
-  function buildTier(name: TierName, proposed: MockEpisode[], claim: Set<string>): TierTrace {
-    const proposedIds = proposed.map((e) => e.id)
-    const delivered = proposedIds.filter((id) => deliveredIds.has(id) && claim.has(id))
-    // In the context, but credited to an earlier path that also proposed it.
-    const overlapped = proposedIds.filter((id) => deliveredIds.has(id) && !claim.has(id))
-    const skipped = proposedIds.filter((id) => !deliveredIds.has(id))
+  function buildTier(
+    name: TierName,
+    proposed: string[],
+    claim: Set<string>,
+  ): TierTrace {
+    const delivered = proposed.filter((id) => contextIds.has(id) && claim.has(id))
+    const overlapped = proposed.filter((id) => contextIds.has(id) && !claim.has(id))
+    const skipped = proposed.filter((id) => !contextIds.has(id))
     return {
       name,
       label: TIER_LABELS[name],
       description: TIER_DESCRIPTIONS[name],
-      proposed_ids: proposedIds,
+      proposed_ids: proposed,
       delivered_ids: delivered,
       overlapped_ids: overlapped,
       skipped_ids: skipped,
-      chars_delivered: delivered.reduce((sum, id) => sum + additiveWeight(byId.get(id)!), 0),
-      chars_proposed: proposed.reduce((sum, e) => sum + additiveWeight(e), 0),
+      chars_delivered: delivered.reduce((sum, id) => sum + (weights.get(id) ?? 0), 0),
+      chars_proposed: proposed.reduce((sum, id) => sum + (weights.get(id) ?? 0), 0),
     }
   }
 
+  const semanticClaim = new Set([...initialIds, ...returned.map((r) => r.episode.id)])
   const tiers: TierTrace[] = [
-    buildTier('recency', recent, recentIds),
-    buildTier('similarity', similarityHits, similarityClaim),
-    buildTier('coverage', coverage, coverageClaim),
+    buildTier('recency', recent.map((e) => e.id), recentIds),
+    buildTier('semantic', eligible.map((row) => row.episode.id), semanticClaim),
+    buildTier('aspect', spreadInputIds, spreadSet),
   ]
 
-  // -- similarity detail ------------------------------------------------
-  const bestCosine = Math.max(...episodes.map((e) => relevance.get(e.id) ?? 0))
-
-  // -- verification -----------------------------------------------------
+  // -- verification ---------------------------------------------------------
   const authoritySha = fakeSha(payload)
   const diverged = scenario === 'diverged'
-  const shadowSha = diverged ? fakeSha(`${payload} drift`) : authoritySha
+  const shadowSha = diverged ? fakeSha(`${payload} drift`) : authoritySha
 
   const startedAt = new Date(Date.parse('2026-08-17T14:03:00Z') + turnIndex * 96_000)
 
@@ -505,14 +731,53 @@ export function generateTurn(input: MockTurnInput): TurnTrace {
           processed_tokens: 9040 + Math.floor(payload.length / 4) - 612,
           prefill_ms: 5870,
         },
-         finish_reason: 'stop',
-         error: null,
-         tool_calls: [],
-       }
-     : null
+        finish_reason: 'stop',
+        error: null,
+        tool_calls: [],
+      }
+    : null
+
+  const report: ReportTrace = {
+    chars_delivered: payload.length,
+    chars_wanted: charsWanted,
+    episodes_delivered: deliveredIds.size,
+    episodes_dropped: droppedIds.length,
+    truncated: droppedIds.length > 0,
+    stm_count: recent.length,
+    k_count: semanticClaim.size,
+    coverage_count: spreadIds.length,
+    latency_ms: 71.4 + (turnIndex % 4) * 2.6,
+    pool_size: episodes.length,
+    dropped_ids: droppedIds,
+    drop_policy: DROP_POLICY,
+    budget_chars: budget,
+    retrieval_chars_delivered: currentChars,
+    retrieval_budget_chars: budget,
+    recency_count: recent.length,
+    semantic_count: semanticClaim.size,
+    aspect_count: spreadIds.length,
+    returned_semantic_count: returned.length,
+    aspect_enabled: ASPECT_ENABLED,
+    recent_ids: recent.map((e) => e.id),
+    recency_additive: true,
+  }
+
+  const aspectDetail: AspectDetail = {
+    enabled: ASPECT_ENABLED,
+    share: ASPECT_SHARE,
+    model: ASPECT_MODEL,
+    mode,
+    facet_latency_ms: facetLatencyMs,
+    initial_ids: initialIds,
+    spread_ids: spreadIds,
+    returned_ids: returned.map((row) => row.episode.id),
+    solo_chars: spread?.soloChars ?? null,
+    stopping_reason: spread?.stoppingReason ?? null,
+    steps: spread?.steps ?? [],
+  }
 
   return {
-    schema_version: 1,
+    schema_version: 2,
     turn_id: `turn-${sessionId}-${String(turnIndex).padStart(3, '0')}`,
     session_id: sessionId,
     turn_index: turnIndex,
@@ -530,71 +795,33 @@ export function generateTurn(input: MockTurnInput): TurnTrace {
     store: {
       path: `var/sessions/${sessionId}/episodes.sqlite`,
       episode_count: episodes.length,
-      config_json: JSON.stringify(
-        {
-          recency_window_n: RECENCY_WINDOW_N,
-          k_threshold: K_THRESHOLD,
-          candidate_policy: 'full_store',
-          selector_lambda: SELECTOR_LAMBDA,
-          selector_cost_exponent: SELECTOR_COST_EXPONENT,
-          selector_cluster_count: CLUSTER_COUNT,
-          embedding_model: 'Qwen3-Embedding-0.6B-Q8_0',
-          embedding_dimension: 1024,
-        },
-        null,
-        2,
-      ),
+      config_json: storeConfigJson(),
       sentinel_sha256: fakeSha('sentinel'),
       embedder_model_sha256: fakeSha('Qwen3-Embedding-0.6B-Q8_0.gguf'),
     },
 
     candidates,
-    clusters: clusterRows,
     tiers,
-    similarity_detail: {
-      threshold: K_THRESHOLD,
-      hit_count: similarityHits.length,
-      max_relevance_observed: bestCosine,
-      margin_to_threshold: K_THRESHOLD - bestCosine,
-      inert: similarityHits.length === 0,
-    },
-    selector_steps: selection.steps,
+    cc80_detail: cc80Detail,
+    aspect_detail: aspectDetail,
     packing: {
       policy: DROP_POLICY,
-      tier_order: ['recency', 'similarity', 'coverage'],
-      budget_chars: BUDGET_CHARS,
+      phases,
+      budget_chars: budget,
+      half_chars: mode === 'protected' ? half : mode === 'fallback' ? half : 0,
       empty_payload_chars: EMPTY_PAYLOAD_CHARS,
-      decisions: packed.decisions,
-      duplicate_ids: packed.duplicates,
+      decisions,
+      duplicate_ids: [],
     },
 
     context_block: {
       payload,
       chars: payload.length,
       sha256: authoritySha,
-      recent_episode_count: packed.packedRecent.length,
-      retrieved_episode_count: packed.packedStm.length,
+      recent_episode_count: recent.length,
+      retrieved_episode_count: finalIds.length,
     },
-    report: {
-      chars_delivered: payload.length,
-      chars_wanted: charsWanted,
-      chars_available: BUDGET_CHARS - payload.length,
-      shortfall_chars: Math.max(0, charsWanted - payload.length),
-      episodes_delivered: deliveredIds.size,
-      episodes_dropped: droppedIds.length,
-      truncated: droppedIds.length > 0,
-      stm_count: [...deliveredIds].filter((id) => recentIds.has(id)).length,
-      k_count: [...deliveredIds].filter((id) => similarityIds.has(id) && !recentIds.has(id))
-        .length,
-      coverage_count: [...deliveredIds].filter(
-        (id) => !recentIds.has(id) && !similarityIds.has(id),
-      ).length,
-      latency_ms: 71.4 + (turnIndex % 4) * 2.6,
-      pool_size: pool.length,
-      dropped_ids: droppedIds,
-      drop_policy: DROP_POLICY,
-      budget_chars: BUDGET_CHARS,
-    },
+    report,
     verification: {
       payload_identical: !diverged,
       report_fields_identical: !diverged,
@@ -602,16 +829,16 @@ export function generateTurn(input: MockTurnInput): TurnTrace {
       shadow_payload_sha256: shadowSha,
       mismatched_fields: diverged
         ? [
-            "chars_delivered: shadow=31284 authority=31996",
-            "coverage_count: shadow=1 authority=0",
+            'chars_delivered: shadow=31284 authority=31996',
+            'semantic_count: shadow=1 authority=0',
           ]
         : [],
-       library_version: LIBRARY_VERSION,
-       shadow_latency_ms: 8.4 + (turnIndex % 3) * 0.7,
-     },
-     generation,
-     subagent: null,
-   }
+      library_version: LIBRARY_VERSION,
+      shadow_latency_ms: 8.4 + (turnIndex % 3) * 0.7,
+    },
+    generation,
+    subagent: null,
+  }
 }
 
 function mockResponse(topicIndex: number, turnIndex: number): string {

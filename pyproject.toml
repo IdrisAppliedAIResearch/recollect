@@ -11,7 +11,10 @@ license = "LicenseRef-Proprietary"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
-    "episodic",
+    # [aspect] is a base dependency on purpose: this deployment runs the
+    # deployed read path with ASPECT on by default (see .agent decision D1),
+    # so spacy + the pinned en_core_web_sm-3.8.0 model are always present.
+    "episodic-chat[aspect]",
     "numpy>=2.0",
     "pydantic>=2.9",
     "fastapi>=0.115",
@@ -49,7 +52,7 @@ packages = ["src/recollect"]
 # The mechanism library is developed in the research repository and consumed
 # here unmodified. Recollect never forks it: the shadow-trace engine
 # reproduces its output byte-for-byte instead, so any drift is loud.
-episodic = { path = "../contextDecayWindow/episodic", editable = true }
+episodic-chat = { path = "../contextDecayWindow/episodic", editable = true }
 
 [tool.ruff]
 line-length = 88

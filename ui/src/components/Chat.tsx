@@ -124,17 +124,16 @@ export function Chat({
                   </span>
                   <span>{int(exchange.trace.report.episodes_delivered)} episodes</span>
                   <span>
-                    {chars(exchange.trace.report.chars_delivered)}/
+                    {chars(
+                      exchange.trace.report.retrieval_chars_delivered ??
+                        exchange.trace.report.chars_delivered,
+                    )}/
                     {chars(exchange.trace.report.budget_chars)}
                   </span>
                   <span className="msg__flags">
-                    <TierPip code="N" n={exchange.trace.report.stm_count} tier="recency" />
-                    <TierPip code="K" n={exchange.trace.report.k_count} tier="similarity" />
-                    <TierPip
-                      code="A3"
-                      n={exchange.trace.report.coverage_count}
-                      tier="coverage"
-                    />
+                    <TierPip code="N" n={exchange.trace.report.recency_count} tier="recency" />
+                    <TierPip code="K" n={exchange.trace.report.semantic_count} tier="semantic" />
+                    <TierPip code="A" n={exchange.trace.report.aspect_count} tier="aspect" />
                   </span>
                   {!exchange.trace.verification.payload_identical && (
                     <span className="badge badge--bad">unverified</span>
