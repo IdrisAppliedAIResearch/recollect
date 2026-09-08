@@ -22,6 +22,12 @@ what keeps you from redoing finished work or undoing it.
 4. Update `.agent/TODO.md` so it matches what step 3 actually showed. Move
    finished items to `## Done`. Then continue.
 
+For a request to start, launch, or bring up the local application, follow
+the complete runtime sequence in §7.1. The agent owns that sequence;
+do not hand the user a list of routine startup commands to run themselves.
+Reading this file or doing documentation work does not itself mean start
+the services. Respect an explicit shutdown until a launch is requested.
+
 **After a compaction, do not trust your memory of what you were doing.**
 Your summary of the conversation is lossy; `git diff` and `.agent/TODO.md`
 are not. When they disagree with your recollection, they are right.
@@ -163,7 +169,7 @@ They are gitignored. Do not add them with `-f`.
 Run these. Both must be clean. Paste the real output.
 
 ```bash
-uv run ruff check . && uv run pytest
+uv run --no-sync ruff check . && uv run --no-sync pytest
 ```
 
 If you touched anything in `ui/`:
@@ -247,15 +253,260 @@ belongs in `trace.py` and `shadow.py` first, and the UI last.
 ## 7. Commands
 
 ```bash
-uv sync                      # install (needs ../contextDecayWindow checked out)
-uv run pytest                # no model file needed; ~10s
-uv run ruff check .          # line length 88
-uv run recollect doctor      # embedder identity + generator reachability
-uv run recollect serve       # UI + API on :8080
+uv run --no-sync pytest           # fake models; Docker tests are opt-in
+uv run --no-sync ruff check .     # line length 88
+uv run --no-sync recollect doctor # embedder identity + generator reachability
+uv run --no-sync recollect serve  # UI + API on :8080; see full launch below
 ```
 
-A chat model must be running separately on port 8000 (llama-server
-preferred — it reports the cache timings the trace records).
+Use the existing Python 3.13 `.venv`. `--no-sync` preserves the installed,
+binary-pinned embedder and GPU packages. Dependency installation is a repair
+or provisioning step, not part of every launch; see §7.1.
+
+### 7.1 Agent-owned full local launch
+
+When the user asks to launch Recollect, the default scope is **Docker +
+the GPU chat model + Recollect + warmed GPU voice**, unless they explicitly
+request a narrower scope. Execute the steps, resolve routine startup issues,
+and report verified readiness. Do not ask the user to repeat the model,
+device, or launch choices already recorded here. Report actual blockers;
+do not silently downgrade to CPU or call a text-only server fully ready.
+
+This is the verified Windows/RTX 5090 configuration as of 2026-09-08.
+Use the saved `.env` and installed files; verify paths before launching.
+Machine-specific paths below are relative to `%USERPROFILE%` unless noted.
+
+| Component | Where/how it runs | Ready condition |
+|---|---|---|
+| Qwen3.8-27B-UD-Q4_K_XL.gguf | Separate `llama-server`, GPU, loopback port 8000 | `/health` says `ok`, `/v1/models` identifies the expected model, startup log confirms GPU offload |
+| Whisper large-v3-turbo | In Recollect, faster-whisper/CTranslate2, CUDA float16 | Voice status: `asr_backend=whisper`, `asr_device=cuda`, `asr_compute_type=float16`, `asr_ready=true` |
+| Kokoro 82M | In Recollect, ONNX Runtime GPU | Voice status: `provider=CUDAExecutionProvider` |
+| Qwen3-Embedding-0.6B-Q8_0.gguf | In Recollect, **CPU**, pinned native build, 8 threads, `n_ctx=512`, `n_gpu_layers=0` | Research sentinel matches; never move this model to GPU or HTTP |
+| Vosk small English 0.15 + Silero VAD | In Recollect, **CPU** | Voice initialization succeeds for “Hey Idris”; wake/onset detection stays independent of Whisper |
+| Docker/OpenCode research | Linux Docker engine + pinned `recollect-opencode-sandbox:1.18.18` image | Engine and image available; Recollect creates/attests its sandbox lazily on first delegation |
+| Recollect UI/API | Existing `.venv`, loopback port 8080 | `/api/health` passes and the built UI loads |
+
+OpenCode uses the **same Qwen server and single model slot** as main chat.
+Do not start a second chat model or give the container its own GPU model.
+The embedding and speech models run inside Recollect, not as additional
+HTTP servers. A healthy empty sandbox list before the first research task
+is expected; do not bypass the manager by manually running its container.
+
+#### A. Preflight and reuse
+
+1. Work from the repository root. Read `.env` selectively without dumping
+   credentials. Check ports 8000/8080 and their owning process command lines.
+   Reuse an already healthy matching service; do not duplicate it or kill
+   an unrelated process merely because it occupies a port.
+2. Verify the sibling `../contextDecayWindow/episodic`, existing `.venv`,
+   model assets, and CUDA DLL directories. The known model server is
+   `.unsloth\llama.cpp\build\bin\Release\llama-server.exe`.
+   The chat weights are at
+   `.cache\huggingface\hub\models--unsloth--Qwen3.8-27B-GGUF\snapshots\f1bfb127c64f7072bdd2cad55f258b9c8b2910fe\Qwen3.8-27B-UD-Q4_K_XL.gguf`.
+   The embedding weights are at
+   `.cache\huggingface\hub\Qwen3-Embedding-0.6B-GGUF\Qwen3-Embedding-0.6B-Q8_0.gguf`.
+   Voice assets live under repository `var/models/voice`; Whisper is in
+   `var/models/voice/whisper-large-v3-turbo`.
+3. Verify the effective settings below. Preserve other `.env` values;
+   never replace the user's `.env` with `.env.example` during a restart.
+
+   ```dotenv
+   RECOLLECT_GENERATOR_BASE_URL=http://127.0.0.1:8000/v1
+   RECOLLECT_GENERATOR_MODEL=Qwen3.8-27B-UD-Q4_K_XL.gguf
+   RECOLLECT_EMBEDDING_THREADS=8
+   RECOLLECT_SUBAGENT_ENABLED=true
+   RECOLLECT_SUBAGENT_BACKEND=opencode
+   RECOLLECT_SANDBOX_CONTAINER_RUNTIME=docker
+   RECOLLECT_SANDBOX_CONTAINER_IMAGE=recollect-opencode-sandbox:1.18.18
+   RECOLLECT_VOICE_WAKE_PHRASE=hey idris
+   RECOLLECT_VOICE_DEVICE=cuda
+   RECOLLECT_VOICE_ASR_BACKEND=whisper
+   RECOLLECT_VOICE_ASR_DEVICE=cuda
+   RECOLLECT_VOICE_ASR_COMPUTE_TYPE=float16
+   ```
+
+   `RECOLLECT_EMBEDDING_MODEL_PATH` points to the embedding artifact above.
+   `RECOLLECT_VOICE_CUDA_DLL_DIR` points to the absolute existing directory
+   `.unsloth\studio\unsloth_studio\Lib\site-packages\torch\lib` under the
+   user profile. Keep the established 1.4-second end-of-speech pause and
+   120-second capture limit unless the user requests a timing change.
+4. For the background-launch examples, initialize these variables from the
+   repository root. Logs are intentional runtime files under ignored `var/`:
+
+   ```powershell
+   $recollectRoot = (Get-Location).Path
+   $runtimeLogs = Join-Path $recollectRoot 'var\logs'
+   $launchStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+   New-Item -ItemType Directory -Force -Path $runtimeLogs | Out-Null
+   ```
+
+#### B. Docker first
+
+Run `docker info --format '{{.OSType}}'`; it must return `linux`. On this
+machine Docker Desktop is installed at
+`%LOCALAPPDATA%\Programs\DockerDesktop\frontend\Docker Desktop.exe`.
+If the engine is down, start that verified executable with
+`Start-Process -WindowStyle Hidden`, then poll the engine in short intervals
+until ready (allow up to two minutes overall; keep the user informed).
+On another machine discover the installed Docker path rather than guessing.
+
+```powershell
+# Only when the Linux engine is not already ready:
+$dockerDesktop = Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\frontend\Docker Desktop.exe'
+Start-Process -FilePath $dockerDesktop -WindowStyle Hidden
+```
+
+Check the image with:
+
+```powershell
+docker image inspect recollect-opencode-sandbox:1.18.18
+```
+
+Build it only if absent or stale relative to the Dockerfile, locked image
+requirements, `src/recollect/engine/mcp_research.py`, or
+`src/recollect/engine/webtools.py`. These are the image's build inputs, so
+a tag alone does not establish that it contains current research-tool changes:
+
+```powershell
+docker build -f deploy/opencode-sandbox/Dockerfile `
+  -t recollect-opencode-sandbox:1.18.18 .
+```
+
+The only Docker Desktop file share this app needs is
+`%LOCALAPPDATA%\recollect\sandboxes`, matching `RECOLLECT_SANDBOX_ROOT`.
+Preserve the isolated mounts and other restrictions in
+[deploy/opencode-sandbox/README.md](deploy/opencode-sandbox/README.md).
+Never start a host OpenCode fallback if Docker fails. Engine/image readiness
+does not guarantee that external search providers will answer a later query.
+
+#### C. Start the GPU chat model
+
+Use an agent-managed long-running terminal, or a hidden background process.
+The following PowerShell arguments reproduce the tested single-slot setup:
+
+```powershell
+$modelServerExe = Join-Path $env:USERPROFILE '.unsloth\llama.cpp\build\bin\Release\llama-server.exe'
+$chatModel = Join-Path $env:USERPROFILE '.cache\huggingface\hub\models--unsloth--Qwen3.8-27B-GGUF\snapshots\f1bfb127c64f7072bdd2cad55f258b9c8b2910fe\Qwen3.8-27B-UD-Q4_K_XL.gguf'
+$modelArgs = @(
+  '--model', ('"{0}"' -f $chatModel), '--host', '127.0.0.1', '--port', '8000',
+  '--ctx-size', '32768', '--parallel', '1', '--n-gpu-layers', '999',
+  '--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0',
+  '--flash-attn', 'on', '--jinja', '--metrics', '--no-webui'
+)
+$chatProcess = Start-Process -FilePath $modelServerExe -ArgumentList $modelArgs `
+  -WorkingDirectory $recollectRoot -WindowStyle Hidden -PassThru `
+  -RedirectStandardOutput "$runtimeLogs\qwen-$launchStamp.stdout.log" `
+  -RedirectStandardError "$runtimeLogs\qwen-$launchStamp.stderr.log"
+```
+
+Verify both paths before executing. Capture startup output in the managed
+terminal or intentional logs under `var/`; inspect it for GPU offload.
+Poll `http://127.0.0.1:8000/health` with bounded request timeouts and verify
+`http://127.0.0.1:8000/v1/models`. Do not treat process creation as readiness.
+Preserve the context size, one-slot serialization, and quantized KV cache;
+they leave room for Whisper and Kokoro on the 32 GB GPU.
+
+#### D. Start Recollect and warm the serving process
+
+Run `uv run --no-sync recollect doctor` after Qwen is ready. Require the
+research sentinel
+`baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8`.
+If it drifts, fix the environment using [docs/EMBEDDER.md](docs/EMBEDDER.md);
+do not change the stored pin or offload the embedder to GPU.
+
+Build the UI with `npm run build` from `ui/` when source changed or `ui/dist`
+is absent. Launch `uv run --no-sync recollect serve` from the repository in
+an agent-managed long-running terminal. For a PowerShell background launch:
+
+```powershell
+$appProcess = Start-Process -FilePath "$recollectRoot\.venv\Scripts\recollect.exe" `
+  -ArgumentList 'serve' -WorkingDirectory $recollectRoot `
+  -WindowStyle Hidden -PassThru `
+  -RedirectStandardOutput "$runtimeLogs\recollect-$launchStamp.stdout.log" `
+  -RedirectStandardError "$runtimeLogs\recollect-$launchStamp.stderr.log"
+```
+
+Poll `http://127.0.0.1:8080/api/health`. Require the embedder's
+`sentinel_matches_research=true` and the generator's `reachable=true`.
+Then **warm voice in this server**, before telling the user it is ready.
+`voice-doctor` runs in another process and does not warm the serving process;
+`/api/voice/status` alone also does not load the models. This PowerShell
+snippet opens and closes the voice socket without capturing audio or adding
+a chat turn:
+
+```powershell
+@'
+import asyncio
+import json
+import httpx
+from websockets.asyncio.client import connect
+
+async def warm():
+    async with connect("ws://127.0.0.1:8080/api/voice/listen") as socket:
+        event = json.loads(await asyncio.wait_for(socket.recv(), 60))
+        assert event["type"] == "state" and event["state"] == "waiting", event
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get("http://127.0.0.1:8080/api/voice/status")
+        response.raise_for_status()
+        status = response.json()
+    assert status["available"] and status["error"] is None, status
+    assert status["asr_backend"] == "whisper" and status["asr_ready"], status
+    assert status["asr_device"] == "cuda", status
+    assert status["asr_compute_type"] == "float16", status
+    assert status["provider"] == "CUDAExecutionProvider", status
+    print(json.dumps(status, indent=2))
+
+asyncio.run(warm())
+'@ | uv run --no-sync python -
+```
+
+If an existing browser already owns the voice listener, reuse its healthy
+status instead of disconnecting it. Handle a cold-start timeout explicitly;
+never report readiness from a still-pending warm-up.
+
+Finally check `nvidia-smi`, open/refresh `http://127.0.0.1:8080/`, and verify
+the existing history loads. Report Docker/image readiness, Qwen health,
+embedding identity, and both GPU voice providers. Record current process IDs,
+managed terminal handles/log paths, and readiness in `.agent/TODO.md`; old recorded
+PIDs are evidence, never instructions to kill those IDs on a later launch.
+Leave services running after a launch. Do not create test conversations in
+the user's session or require another wake-phrase/configuration decision.
+
+#### Provisioning or repair only
+
+Do not resync, reinstall, rebuild, or redownload everything on each launch.
+If dependencies/assets are missing, stop Recollect before replacing loaded
+Windows DLLs, then use:
+
+```powershell
+uv sync --extra voice-gpu --extra voice-whisper --inexact
+uv run --no-sync recollect voice-setup --whisper
+```
+
+`--inexact` preserves the manually provisioned `llama-cpp-python==0.3.25`
+native build. A same-version replacement is not necessarily compatible.
+Only `onnxruntime-gpu==1.29.0` belongs in this GPU environment; CPU
+`onnxruntime` installs the same module and must not coexist. The dependency
+exclusions in `pyproject.toml` prevent Kokoro/faster-whisper from reintroducing
+it. Kokoro uses CUDA 13/cuDNN 9 DLLs from the configured directory; Whisper
+uses its installed CUDA 12/cuDNN 9 packages, faster-whisper 1.2.1 and
+CTranslate2 4.8.2. Do not confuse the two CUDA library configurations.
+See [docs/VOICE.md](docs/VOICE.md) for repair details and pinned model receipts.
+
+#### Shutdown when requested
+
+Stop Recollect first, preferably gracefully so its sandbox manager can close
+its container, then stop the verified Qwen process. For background processes,
+recheck command lines and port owners before `Stop-Process`; include only
+their verified launchers if still alive. Never kill all Python/Node processes.
+Whisper, Kokoro, the embedder, Vosk and Silero unload with Recollect.
+Check for an orphaned `recollect-subagent-*` container using `docker ps -a`;
+verify its image and mounts belong to this app before stopping/removing it.
+Do not shut down shared Docker Desktop/Engine unless requested or known to
+have been started exclusively for this launch with no other workloads.
+Verify ports 8080/8000 are closed and GPU model processes are gone. Preserve
+model downloads, saved conversations, `.env`, and the pinned environment.
+Record the stopped state in `.agent/TODO.md` so the next agent respects it.
 
 Notes that save time:
 
@@ -267,7 +518,7 @@ Notes that save time:
 - Blocking work (embedding, SQLite, retrieval) must run via
   `asyncio.to_thread`, never directly on the event loop.
 - `uv.lock` is generated. Change dependencies in `pyproject.toml` and run
-  `uv sync` — never hand-edit the lock.
+  the appropriate `uv sync --inexact` command above — never hand-edit the lock.
 
 ---
 
