@@ -67,7 +67,7 @@ from .engine.subagent import (
     transfer_task,
 )
 from .engine.voice import VoiceService
-from .session import SessionInfo, SessionManager
+from .session import ChatTurn, SessionInfo, SessionManager
 from .trace import SubagentTrace, ToolCallTrace, TurnSummary, TurnTrace
 from .voice_api import install_voice_routes
 
@@ -263,6 +263,13 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
     @app.get("/api/sessions/{session_id}/turns")
     async def list_turns(session_id: str) -> list[TurnSummary]:
         return state().sessions.list_turns(session_id)
+
+    @app.get("/api/sessions/{session_id}/history")
+    async def chat_history(session_id: str) -> list[ChatTurn]:
+        try:
+            return await asyncio.to_thread(state().sessions.chat_history, session_id)
+        except KeyError as error:
+            raise HTTPException(404, f"No such session: {session_id}") from error
 
     @app.get("/api/turns/{turn_id}")
     async def get_turn(turn_id: str) -> TurnTrace:

@@ -12,6 +12,7 @@ import { liveSource } from './api/live.ts'
 import { createMockSource } from './api/mock.ts'
 import { Chat } from './components/Chat.tsx'
 import { Inspector } from './components/Inspector.tsx'
+import { restoreHistory } from './lib/chat-history.ts'
 import { chars, int, ms, pct } from './lib/format.ts'
 import { initialSendOutcome, updateSendOutcome } from './lib/send-outcome.ts'
 import { finishWorkspace, recordResearchResult } from './lib/workspace.ts'
@@ -98,24 +99,12 @@ export function App() {
         if (cancelled) return
         setSession(active)
 
-        // Backfill the session's history. Summaries are cheap; the full
-        // trace for a turn is fetched only when that turn is selected,
-        // because a long session holds a lot of them.
-        const turns = await next.listTurns(active.session_id)
+        // Load complete messages without downloading every retrieval trace.
+        // Inspector details are still fetched only for the selected turn.
+        const turns = await next.chatHistory(active.session_id)
         if (cancelled) return
         if (turns.length) {
-          setExchanges(
-            turns.map((summary) => ({
-              id: summary.turn_id,
-              user: summary.query_preview,
-              assistant: summary.response_preview,
-              reasoning: '',
-              trace: null,
-              streaming: false,
-              error: null,
-              workspace: null,
-            })),
-          )
+          setExchanges(restoreHistory(turns))
           setSelectedId(turns[turns.length - 1]?.turn_id ?? null)
         }
       } catch (error) {

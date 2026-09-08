@@ -4,6 +4,7 @@
  */
 import type {
   ChatEvent,
+  ChatTurn,
   DataSource,
   EpisodeBody,
   HealthResponse,
@@ -75,6 +76,9 @@ export const liveSource: DataSource = {
 
   listTurns: (sessionId) =>
     json<TurnSummary[]>(`/api/sessions/${encodeURIComponent(sessionId)}/turns`),
+
+  chatHistory: (sessionId) =>
+    json<ChatTurn[]>(`/api/sessions/${encodeURIComponent(sessionId)}/history`),
 
   getTurn: (turnId) => json<TurnTrace>(`/api/turns/${encodeURIComponent(turnId)}`),
 
