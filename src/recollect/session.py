@@ -54,6 +54,14 @@ class SessionInfo(BaseModel):
     turn_count: int = 0
 
 
+class ChatTurn(BaseModel):
+    turn_id: str
+    user_message: str
+    assistant_message: str
+    reasoning_text: str = ""
+    error: str | None = None
+
+
 @dataclass
 class PreparedTurn:
     """Retrieval is done; the model has not been called yet.
@@ -338,6 +346,41 @@ class SessionManager:
             except ValueError:
                 continue
         return summaries
+
+    def chat_history(self, session_id: str) -> list[ChatTurn]:
+        """Full saved messages without sending every retrieval trace to the UI."""
+        self.get_session(session_id)
+        history = []
+        for summary in self.list_turns(session_id):
+            path = self.config.traces_dir(session_id) / f"{summary.turn_id}.json"
+            try:
+                # Message fields survive trace-schema changes. This projection
+                # does not validate or serve the old trace's retrieval numbers.
+                document = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(document, dict):
+                    raise ValueError("Invalid saved turn")
+                query = document.get("query")
+                generation = document.get("generation")
+                if generation is None:
+                    generation = {}
+                if not isinstance(query, dict) or not isinstance(generation, dict):
+                    raise ValueError("Invalid saved messages")
+                turn = ChatTurn(
+                    turn_id=summary.turn_id,
+                    user_message=query["text"],
+                    assistant_message=generation.get("response_text", ""),
+                    reasoning_text=generation.get("reasoning_text", ""),
+                    error=generation.get("error"),
+                )
+            except (OSError, ValueError, KeyError):
+                turn = ChatTurn(
+                    turn_id=summary.turn_id,
+                    user_message=summary.query_preview,
+                    assistant_message=summary.response_preview,
+                    error="Full saved text is unavailable for this turn.",
+                )
+            history.append(turn)
+        return history
 
 
 def summarize(trace: TurnTrace) -> TurnSummary:

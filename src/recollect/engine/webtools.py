@@ -74,7 +74,7 @@ class _RateLimited(RuntimeError):
 
 
 class _ProviderUnavailable(RuntimeError):
-    """A provider is cooling down or disabled for this research run."""
+    """A provider cannot currently serve usable search responses."""
 
 
 @dataclass
@@ -180,9 +180,19 @@ class _DDGParser(HTMLParser):
         self._title: list[str] = []
         self._snippet: list[str] = []
         self._capture: str | None = None
+        self.no_results = False
+        self.challenged = False
 
     def handle_starttag(self, tag, attrs):
-        classes = (dict(attrs).get("class") or "").split()
+        attributes = dict(attrs)
+        classes = (attributes.get("class") or "").split()
+        if any(name.startswith("no-results") or name == "result--no-result"
+               for name in classes):
+            self.no_results = True
+        if attributes.get("id") == "challenge-form" or any(
+            name.startswith("anomaly-modal") for name in classes
+        ):
+            self.challenged = True
         if "result__a" in classes or "result-link" in classes:
             self._flush()
             self._href = _ddg_url(attrs)
@@ -220,10 +230,24 @@ class _DDGParser(HTMLParser):
 
 def _ddg_url(attrs: list[tuple[str, str | None]]) -> str:
     """Resolve a result link: decode the ``/l/?uddg=`` redirect wrapper."""
-    href = dict(attrs).get("href") or ""
+    href = (dict(attrs).get("href") or "").strip()
     if href.startswith("/l/"):
-        href = parse_qs(urlsplit(href).query).get("uddg", [""])[0]
-    return href if href.startswith(("http://", "https://")) else ""
+        href = "https://duckduckgo.com" + href
+    elif href.startswith("//"):
+        href = "https:" + href
+    try:
+        parts = urlsplit(href)
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            return ""
+        if parts.hostname in {
+            "duckduckgo.com", "www.duckduckgo.com",
+            "html.duckduckgo.com", "lite.duckduckgo.com",
+        } and parts.path.rstrip("/") == "/l":
+            href = parse_qs(parts.query).get("uddg", [""])[0]
+            parts = urlsplit(href)
+        return href if parts.scheme in {"http", "https"} and parts.hostname else ""
+    except ValueError:
+        return ""
 
 
 async def _duckduckgo(
@@ -248,6 +272,12 @@ async def _duckduckgo(
         parser = _DDGParser()
         parser.feed(response.text)
         parser.close()
+        if parser.challenged or response.status_code == 202:
+            last_error = _ProviderUnavailable(
+                "DuckDuckGo returned a verification challenge; "
+                "general web search is unavailable"
+            )
+            continue
         results = []
         for title, url, snippet in parser.items[:max_results]:
             entry: dict = {"source": "web", "title": title, "url": url}
@@ -256,6 +286,12 @@ async def _duckduckgo(
             results.append(entry)
         if results:
             return results
+        if parser.no_results:
+            return []
+        last_error = _ProviderUnavailable(
+            "DuckDuckGo returned an unrecognized search page; "
+            "general web search is unavailable"
+        )
     if last_error is not None:
         raise last_error
     return []

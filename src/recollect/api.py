@@ -29,11 +29,14 @@ import json
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable
+from contextlib import aclosing, asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 import httpx
+from anyio import CancelScope
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -43,6 +46,7 @@ from pydantic import BaseModel
 from . import __version__
 from .config import RecollectConfig
 from .engine._internals import LIBRARY_VERSION
+from .engine.date_context import current_date_context, research_date_context
 from .engine.embedder import HarnessEmbedder
 from .engine.generator import (
     GenerationError,
@@ -62,17 +66,82 @@ from .engine.subagent import (
     run_subagent_tool,
     transfer_task,
 )
-from .session import SessionInfo, SessionManager
+from .engine.voice import VoiceService
+from .session import ChatTurn, SessionInfo, SessionManager
 from .trace import SubagentTrace, ToolCallTrace, TurnSummary, TurnTrace
+from .voice_api import install_voice_routes
+
+_VOICE_INSTRUCTIONS = (
+    "This reply will be spoken aloud in a live voice conversation. "
+    "Answer directly in one to three short sentences by default, then let "
+    "the user ask a follow-up. Expand when the user explicitly asks for "
+    "detail or when essential accuracy requires it. Use natural conversational "
+    "prose without Markdown, headings, tables, or long lists. Express amounts, "
+    "units, and symbols as spoken words, such as four hundred dollars per month. "
+    "Avoid raw links, citation markup, and code; mention source names briefly "
+    "when needed. Finish the answer naturally without cutting a sentence short."
+)
+
+
+def _turn_system_prompt(
+    config: RecollectConfig, started_at: datetime, input_mode: str = "text",
+) -> str:
+    prompt = config.system_prompt
+    if input_mode == "voice":
+        prompt += "\n\n" + _VOICE_INSTRUCTIONS
+    # A date stays stable throughout the day; seconds would invalidate the
+    # memory prefix cache on every turn. Use one timestamp for all phases.
+    return prompt + "\n\n" + current_date_context(started_at.astimezone(UTC).date())
 
 
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    input_mode: Literal["text", "voice"] = "text"
 
 
 class CreateSession(BaseModel):
     title: str | None = None
+
+
+class _ChatResponse(StreamingResponse):
+    async def stream_response(self, send) -> None:
+        # Starlette's disconnect scope can cancel every subsequent await.
+        # Deliver one cancellation to the stream, then wait for its cleanup.
+        await _finish_task(
+            asyncio.create_task(self._send_and_close(send)), cancel=True,
+        )
+
+    async def _send_and_close(self, send) -> None:
+        try:
+            await super().stream_response(send)
+        finally:
+            # A failed send leaves the iterator suspended at its last yield.
+            # Close it before the request ends so research releases its slot.
+            with CancelScope(shield=True):
+                await self.body_iterator.aclose()
+
+
+async def _write_before_unlock(write: Callable, *args) -> None:
+    # Cancelling to_thread only abandons its await; the disk write continues.
+    # Keep the session lock until that worker finishes, even on disconnect.
+    await _finish_task(asyncio.create_task(asyncio.to_thread(write, *args)))
+
+
+async def _finish_task(worker: asyncio.Task, *, cancel: bool = False) -> None:
+    try:
+        await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        if cancel:
+            worker.cancel()
+        with CancelScope(shield=True):
+            while not worker.done():
+                try:
+                    await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    continue
+        worker.result()
+        raise
 
 
 class AppState:
@@ -84,6 +153,7 @@ class AppState:
             config.embedding_model_path, n_threads=config.embedding_threads
         )
         self.sessions = SessionManager(config, self.embedder)
+        self.voice = VoiceService(config)
         # llama.cpp is configured with one model slot. Main turns and the
         # complete OpenCode workflow, including native child agents, queue
         # on this lock rather than competing for the same server context.
@@ -162,6 +232,8 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
     def state() -> AppState:
         return app.state.recollect
 
+    install_voice_routes(app, state)
+
     # -- inspector API -----------------------------------------------------
 
     @app.get("/api/health")
@@ -192,6 +264,13 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
     async def list_turns(session_id: str) -> list[TurnSummary]:
         return state().sessions.list_turns(session_id)
 
+    @app.get("/api/sessions/{session_id}/history")
+    async def chat_history(session_id: str) -> list[ChatTurn]:
+        try:
+            return await asyncio.to_thread(state().sessions.chat_history, session_id)
+        except KeyError as error:
+            raise HTTPException(404, f"No such session: {session_id}") from error
+
     @app.get("/api/turns/{turn_id}")
     async def get_turn(turn_id: str) -> TurnTrace:
         trace = state().sessions.find_trace(turn_id)
@@ -210,8 +289,11 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
 
     @app.post("/api/chat")
     async def chat(request: ChatRequest) -> StreamingResponse:
-        return StreamingResponse(
-            _stream_turn(state(), request.session_id, request.message),
+        return _ChatResponse(
+            _stream_turn(
+                state(), request.session_id, request.message,
+                input_mode=request.input_mode,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -246,7 +328,7 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
         )
 
         if body.get("stream"):
-            return StreamingResponse(
+            return _ChatResponse(
                 _stream_openai(current, session_id, message),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -386,7 +468,8 @@ def _subagent_fallback(result_json: str) -> str:
 
 
 async def _stream_turn(
-    state: AppState, session_id: str, message: str
+    state: AppState, session_id: str, message: str,
+    *, input_mode: Literal["text", "voice"] = "text",
 ) -> AsyncIterator[str]:
     """Retrieval first, then tokens. The inspector fills in before the model.
 
@@ -413,16 +496,20 @@ async def _stream_turn(
 
         yield _sse("retrieval", prepared.trace.model_dump(mode="json"))
 
+        system_prompt = _turn_system_prompt(
+            state.config, prepared.trace.started_at, input_mode,
+        )
+
         def _trace_for() -> GenerationTrace:
             return new_generation_trace(
                 settings=state.generator.settings,
-                system_prompt=state.config.system_prompt,
+                system_prompt=system_prompt,
                 context_block=prepared.trace.context_block.payload,
                 user_message=message,
             )
 
         messages = state.generator.build_messages(
-            system_prompt=state.config.system_prompt,
+            system_prompt=system_prompt,
             context_block=prepared.trace.context_block.payload,
             user_message=message,
         )
@@ -464,6 +551,11 @@ async def _stream_turn(
             request = _subagent_request(call.arguments)
             task = request[0] if request else None
             effort = request[1] if request else "focused"
+            date_context = research_date_context(
+                prepared.trace.started_at.astimezone(UTC).date(), message,
+            )
+            if task is not None and state.config.subagent_backend == "opencode":
+                task = f"{task}\n\n{date_context}"
             subagent_result: SubagentResult | None = None
 
             yield _sse(
@@ -504,26 +596,28 @@ async def _stream_turn(
                         state.generator,
                         transfer_task(task, effort),
                         config=config,
+                        runtime_context=date_context,
                     )
                 try:
-                    async for item in stream:
-                        if isinstance(item, SubagentStep):
-                            yield _sse(
-                                "subagent_step",
-                                {
-                                    "run_id": run_id,
-                                    "step": {
-                                        "index": item.index,
-                                        "tool": item.tool,
-                                        "args": item.args,
-                                        "observation": item.observation,
-                                        "ms": round(item.ms, 1),
+                    async with aclosing(stream):
+                        async for item in stream:
+                            if isinstance(item, SubagentStep):
+                                yield _sse(
+                                    "subagent_step",
+                                    {
+                                        "run_id": run_id,
+                                        "step": {
+                                            "index": item.index,
+                                            "tool": item.tool,
+                                            "args": item.args,
+                                            "observation": item.observation,
+                                            "ms": round(item.ms, 1),
+                                        },
                                     },
-                                },
-                            )
-                        else:
-                            subagent_result = item
-                            subagent_result.effort = effort
+                                )
+                            else:
+                                subagent_result = item
+                                subagent_result.effort = effort
                 except Exception as error:  # noqa: BLE001 - phase fails, turn lives
                     observation = f"the subagent failed: {error}"
                     yield _sse(
@@ -655,20 +749,23 @@ async def _stream_turn(
         prepared.trace.total_ms = (time.perf_counter() - started) * 1_000.0
 
         committed_text = "".join(committed_parts)
+        committed = False
         if committed_text and not generation.error:
-            await asyncio.to_thread(
+            await _write_before_unlock(
                 state.sessions.commit_turn, prepared, committed_text
             )
+            committed = True
         else:
             # Nothing was said, so nothing is remembered - but the trace is
             # still worth keeping, since a failed turn is exactly the kind
             # of thing someone will want to look at.
-            await asyncio.to_thread(state.sessions.save_trace, prepared.trace)
+            await _write_before_unlock(state.sessions.save_trace, prepared.trace)
 
         yield _sse(
             "done",
             {
                 "turn_id": prepared.trace.turn_id,
+                "committed": committed,
                 "generation": generation.model_dump(mode="json"),
                 "total_ms": prepared.trace.total_ms,
             },
@@ -717,14 +814,15 @@ async def _complete(
         prepared = await asyncio.to_thread(
             state.sessions.prepare_turn, session_id, message
         )
+        system_prompt = _turn_system_prompt(state.config, prepared.trace.started_at)
         generation = new_generation_trace(
             settings=state.generator.settings,
-            system_prompt=state.config.system_prompt,
+            system_prompt=system_prompt,
             context_block=prepared.trace.context_block.payload,
             user_message=message,
         )
         messages = state.generator.build_messages(
-            system_prompt=state.config.system_prompt,
+            system_prompt=system_prompt,
             context_block=prepared.trace.context_block.payload,
             user_message=message,
         )
@@ -738,11 +836,11 @@ async def _complete(
         prepared.trace.total_ms = (time.perf_counter() - started) * 1_000.0
 
         if generation.response_text and not generation.error:
-            await asyncio.to_thread(
+            await _write_before_unlock(
                 state.sessions.commit_turn, prepared, generation.response_text
             )
         else:
-            await asyncio.to_thread(state.sessions.save_trace, prepared.trace)
+            await _write_before_unlock(state.sessions.save_trace, prepared.trace)
         return generation.response_text, prepared.trace
 
 
@@ -776,36 +874,40 @@ async def _stream_openai(
             yield "data: [DONE]\n\n"
             return
 
+        system_prompt = _turn_system_prompt(state.config, prepared.trace.started_at)
         generation = new_generation_trace(
             settings=state.generator.settings,
-            system_prompt=state.config.system_prompt,
+            system_prompt=system_prompt,
             context_block=prepared.trace.context_block.payload,
             user_message=message,
         )
         messages = state.generator.build_messages(
-            system_prompt=state.config.system_prompt,
+            system_prompt=system_prompt,
             context_block=prepared.trace.context_block.payload,
             user_message=message,
         )
 
         yield frame({"role": "assistant", "content": ""})
         try:
-            async for chunk in state.generator.stream(messages, trace=generation):
-                if chunk.kind == "token":
-                    yield frame({"content": chunk.text})
-                else:
-                    yield frame({"reasoning_content": chunk.text})
+            async with aclosing(
+                state.generator.stream(messages, trace=generation)
+            ) as stream:
+                async for chunk in stream:
+                    if chunk.kind == "token":
+                        yield frame({"content": chunk.text})
+                    else:
+                        yield frame({"reasoning_content": chunk.text})
         except GenerationError as error:
             generation.error = str(error)
             yield frame({"content": f"\n\n[recollect] {error}"})
 
         prepared.trace.generation = generation
         if generation.response_text and not generation.error:
-            await asyncio.to_thread(
+            await _write_before_unlock(
                 state.sessions.commit_turn, prepared, generation.response_text
             )
         else:
-            await asyncio.to_thread(state.sessions.save_trace, prepared.trace)
+            await _write_before_unlock(state.sessions.save_trace, prepared.trace)
 
         yield frame({}, generation.finish_reason or "stop")
         yield "data: [DONE]\n\n"

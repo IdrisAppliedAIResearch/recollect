@@ -48,7 +48,8 @@ contextDecayWindow repository.
 
 ## 2. Python dependencies
 
-All are permissively licensed. None imposes a copyleft obligation on Recollect.
+The base dependencies listed below are permissively licensed. The optional
+speech stack has additional terms recorded separately below.
 
 | Component | Licence |
 |---|---|
@@ -69,6 +70,30 @@ that is satisfied by using them unmodified, which is what happens here. The
 versions before 1.8 were GPL-3.0, and pinning below that floor would pull a
 copyleft obligation into a proprietary product.
 
+### Optional local speech (`voice` extra)
+
+| Component | Licence |
+|---|---|
+| [Vosk API](https://github.com/alphacep/vosk-api) | Apache-2.0 |
+| [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) | MIT |
+| [ONNX Runtime](https://github.com/microsoft/onnxruntime) | MIT |
+| [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (optional `voice-whisper`) | MIT |
+| [CTranslate2](https://github.com/OpenNMT/CTranslate2) (optional `voice-whisper`) | MIT |
+| [espeakng-loader wrapper](https://github.com/thewh1teagle/espeakng-loader/blob/main/LICENSE) | MIT |
+| [Phonemizer](https://github.com/bootphon/phonemizer#licence) | GPL-3.0-or-later |
+| [eSpeak NG library and data bundled by espeakng-loader](https://github.com/espeak-ng/espeak-ng#license-information) | GPL-3.0-or-later, with separately noted BSD components |
+
+Kokoro's default text-to-phoneme path imports Phonemizer and loads eSpeak NG
+in-process. These GPL components are part of the optional installed runtime;
+the MIT licence of the Kokoro wrapper does not replace their terms. This notice
+does not grant redistribution rights for a combined proprietary distribution
+or assert that optional installation resolves licence compatibility.
+
+The Windows `voice-whisper` extra also installs NVIDIA cuBLAS, cuDNN and their
+CUDA runtime dependencies. Those binaries retain the NVIDIA licence terms
+included in their packages; Recollect's licence does not cover them. PyAV and
+its bundled FFmpeg components also retain their own package notices.
+
 ## 3. Frontend dependencies
 
 The inspector UI (`ui/`) builds on React, Vite, TypeScript, and
@@ -82,6 +107,17 @@ The embedding model — the carried GGUF loaded through llama.cpp — is license
 its publisher and is **not** distributed with this software. Obtain it from its
 own source under its own terms. `docs/EMBEDDER.md` records which build is part
 of the runtime identity.
+
+The optional `recollect voice-setup` command downloads these speech assets
+directly from their publishers into the ignored runtime model directory; they
+are not committed to this repository:
+
+| Asset | Publisher / source | Licence |
+|---|---|---|
+| `vosk-model-small-en-us-0.15` | [Alpha Cephei model catalogue](https://alphacephei.com/vosk/models) | Apache-2.0 |
+| Kokoro 82M v1.0 ONNX and voice vectors | [thewh1teagle ONNX export](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0), from [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | Apache-2.0 |
+| Silero VAD v6.2.1 ONNX | [snakers4/silero-vad, pinned commit](https://github.com/snakers4/silero-vad/tree/7e30209a3e901f9842f81b225f3e93d8199902b1) | [MIT](https://github.com/snakers4/silero-vad/blob/7e30209a3e901f9842f81b225f3e93d8199902b1/LICENSE) |
+| Whisper large-v3-turbo CTranslate2 conversion | [Pinned conversion](https://huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo/tree/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf), from [OpenAI Whisper](https://github.com/openai/whisper) | MIT |
 
 ---
 

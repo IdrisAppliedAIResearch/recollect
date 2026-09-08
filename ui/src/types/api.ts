@@ -25,6 +25,14 @@ export interface EpisodeBody {
   assistant_message: string
 }
 
+export interface ChatTurn {
+  turn_id: string
+  user_message: string
+  assistant_message: string
+  reasoning_text: string
+  error: string | null
+}
+
 /** One subagent step, as streamed mid-turn. Ephemeral: never persisted. */
 export interface SubagentStepEvent {
   index: number
@@ -59,7 +67,13 @@ export type ChatEvent =
       returned_chars: number
       error?: string
     }
-  | { type: 'done'; turn_id: string; generation: GenerationTrace; total_ms: number | null }
+  | {
+      type: 'done'
+      turn_id: string
+      generation: GenerationTrace
+      total_ms: number | null
+      committed?: boolean
+    }
   | { type: 'error'; message: string }
 
 export interface DataSource {
@@ -68,6 +82,7 @@ export interface DataSource {
   listSessions(): Promise<SessionInfo[]>
   createSession(title?: string): Promise<SessionInfo>
   listTurns(sessionId: string): Promise<TurnSummary[]>
+  chatHistory(sessionId: string): Promise<ChatTurn[]>
   getTurn(turnId: string): Promise<TurnTrace>
   getEpisode(sessionId: string, episodeId: string): Promise<EpisodeBody>
   chat(
@@ -75,5 +90,6 @@ export interface DataSource {
     message: string,
     onEvent: (event: ChatEvent) => void,
     signal?: AbortSignal,
+    inputMode?: 'text' | 'voice',
   ): Promise<void>
 }

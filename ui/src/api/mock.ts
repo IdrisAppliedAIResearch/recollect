@@ -129,6 +129,17 @@ export function createMockSource(scenario: MockScenario = 'deployed'): DataSourc
       return turns.map(summarize)
     },
 
+    async chatHistory() {
+      await delay(30)
+      return turns.map((trace) => ({
+        turn_id: trace.turn_id,
+        user_message: trace.query.text,
+        assistant_message: trace.generation?.response_text ?? '',
+        reasoning_text: trace.generation?.reasoning_text ?? '',
+        error: trace.generation?.error ?? null,
+      }))
+    },
+
     async getTurn(turnId: string) {
       await delay(20)
       const found = turns.find((t) => t.turn_id === turnId)

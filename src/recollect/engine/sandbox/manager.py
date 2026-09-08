@@ -71,6 +71,7 @@ class SandboxInvocation:
 
 
 _START_TIMEOUT_S = 60.0
+_RUNTIME_CHECK_TIMEOUT_S = 10.0
 _HEALTH_POLL_S = 0.5
 _KILL_GRACE_S = 5.0
 _REAPER_INTERVAL_S = 60.0
@@ -224,6 +225,8 @@ class SandboxManager:
 
     async def _spawn(self) -> SandboxHandle:
         cfg = self._config
+        if self._commands is None:
+            await self._check_container_runtime()
         root = self._root / "shared"
         workdir = root / "workspace"
         config_dir = root / "config"
@@ -250,6 +253,7 @@ class SandboxManager:
             api_key=cfg.generator_api_key,
             steps=cfg.sandbox_steps,
             runtime_workdir=runtime_workdir,
+            runtime_python="/usr/local/bin/python" if self._commands is None else None,
             prompt_dir=prompt_dir,
         )
         if self._commands is not None:
@@ -317,6 +321,52 @@ class SandboxManager:
             await self._shutdown(handle)
             raise
         return handle
+
+    async def _check_container_runtime(self) -> None:
+        runtime = shutil.which(self._config.sandbox_container_runtime)
+        if runtime is None:
+            raise SandboxStartError(
+                "Docker executable was not found; install Docker and retry research."
+            )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                runtime, "info", "--format", "{{.OSType}}",
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError as error:
+            raise SandboxStartError(
+                "Docker could not start. Check the Docker installation "
+                "and retry research."
+            ) from error
+        try:
+            stdout, _ = await asyncio.wait_for(
+                process.communicate(), timeout=_RUNTIME_CHECK_TIMEOUT_S,
+            )
+        except TimeoutError as error:
+            raise SandboxStartError(
+                "Docker engine did not respond. Start Docker Desktop or Docker Engine "
+                "and retry research when it is ready."
+            ) from error
+        finally:
+            if process.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    process.kill()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(process.wait(), timeout=_KILL_GRACE_S)
+        # Keep diagnostics fixed: container CLI errors can reveal host paths,
+        # and no delegated text should become a persisted startup diagnostic.
+        if process.returncode:
+            raise SandboxStartError(
+                "Cannot reach the Docker engine. Start Docker Desktop or "
+                "Docker Engine, check its connection permissions, and retry research."
+            )
+        if stdout.strip() != b"linux":
+            raise SandboxStartError(
+                "Research requires Linux containers. Switch Docker Desktop to Linux "
+                "containers or connect to a Linux Docker Engine, then retry research."
+            )
 
     async def _wait_healthy(self, handle: SandboxHandle) -> None:
         deadline = time.monotonic() + _START_TIMEOUT_S

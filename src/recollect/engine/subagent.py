@@ -253,6 +253,7 @@ async def run_subagent(
     task: str,
     *,
     config: SubagentConfig | None = None,
+    runtime_context: str = "",
 ) -> AsyncIterator[SubagentStep | SubagentResult]:
     """Run the inner loop, yielding steps as they happen.
 
@@ -262,9 +263,12 @@ async def run_subagent(
     """
     config = config or SubagentConfig()
     started = time.perf_counter()
+    system_prompt = RESEARCHER_PROMPT
+    if runtime_context:
+        system_prompt += "\n\n" + runtime_context
 
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": RESEARCHER_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": task},
     ]
 
@@ -276,7 +280,7 @@ async def run_subagent(
     search_state = SearchRunState()
 
     for _ in range(config.max_steps):
-        trace = _fresh_trace(task)
+        trace = _fresh_trace(task, system_prompt)
         try:
             chunks = generator.stream(
                 messages,
@@ -448,7 +452,9 @@ async def run_subagent(
     # A cap ends browsing, not synthesis. Give the subagent one tools-disabled
     # pass to turn its already-gathered evidence into the same compact answer
     # shape a normally completed run returns.
-    finalized = await _finalize_partial(generator, messages, task, config)
+    finalized = await _finalize_partial(
+        generator, messages, task, config, system_prompt,
+    )
     if finalized is not None:
         document = json.loads(finalized["json"])
         document["note"] = _PARTIAL_NOTE
@@ -489,9 +495,10 @@ async def _finalize_partial(
     messages: list[dict[str, Any]],
     task: str,
     config: SubagentConfig,
+    system_prompt: str = RESEARCHER_PROMPT,
 ) -> dict[str, Any] | None:
     messages.append({"role": "system", "content": _FINALIZE_PARTIAL})
-    trace = _fresh_trace(task)
+    trace = _fresh_trace(task, system_prompt)
     try:
         async for _ in generator.stream(
             messages,
@@ -505,7 +512,9 @@ async def _finalize_partial(
     return _parse_final(trace.response_text)
 
 
-def _fresh_trace(task: str) -> GenerationTrace:
+def _fresh_trace(
+    task: str, system_prompt: str = RESEARCHER_PROMPT,
+) -> GenerationTrace:
     """A throwaway generation trace for a subagent step.
 
     Subagent steps are intentionally not part of the turn trace; this exists
@@ -515,9 +524,9 @@ def _fresh_trace(task: str) -> GenerationTrace:
     return GenerationTrace(
         model="subagent",
         base_url="subagent",
-        system_prompt_chars=len(RESEARCHER_PROMPT),
+        system_prompt_chars=len(system_prompt),
         context_block_chars=0,
-        total_prompt_chars=len(RESEARCHER_PROMPT) + len(task),
+        total_prompt_chars=len(system_prompt) + len(task),
     )
 
 

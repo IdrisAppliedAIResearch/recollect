@@ -1,0 +1,2055 @@
+{
+  "started_at": "2026-09-08T17:16:07.345759+00:00",
+  "method": "Three interleaved repetitions per case with identical recognized input and captured verified context. This isolates prompt style; it does not rerun ASR, retrieval or TTS. Normal model sampling and token budget remain unchanged. Tools remain available.",
+  "baseline_instructions": "This reply will be spoken aloud in a live voice conversation. Answer directly in one to three short sentences by default, then let the user ask a follow-up. Expand when the user explicitly asks for detail or when essential accuracy requires it. Use natural conversational prose without Markdown, headings, tables, or long lists. Express amounts, units, and symbols as spoken words, such as four hundred dollars per month. Avoid raw links, citation markup, and code; mention source names briefly when needed. Finish the answer naturally without cutting a sentence short.",
+  "candidate_instructions": "You are speaking with the user in a live voice conversation. Give the useful answer first. For an ordinary question, aim for twenty to forty-five words in one to three short sentences, then stop and let the user take their turn. Do not add an offer to help or a follow-up question unless you need clarification to answer. Treat remembered replies as context, not examples of how long to speak. When the user asks for detail, multiple steps, exact wording, or a specific format, fulfill that request completely even if it takes longer. Preserve requested quotations, negation, amounts, units and distinctions; do not shorten away their meaning. Ask a brief clarifying question instead of guessing an ambiguous change. If a transcribed time or amount is unclear, confirm it rather than silently changing the value. Use conversational prose without headings, tables, or lists unless requested. Say amounts naturally, such as four hundred dollars per month. Mention source names briefly; include exact links or code on screen when the user requests them. Finish naturally without truncating a sentence.",
+  "cases": [
+    {
+      "id": "comparison",
+      "input": "how is remembering a fact different from memorizing every word",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "Remembering a fact is about keeping the meaning or gist \u2014 like knowing your rent ceiling is sixteen hundred \u2014 while memorizing every word is about reproducing the exact phrasing, like reciting the sentence you originally used. The first is flexible and useful, the second is rigid and rarely necessary.",
+          "words": 50,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 3000,
+            "total_prompt_chars": 5227,
+            "response_text": "Remembering a fact is about keeping the meaning or gist \u2014 like knowing your rent ceiling is sixteen hundred \u2014 while memorizing every word is about reproducing the exact phrasing, like reciting the sentence you originally used. The first is flexible and useful, the second is rigid and rarely necessary.",
+            "response_chars": 302,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 647.0604999922216,
+            "total_ms": 1623.8432999816723,
+            "tokens_out": 60,
+            "tokens_per_sec": 61.42614304904632,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1673,
+              "cached_tokens": 315,
+              "processed_tokens": 1358,
+              "prefill_ms": 543.334
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "Remembering a fact is like keeping the key point of a story \u2014 \"rent ceiling is $1,600\" \u2014 while memorizing every word is like reciting the entire sentence verbatim, including filler. Facts are flexible and reusable; word-for-word memorization is rigid and only useful if the exact phrasing matters.",
+          "words": 48,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 3000,
+            "total_prompt_chars": 5756,
+            "response_text": "Remembering a fact is like keeping the key point of a story \u2014 \"rent ceiling is $1,600\" \u2014 while memorizing every word is like reciting the entire sentence verbatim, including filler. Facts are flexible and reusable; word-for-word memorization is rigid and only useful if the exact phrasing matters.",
+            "response_chars": 297,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 703.4143000491895,
+            "total_ms": 1816.8741000117734,
+            "tokens_out": 68,
+            "tokens_per_sec": 61.07090709721629,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1776,
+              "cached_tokens": 315,
+              "processed_tokens": 1461,
+              "prefill_ms": 577.326
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "Remembering a fact is like keeping the gist\u2014you store the meaning and can use it later, even in your own words. Memorizing every word is like a verbatim transcript; it's precise but brittle and takes much more effort. For me, I store your rent ceiling as \"$1,600 per month,\" not the exact sentence you used to tell me.",
+          "words": 58,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 3000,
+            "total_prompt_chars": 5756,
+            "response_text": "Remembering a fact is like keeping the gist\u2014you store the meaning and can use it later, even in your own words. Memorizing every word is like a verbatim transcript; it's precise but brittle and takes much more effort. For me, I store your rent ceiling as \"$1,600 per month,\" not the exact sentence you used to tell me.",
+            "response_chars": 318,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 82.59120001457632,
+            "total_ms": 1329.405799973756,
+            "tokens_out": 76,
+            "tokens_per_sec": 60.95533369795975,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1776,
+              "cached_tokens": 1772,
+              "processed_tokens": 4,
+              "prefill_ms": 74.783
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "Remembering a fact is about keeping the meaning \u2014 like storing that your rent ceiling is $1,600 \u2014 while memorizing every word is about replaying the exact sentence you were told. Facts compress the idea so you can use it later, even in different words; memorizing the words keeps the original phrasing intact but is brittle, since you lose the meaning if you forget a single word.",
+          "words": 67,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 3000,
+            "total_prompt_chars": 5227,
+            "response_text": "Remembering a fact is about keeping the meaning \u2014 like storing that your rent ceiling is $1,600 \u2014 while memorizing every word is about replaying the exact sentence you were told. Facts compress the idea so you can use it later, even in different words; memorizing the words keeps the original phrasing intact but is brittle, since you lose the meaning if you forget a single word.",
+            "response_chars": 380,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 180.63019996043295,
+            "total_ms": 1527.7145999716595,
+            "tokens_out": 83,
+            "tokens_per_sec": 61.61455065421905,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1673,
+              "cached_tokens": 1669,
+              "processed_tokens": 4,
+              "prefill_ms": 75.374
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "Remembering a fact is like keeping the gist in your head \u2014 you can recall the key point, like your rent ceiling being $1,600, without replaying the exact sentence you used to state it. Memorizing every word means storing the literal wording verbatim, like reciting a quote exactly as it was said. For everyday memory, the gist approach is what actually matters: you keep the meaning and the important details, and drop the phrasing, which is lighter and more flexible to recall later.",
+          "words": 83,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 3000,
+            "total_prompt_chars": 5227,
+            "response_text": "Remembering a fact is like keeping the gist in your head \u2014 you can recall the key point, like your rent ceiling being $1,600, without replaying the exact sentence you used to state it. Memorizing every word means storing the literal wording verbatim, like reciting a quote exactly as it was said. For everyday memory, the gist approach is what actually matters: you keep the meaning and the important details, and drop the phrasing, which is lighter and more flexible to recall later.",
+            "response_chars": 484,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 73.91350000398234,
+            "total_ms": 1778.0956999631599,
+            "tokens_out": 105,
+            "tokens_per_sec": 61.61313033460577,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1673,
+              "cached_tokens": 1669,
+              "processed_tokens": 4,
+              "prefill_ms": 66.018
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "Remembering a fact is about storing the meaning\u2014like your $1,600 rent ceiling or that you're vegetarian\u2014so you can apply it later without the exact wording. Memorizing every word is rote retention of the exact phrasing, which is brittle and hard to retrieve. In practice, facts give you flexibility; verbatim recall only works when the precise words matter.",
+          "words": 57,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 3000,
+            "total_prompt_chars": 5756,
+            "response_text": "Remembering a fact is about storing the meaning\u2014like your $1,600 rent ceiling or that you're vegetarian\u2014so you can apply it later without the exact wording. Memorizing every word is rote retention of the exact phrasing, which is brittle and hard to retrieve. In practice, facts give you flexibility; verbatim recall only works when the precise words matter.",
+            "response_chars": 357,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 162.74459997657686,
+            "total_ms": 1453.4106999635696,
+            "tokens_out": 78,
+            "tokens_per_sec": 60.43391083161329,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1776,
+              "cached_tokens": 1772,
+              "processed_tokens": 4,
+              "prefill_ms": 64.637
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "plants",
+      "input": "why do house plants lean toward a window",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "Houseplants lean toward windows because of a process called phototropism. A hormone called auxin accumulates on the shaded side of the stem, which causes that side to grow faster than the sunlit side. The result is a gentle bend toward the light so the plant can capture more energy for photosynthesis. It's basically the plant stretching for the brightest spot it can find.",
+          "words": 63,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 4390,
+            "total_prompt_chars": 6595,
+            "response_text": "Houseplants lean toward windows because of a process called phototropism. A hormone called auxin accumulates on the shaded side of the stem, which causes that side to grow faster than the sunlit side. The result is a gentle bend toward the light so the plant can capture more energy for photosynthesis. It's basically the plant stretching for the brightest spot it can find.",
+            "response_chars": 374,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 747.447400004603,
+            "total_ms": 1995.3492000349797,
+            "tokens_out": 77,
+            "tokens_per_sec": 61.70357314824423,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1982,
+              "cached_tokens": 315,
+              "processed_tokens": 1667,
+              "prefill_ms": 645.142
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "Plants lean toward windows because they're chasing the light. A hormone called auxin accumulates on the shaded side of the stem, which makes those cells elongate and grow faster, bending the plant toward the brighter side. It's called phototropism, and it's how they maximize the light they can capture for photosynthesis.",
+          "words": 51,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 4390,
+            "total_prompt_chars": 7124,
+            "response_text": "Plants lean toward windows because they're chasing the light. A hormone called auxin accumulates on the shaded side of the stem, which makes those cells elongate and grow faster, bending the plant toward the brighter side. It's called phototropism, and it's how they maximize the light they can capture for photosynthesis.",
+            "response_chars": 322,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 789.8862999863923,
+            "total_ms": 1901.1213000048883,
+            "tokens_out": 68,
+            "tokens_per_sec": 61.19317695975034,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 2085,
+              "cached_tokens": 315,
+              "processed_tokens": 1770,
+              "prefill_ms": 650.454
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "House plants lean toward windows because of phototropism \u2014 they grow toward light. A hormone called auxin accumulates on the shaded side of the stem, causing those cells to elongate more, which bends the plant toward the brighter side. It's their way of maximizing the light they get for photosynthesis.",
+          "words": 50,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 4390,
+            "total_prompt_chars": 7124,
+            "response_text": "House plants lean toward windows because of phototropism \u2014 they grow toward light. A hormone called auxin accumulates on the shaded side of the stem, causing those cells to elongate more, which bends the plant toward the brighter side. It's their way of maximizing the light they get for photosynthesis.",
+            "response_chars": 303,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 89.32319999439642,
+            "total_ms": 1108.9479999500327,
+            "tokens_out": 63,
+            "tokens_per_sec": 61.78743396859425,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 2085,
+              "cached_tokens": 2081,
+              "processed_tokens": 4,
+              "prefill_ms": 81.352
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "House plants lean toward a window because they're chasing light. A hormone called auxin accumulates on the shaded side of the stem, causing those cells to elongate and grow faster than the sun-facing side. This uneven growth makes the stem bend toward the light source. It's called phototropism, and it's the plant's way of maximizing the light it can capture for photosynthesis. If you want to keep a plant growing straight, rotate it a quarter turn each week so all sides get equal sun.",
+          "words": 84,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 4390,
+            "total_prompt_chars": 6595,
+            "response_text": "House plants lean toward a window because they're chasing light. A hormone called auxin accumulates on the shaded side of the stem, causing those cells to elongate and grow faster than the sun-facing side. This uneven growth makes the stem bend toward the light source. It's called phototropism, and it's the plant's way of maximizing the light it can capture for photosynthesis. If you want to keep a plant growing straight, rotate it a quarter turn each week so all sides get equal sun.",
+            "response_chars": 488,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 181.77969998214394,
+            "total_ms": 1888.6003999505192,
+            "tokens_out": 104,
+            "tokens_per_sec": 60.93200065005478,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1982,
+              "cached_tokens": 1978,
+              "processed_tokens": 4,
+              "prefill_ms": 78.17
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "House plants lean toward windows because of phototropism \u2014 they grow toward light. A hormone called auxin accumulates on the shaded side of the stem, causing those cells to elongate more, which bends the plant toward the light source. It's essentially their way of maximizing sunlight for photosynthesis.\n\nIf you notice a plant leaning badly, you can rotate the pot a quarter turn every week to encourage more even growth, or move it closer to the window if it's stretching out a lot. Want tips for a specific plant?",
+          "words": 89,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 4390,
+            "total_prompt_chars": 6595,
+            "response_text": "House plants lean toward windows because of phototropism \u2014 they grow toward light. A hormone called auxin accumulates on the shaded side of the stem, causing those cells to elongate more, which bends the plant toward the light source. It's essentially their way of maximizing sunlight for photosynthesis.\n\nIf you notice a plant leaning badly, you can rotate the pot a quarter turn every week to encourage more even growth, or move it closer to the window if it's stretching out a lot. Want tips for a specific plant?",
+            "response_chars": 516,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 72.93879997450858,
+            "total_ms": 1842.6103999954648,
+            "tokens_out": 108,
+            "tokens_per_sec": 61.028272137452554,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1982,
+              "cached_tokens": 1978,
+              "processed_tokens": 4,
+              "prefill_ms": 64.946
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "Houseplants lean toward windows because of a process called phototropism. The plant's stem senses light, and a hormone called auxin redistributes to the side that's in shadow. That causes the shaded side to grow a bit faster, bending the stem toward the light so the leaves can catch more energy for photosynthesis. It's the plant's way of maximizing the sunlight it gets.",
+          "words": 62,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 4390,
+            "total_prompt_chars": 7124,
+            "response_text": "Houseplants lean toward windows because of a process called phototropism. The plant's stem senses light, and a hormone called auxin redistributes to the side that's in shadow. That causes the shaded side to grow a bit faster, bending the stem toward the light so the leaves can catch more energy for photosynthesis. It's the plant's way of maximizing the sunlight it gets.",
+            "response_chars": 372,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 165.64899997320026,
+            "total_ms": 1442.1190999564715,
+            "tokens_out": 79,
+            "tokens_per_sec": 61.88942459446197,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 2085,
+              "cached_tokens": 2081,
+              "processed_tokens": 4,
+              "prefill_ms": 64.687
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "tradeoff",
+      "input": "compare reading a paper book with listening to an audio book",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "Paper books tend to support deeper focus and better retention because you can see the page, flip back, and mark things up, which helps you build a mental map of the text. They're also great when you want to slow down and really think.\n\nAudiobooks win on convenience \u2014 you can listen while commuting, cooking, or doing chores, so they fit into time that reading can't. They're also easier on the eyes and great for long travel days.\n\nThe tradeoff: paper gives you control over pace and easier rereading; audio gives you flexibility and a more \"performative\" experience, especially with a good narrator. For most people, the best approach is to match the format to the book \u2014 dense nonfiction often works better on paper, while a good fiction story can be just as enjoyable (or even better) as audio.",
+          "words": 140,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 9289,
+            "total_prompt_chars": 11514,
+            "response_text": "Paper books tend to support deeper focus and better retention because you can see the page, flip back, and mark things up, which helps you build a mental map of the text. They're also great when you want to slow down and really think.\n\nAudiobooks win on convenience \u2014 you can listen while commuting, cooking, or doing chores, so they fit into time that reading can't. They're also easier on the eyes and great for long travel days.\n\nThe tradeoff: paper gives you control over pace and easier rereading; audio gives you flexibility and a more \"performative\" experience, especially with a good narrator. For most people, the best approach is to match the format to the book \u2014 dense nonfiction often works better on paper, while a good fiction story can be just as enjoyable (or even better) as audio.",
+            "response_chars": 798,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 1060.7478999882005,
+            "total_ms": 3907.76479995111,
+            "tokens_out": 175,
+            "tokens_per_sec": 61.46784727631223,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3091,
+              "cached_tokens": 315,
+              "processed_tokens": 2776,
+              "prefill_ms": 958.894
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "Paper books let you flip back, underline, and pause on a line, which tends to make details stick better. Audiobooks are hands-free, so they're great for commutes, chores, or when your eyes are tired, and a good narrator can bring a story to life. The tradeoff is that listening is harder to skim or reread, and dense or technical material usually lands better on the page.",
+          "words": 66,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 9289,
+            "total_prompt_chars": 12043,
+            "response_text": "Paper books let you flip back, underline, and pause on a line, which tends to make details stick better. Audiobooks are hands-free, so they're great for commutes, chores, or when your eyes are tired, and a good narrator can bring a story to life. The tradeoff is that listening is harder to skim or reread, and dense or technical material usually lands better on the page.",
+            "response_chars": 372,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 1142.7305999677628,
+            "total_ms": 2538.9757999801077,
+            "tokens_out": 86,
+            "tokens_per_sec": 61.59376590819409,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3194,
+              "cached_tokens": 315,
+              "processed_tokens": 2879,
+              "prefill_ms": 997.238
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "Paper books let you move at your own pace\u2014pausing to reread a tricky paragraph, skimming back, or annotating in the margins\u2014while audiobooks let you absorb a story while your hands are busy, like cooking or commuting. The tradeoff is focus: reading tends to hold your attention more tightly and can make dense material stick better, but listening is easier to slip into and can feel less draining on tired eyes. For something you want to savor or study, paper usually wins; for something you want to enjoy in the background, audio is hard to beat.",
+          "words": 95,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 9289,
+            "total_prompt_chars": 12043,
+            "response_text": "Paper books let you move at your own pace\u2014pausing to reread a tricky paragraph, skimming back, or annotating in the margins\u2014while audiobooks let you absorb a story while your hands are busy, like cooking or commuting. The tradeoff is focus: reading tends to hold your attention more tightly and can make dense material stick better, but listening is easier to slip into and can feel less draining on tired eyes. For something you want to savor or study, paper usually wins; for something you want to enjoy in the background, audio is hard to beat.",
+            "response_chars": 547,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 83.87259999290109,
+            "total_ms": 2050.041800015606,
+            "tokens_out": 120,
+            "tokens_per_sec": 61.03238724246838,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3194,
+              "cached_tokens": 3190,
+              "processed_tokens": 4,
+              "prefill_ms": 74.802
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "A paper book tends to let you move at your own pace\u2014pause, reread a paragraph, flip back to a page, highlight\u2014while an audiobook can be done while you're cooking, walking, or commuting, so it fills time a book can't. For comprehension and retention, especially on dense material, reading usually wins; for casual or plot-driven stuff, listening is often just as satisfying and way more convenient. And they pair well: some people read the first half and listen to the second, or switch when their eyes get tired. Want me to suggest which format fits a specific book or goal you have in mind?",
+          "words": 103,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 9289,
+            "total_prompt_chars": 11514,
+            "response_text": "A paper book tends to let you move at your own pace\u2014pause, reread a paragraph, flip back to a page, highlight\u2014while an audiobook can be done while you're cooking, walking, or commuting, so it fills time a book can't. For comprehension and retention, especially on dense material, reading usually wins; for casual or plot-driven stuff, listening is often just as satisfying and way more convenient. And they pair well: some people read the first half and listen to the second, or switch when their eyes get tired. Want me to suggest which format fits a specific book or goal you have in mind?",
+            "response_chars": 591,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 203.01840000320226,
+            "total_ms": 2328.4132999833673,
+            "tokens_out": 130,
+            "tokens_per_sec": 61.16510395372324,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3091,
+              "cached_tokens": 3087,
+              "processed_tokens": 4,
+              "prefill_ms": 70.623
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "Reading a paper book tends to be slower but often gives you deeper focus and better retention, since your eyes move at your own pace and you can easily flip back, underline, or reread a passage. It's also gentler on the eyes if you're not staring at a screen, and there's a tactile satisfaction to turning pages.\n\nListening to an audiobook is the opposite tradeoff: you can absorb it while doing other things like commuting, cooking, or folding laundry, so you can fit more books into a busy week. The pace is set by the narrator, which can be great for keeping you moving, but it makes it harder to pause, rewind, or really sit with a tricky idea. Narrator performance can also make a story come alive in a way that text alone sometimes doesn't.\n\nSo it really comes down to what you're after\u2014paper for focus and retention, audio for convenience and multitasking. A lot of people actually mix the two, listening to fiction on the go and reading nonfiction or anything dense on paper.",
+          "words": 176,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 9289,
+            "total_prompt_chars": 11514,
+            "response_text": "Reading a paper book tends to be slower but often gives you deeper focus and better retention, since your eyes move at your own pace and you can easily flip back, underline, or reread a passage. It's also gentler on the eyes if you're not staring at a screen, and there's a tactile satisfaction to turning pages.\n\nListening to an audiobook is the opposite tradeoff: you can absorb it while doing other things like commuting, cooking, or folding laundry, so you can fit more books into a busy week. The pace is set by the narrator, which can be great for keeping you moving, but it makes it harder to pause, rewind, or really sit with a tricky idea. Narrator performance can also make a story come alive in a way that text alone sometimes doesn't.\n\nSo it really comes down to what you're after\u2014paper for focus and retention, audio for convenience and multitasking. A lot of people actually mix the two, listening to fiction on the go and reading nonfiction or anything dense on paper.",
+            "response_chars": 983,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 76.65549998637289,
+            "total_ms": 3568.194899999071,
+            "tokens_out": 215,
+            "tokens_per_sec": 61.5774234136433,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3091,
+              "cached_tokens": 3087,
+              "processed_tokens": 4,
+              "prefill_ms": 67.453
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "Paper books let you skim, pause, and reread specific passages instantly, which tends to support deeper comprehension and retention for dense material. They also give you a visual map of where you are in the story or argument. Audiobooks, on the other hand, let you absorb content while doing other things\u2014commuting, cooking, walking\u2014so they're great for lighter narrative work or when your eyes are tired. The trade-off is that listening at normal speed can make it harder to process complex ideas, though many people find a narrator's voice actually brings a story to life in a way text can't.\n\nSo it really depends on the material and your context: paper for focus and study, audio for multitasking and enjoyment.",
+          "words": 119,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 9289,
+            "total_prompt_chars": 12043,
+            "response_text": "Paper books let you skim, pause, and reread specific passages instantly, which tends to support deeper comprehension and retention for dense material. They also give you a visual map of where you are in the story or argument. Audiobooks, on the other hand, let you absorb content while doing other things\u2014commuting, cooking, walking\u2014so they're great for lighter narrative work or when your eyes are tired. The trade-off is that listening at normal speed can make it harder to process complex ideas, though many people find a narrator's voice actually brings a story to life in a way text can't.\n\nSo it really depends on the material and your context: paper for focus and study, audio for multitasking and enjoyment.",
+            "response_chars": 715,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 170.0744000263512,
+            "total_ms": 2628.2327999942936,
+            "tokens_out": 150,
+            "tokens_per_sec": 61.02129138706285,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3194,
+              "cached_tokens": 3190,
+              "processed_tokens": 4,
+              "prefill_ms": 64.501
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "organization",
+      "input": "suggest a simple way to organize a messy desk",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "A simple way is to do a quick \"clear and sort\" pass. First, clear everything off the desk. Then, as you put things back, sort them into three piles: keep, file, and toss. Keep only what you actually use daily\u2014laptop, one notebook, a pen cup. File goes into a tray or drawer, and toss gets thrown away or moved to a donation bag. Once the surface is down to just a few items, it stays clean much longer because there's nowhere for clutter to hide.",
+          "words": 85,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 12217,
+            "total_prompt_chars": 14427,
+            "response_text": "A simple way is to do a quick \"clear and sort\" pass. First, clear everything off the desk. Then, as you put things back, sort them into three piles: keep, file, and toss. Keep only what you actually use daily\u2014laptop, one notebook, a pen cup. File goes into a tray or drawer, and toss gets thrown away or moved to a donation bag. Once the surface is down to just a few items, it stays clean much longer because there's nowhere for clutter to hide.",
+            "response_chars": 446,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 1319.472900009714,
+            "total_ms": 3088.990200019907,
+            "tokens_out": 108,
+            "tokens_per_sec": 61.03359373733044,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3816,
+              "cached_tokens": 315,
+              "processed_tokens": 3501,
+              "prefill_ms": 1213.939
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "A simple way to start is the \"three piles\" method: grab three boxes or sections of your desk and sort everything into \"keep here,\" \"keep elsewhere,\" and \"trash or donate.\" Work through one pile at a time, and once you've cleared the surface, put the keep-here items into a few labeled spots\u2014like a tray for pens and a drawer for papers\u2014so you have a home for each thing. The key is to do it in one sitting rather than over a week, because a half-organized desk tends to stay messy.",
+          "words": 90,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 12217,
+            "total_prompt_chars": 14956,
+            "response_text": "A simple way to start is the \"three piles\" method: grab three boxes or sections of your desk and sort everything into \"keep here,\" \"keep elsewhere,\" and \"trash or donate.\" Work through one pile at a time, and once you've cleared the surface, put the keep-here items into a few labeled spots\u2014like a tray for pens and a drawer for papers\u2014so you have a home for each thing. The key is to do it in one sitting rather than over a week, because a half-organized desk tends to stay messy.",
+            "response_chars": 481,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 1379.0630999719724,
+            "total_ms": 3242.622999998275,
+            "tokens_out": 114,
+            "tokens_per_sec": 61.173241599795624,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3919,
+              "cached_tokens": 315,
+              "processed_tokens": 3604,
+              "prefill_ms": 1228.557
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "A simple way is to do a quick \"clear and sort\" pass: sweep everything off the desk, then put items into three piles \u2014 keep, move, and toss. Keep only what you use daily, like your laptop, a pen, and a notepad, and put the rest in a box or drawer. Once it's back, you'll have a clean surface and a clear sense of what actually belongs there.",
+          "words": 68,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 12217,
+            "total_prompt_chars": 14956,
+            "response_text": "A simple way is to do a quick \"clear and sort\" pass: sweep everything off the desk, then put items into three piles \u2014 keep, move, and toss. Keep only what you use daily, like your laptop, a pen, and a notepad, and put the rest in a box or drawer. Once it's back, you'll have a clean surface and a clear sense of what actually belongs there.",
+            "response_chars": 340,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 88.23540003504604,
+            "total_ms": 1493.00509999739,
+            "tokens_out": 86,
+            "tokens_per_sec": 61.219999265577336,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3919,
+              "cached_tokens": 3915,
+              "processed_tokens": 4,
+              "prefill_ms": 77.49
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "A simple approach that works well is the \"three piles\" method. Grab three boxes or bins and quickly sort everything on your desk into one of three categories: things you use daily, things you need but use occasionally, and things you don't know what to do with. Then, put the daily-use items back in organized spots, move the occasional-use stuff to a shelf or drawer, and deal with the mystery pile later. The key is speed \u2014 don't overthink it while sorting, just get everything off the surface first. Once your desk is clear, you'll have a much better sense of what actually needs a permanent home.",
+          "words": 107,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 12217,
+            "total_prompt_chars": 14427,
+            "response_text": "A simple approach that works well is the \"three piles\" method. Grab three boxes or bins and quickly sort everything on your desk into one of three categories: things you use daily, things you need but use occasionally, and things you don't know what to do with. Then, put the daily-use items back in organized spots, move the occasional-use stuff to a shelf or drawer, and deal with the mystery pile later. The key is speed \u2014 don't overthink it while sorting, just get everything off the surface first. Once your desk is clear, you'll have a much better sense of what actually needs a permanent home.",
+            "response_chars": 600,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 184.2616000212729,
+            "total_ms": 2300.6707000313327,
+            "tokens_out": 129,
+            "tokens_per_sec": 60.95229887236207,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3816,
+              "cached_tokens": 3812,
+              "processed_tokens": 4,
+              "prefill_ms": 70.731
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "A simple approach is the \"three piles\" method. Grab three boxes or stacks and sort everything on your desk into one of them: keep, relocate, or toss. Keep is what you actually use daily\u2014your laptop, a pen, maybe a notepad. Relocate is stuff that belongs somewhere else, like mail or a charger. Toss is junk you can throw away. Once everything is sorted, you'll probably find you only need a few items back on the desk, and the rest has a home. It takes maybe ten minutes and makes a huge difference.",
+          "words": 92,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 12217,
+            "total_prompt_chars": 14427,
+            "response_text": "A simple approach is the \"three piles\" method. Grab three boxes or stacks and sort everything on your desk into one of them: keep, relocate, or toss. Keep is what you actually use daily\u2014your laptop, a pen, maybe a notepad. Relocate is stuff that belongs somewhere else, like mail or a charger. Toss is junk you can throw away. Once everything is sorted, you'll probably find you only need a few items back on the desk, and the rest has a home. It takes maybe ten minutes and makes a huge difference.",
+            "response_chars": 499,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 74.11719998344779,
+            "total_ms": 1984.1414000256918,
+            "tokens_out": 116,
+            "tokens_per_sec": 60.73221480514981,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3816,
+              "cached_tokens": 3812,
+              "processed_tokens": 4,
+              "prefill_ms": 64.23
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "A simple approach is the \"three piles\" method. Grab three boxes or bags and label them keep, move, and toss. Go through everything on your desk and sort each item into one pile. Once you've done that, clean the surface, put the keep items back in a few designated spots, and deal with the other two piles right away so they don't just end up on the desk again. It takes maybe twenty minutes and turns a chaotic mess into something you can actually use.",
+          "words": 85,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 12217,
+            "total_prompt_chars": 14956,
+            "response_text": "A simple approach is the \"three piles\" method. Grab three boxes or bags and label them keep, move, and toss. Go through everything on your desk and sort each item into one pile. Once you've done that, clean the surface, put the keep items back in a few designated spots, and deal with the other two piles right away so they don't just end up on the desk again. It takes maybe twenty minutes and turns a chaotic mess into something you can actually use.",
+            "response_chars": 452,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 176.91589996684343,
+            "total_ms": 1810.2398000191897,
+            "tokens_out": 100,
+            "tokens_per_sec": 61.22484339866398,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 3919,
+              "cached_tokens": 3915,
+              "processed_tokens": 4,
+              "prefill_ms": 66.157
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "memory_beyond_recent",
+      "input": "what is my corrected rent ceiling and when is my appointment",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "Your corrected rent ceiling is $1,600 per month, and your appointment is on September 18th at 4:15 PM Central.",
+          "words": 19,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 19834,
+            "total_prompt_chars": 22059,
+            "response_text": "Your corrected rent ceiling is $1,600 per month, and your appointment is on September 18th at 4:15 PM Central.",
+            "response_chars": 110,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 1715.0424999999814,
+            "total_ms": 2270.7293000421487,
+            "tokens_out": 34,
+            "tokens_per_sec": 61.18554552208181,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5586,
+              "cached_tokens": 684,
+              "processed_tokens": 4902,
+              "prefill_ms": 1609.578
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "Your corrected rent ceiling is $1,600 per month, and your appointment is on September 18th at 4:15 PM Central.",
+          "words": 19,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 19834,
+            "total_prompt_chars": 22588,
+            "response_text": "Your corrected rent ceiling is $1,600 per month, and your appointment is on September 18th at 4:15 PM Central.",
+            "response_chars": 110,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 1914.2969999811612,
+            "total_ms": 2469.779099978041,
+            "tokens_out": 34,
+            "tokens_per_sec": 61.208092934391566,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5689,
+              "cached_tokens": 315,
+              "processed_tokens": 5374,
+              "prefill_ms": 1796.729
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "Your corrected rent ceiling is $1,600 per month, and you have an appointment on September 18th at 4:15 PM Central.",
+          "words": 20,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 19834,
+            "total_prompt_chars": 22588,
+            "response_text": "Your corrected rent ceiling is $1,600 per month, and you have an appointment on September 18th at 4:15 PM Central.",
+            "response_chars": 114,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 86.10849996330217,
+            "total_ms": 652.5104999891482,
+            "tokens_out": 35,
+            "tokens_per_sec": 61.79356711029071,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5689,
+              "cached_tokens": 5685,
+              "processed_tokens": 4,
+              "prefill_ms": 74.391
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "Your corrected rent ceiling is $1,600 per month, and your appointment is on September 18th at 4:15 PM Central.",
+          "words": 19,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 19834,
+            "total_prompt_chars": 22059,
+            "response_text": "Your corrected rent ceiling is $1,600 per month, and your appointment is on September 18th at 4:15 PM Central.",
+            "response_chars": 110,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 205.67109994590282,
+            "total_ms": 767.7527999621816,
+            "tokens_out": 34,
+            "tokens_per_sec": 60.48942706908143,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5586,
+              "cached_tokens": 5582,
+              "processed_tokens": 4,
+              "prefill_ms": 76.494
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "Your corrected rent ceiling is $1,600 per month, and you have an appointment on September 18th at 4:15 PM Central.",
+          "words": 20,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 19834,
+            "total_prompt_chars": 22059,
+            "response_text": "Your corrected rent ceiling is $1,600 per month, and you have an appointment on September 18th at 4:15 PM Central.",
+            "response_chars": 114,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 77.03799998853356,
+            "total_ms": 648.4776999568567,
+            "tokens_out": 35,
+            "tokens_per_sec": 61.24880718287542,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5586,
+              "cached_tokens": 5582,
+              "processed_tokens": 4,
+              "prefill_ms": 65.41
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "Your corrected rent ceiling is $1,600 per month, and your appointment is on September 18th at 4:15 PM Central.",
+          "words": 19,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 19834,
+            "total_prompt_chars": 22588,
+            "response_text": "Your corrected rent ceiling is $1,600 per month, and your appointment is on September 18th at 4:15 PM Central.",
+            "response_chars": 110,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 198.16460000583902,
+            "total_ms": 757.3511000373401,
+            "tokens_out": 34,
+            "tokens_per_sec": 60.80261236293196,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5689,
+              "cached_tokens": 5685,
+              "processed_tokens": 4,
+              "prefill_ms": 68.24
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "update_again",
+      "input": "change my appointment to for thirty pm central on the same day",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "Got it \u2014 your appointment is now September 18th at 3:00 PM Central.",
+          "words": 13,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 20316,
+            "total_prompt_chars": 22543,
+            "response_text": "Got it \u2014 your appointment is now September 18th at 3:00 PM Central.",
+            "response_chars": 67,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 1934.9458000506274,
+            "total_ms": 2294.7490000515245,
+            "tokens_out": 22,
+            "tokens_per_sec": 61.144536791071204,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5713,
+              "cached_tokens": 315,
+              "processed_tokens": 5398,
+              "prefill_ms": 1814.269
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "Got it \u2014 I'll update your appointment to 3:00 PM Central on September 18th.",
+          "words": 14,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 20316,
+            "total_prompt_chars": 23072,
+            "response_text": "Got it \u2014 I'll update your appointment to 3:00 PM Central on September 18th.",
+            "response_chars": 75,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 1968.9958000089973,
+            "total_ms": 2358.7000999832526,
+            "tokens_out": 24,
+            "tokens_per_sec": 61.585155723417714,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5816,
+              "cached_tokens": 315,
+              "processed_tokens": 5501,
+              "prefill_ms": 1847.945
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "Got it \u2014 I've updated your appointment to 3:00 PM Central on September 18th.",
+          "words": 14,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 20316,
+            "total_prompt_chars": 23072,
+            "response_text": "Got it \u2014 I've updated your appointment to 3:00 PM Central on September 18th.",
+            "response_chars": 76,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 87.26810000371188,
+            "total_ms": 471.45429998636246,
+            "tokens_out": 24,
+            "tokens_per_sec": 62.469708701363594,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5816,
+              "cached_tokens": 5812,
+              "processed_tokens": 4,
+              "prefill_ms": 75.668
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "Got it \u2014 your appointment is now September 18th at 3:00 PM Central.",
+          "words": 13,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 20316,
+            "total_prompt_chars": 22543,
+            "response_text": "Got it \u2014 your appointment is now September 18th at 3:00 PM Central.",
+            "response_chars": 67,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 260.2535999612883,
+            "total_ms": 621.5410999720916,
+            "tokens_out": 22,
+            "tokens_per_sec": 60.89333287019935,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5713,
+              "cached_tokens": 5709,
+              "processed_tokens": 4,
+              "prefill_ms": 73.402
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "Got it \u2014 I'll update your appointment to 3:00 PM Central on September 18th.",
+          "words": 14,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 20316,
+            "total_prompt_chars": 22543,
+            "response_text": "Got it \u2014 I'll update your appointment to 3:00 PM Central on September 18th.",
+            "response_chars": 75,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 75.8674000389874,
+            "total_ms": 472.6636999985203,
+            "tokens_out": 24,
+            "tokens_per_sec": 60.48443496687754,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5713,
+              "cached_tokens": 5709,
+              "processed_tokens": 4,
+              "prefill_ms": 64.348
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "Got it \u2014 I'll update your appointment to 3:00 PM Central on September 18th.\n\nOne thing to confirm: did you mean 3:00 PM, or was \"thirty\" meant to be something else like 3:30?",
+          "words": 33,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 20316,
+            "total_prompt_chars": 23072,
+            "response_text": "Got it \u2014 I'll update your appointment to 3:00 PM Central on September 18th.\n\nOne thing to confirm: did you mean 3:00 PM, or was \"thirty\" meant to be something else like 3:30?",
+            "response_chars": 174,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 190.398600010667,
+            "total_ms": 1140.187999990303,
+            "tokens_out": 58,
+            "tokens_per_sec": 61.06616898571783,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 5816,
+              "cached_tokens": 5812,
+              "processed_tokens": 4,
+              "prefill_ms": 64.958
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "cents",
+      "input": "repeat this exactly fifty cents per request not fifty dollars",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "Fifty cents per request, not fifty dollars.",
+          "words": 7,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 269,
+            "total_prompt_chars": 2495,
+            "response_text": "Fifty cents per request, not fifty dollars.",
+            "response_chars": 43,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 398.172999965027,
+            "total_ms": 574.6873999596573,
+            "tokens_out": 11,
+            "tokens_per_sec": 62.317861887384964,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 975,
+              "cached_tokens": 315,
+              "processed_tokens": 660,
+              "prefill_ms": 312.423
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "fifty cents per request",
+          "words": 4,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 269,
+            "total_prompt_chars": 3024,
+            "response_text": "fifty cents per request",
+            "response_chars": 23,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 330.6987000396475,
+            "total_ms": 423.1256000348367,
+            "tokens_out": 6,
+            "tokens_per_sec": 64.91616618443658,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1078,
+              "cached_tokens": 459,
+              "processed_tokens": 619,
+              "prefill_ms": 323.946
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "fifty cents per request",
+          "words": 4,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 269,
+            "total_prompt_chars": 3024,
+            "response_text": "fifty cents per request",
+            "response_chars": 23,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 81.69749996159226,
+            "total_ms": 176.15750001277775,
+            "tokens_out": 6,
+            "tokens_per_sec": 63.518949785610324,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1078,
+              "cached_tokens": 1074,
+              "processed_tokens": 4,
+              "prefill_ms": 74.708
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "fifty cents per request",
+          "words": 4,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 269,
+            "total_prompt_chars": 2495,
+            "response_text": "fifty cents per request",
+            "response_chars": 23,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 357.4236999847926,
+            "total_ms": 451.64739998290315,
+            "tokens_out": 6,
+            "tokens_per_sec": 63.67824655707978,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 975,
+              "cached_tokens": 315,
+              "processed_tokens": 660,
+              "prefill_ms": 350.781
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "fifty cents per request not fifty dollars",
+          "words": 7,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 269,
+            "total_prompt_chars": 2495,
+            "response_text": "fifty cents per request not fifty dollars",
+            "response_chars": 41,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 76.5252000419423,
+            "total_ms": 216.20060002896935,
+            "tokens_out": 9,
+            "tokens_per_sec": 64.43511170067109,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 975,
+              "cached_tokens": 971,
+              "processed_tokens": 4,
+              "prefill_ms": 69.942
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "fifty cents per request",
+          "words": 4,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 269,
+            "total_prompt_chars": 3024,
+            "response_text": "fifty cents per request",
+            "response_chars": 23,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 369.2015999695286,
+            "total_ms": 464.9126000003889,
+            "tokens_out": 6,
+            "tokens_per_sec": 62.6887191447734,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1078,
+              "cached_tokens": 315,
+              "processed_tokens": 763,
+              "prefill_ms": 362.353
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "units",
+      "input": "explain the difference between five megabytes per second and five megabits per second",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "The key difference is that a megabyte is eight times larger than a megabit. So five megabytes per second is eight times faster than five megabits per second. In everyday terms, megabits per second is what internet speed is usually quoted in, while megabytes per second is what file sizes and transfer rates typically use. So a five megabits per second connection would actually transfer about zero point six megabytes per second.",
+          "words": 72,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 1444,
+            "total_prompt_chars": 3694,
+            "response_text": "The key difference is that a megabyte is eight times larger than a megabit. So five megabytes per second is eight times faster than five megabits per second. In everyday terms, megabits per second is what internet speed is usually quoted in, while megabytes per second is what file sizes and transfer rates typically use. So a five megabits per second connection would actually transfer about zero point six megabytes per second.",
+            "response_chars": 429,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 357.8418000251986,
+            "total_ms": 1819.1673000110313,
+            "tokens_out": 90,
+            "tokens_per_sec": 61.58792137745665,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1244,
+              "cached_tokens": 562,
+              "processed_tokens": 682,
+              "prefill_ms": 350.664
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "The difference is that megabytes are eight times larger than megabits. Five megabytes per second transfers eight times as much data as five megabits per second. Internet speeds are usually quoted in megabits, while file sizes are in megabytes, so that mismatch is a common source of confusion.",
+          "words": 48,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 1444,
+            "total_prompt_chars": 4223,
+            "response_text": "The difference is that megabytes are eight times larger than megabits. Five megabytes per second transfers eight times as much data as five megabits per second. Internet speeds are usually quoted in megabits, while file sizes are in megabytes, so that mismatch is a common source of confusion.",
+            "response_chars": 293,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 454.54419997986406,
+            "total_ms": 1473.8016999908723,
+            "tokens_out": 63,
+            "tokens_per_sec": 61.809699707208026,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1347,
+              "cached_tokens": 315,
+              "processed_tokens": 1032,
+              "prefill_ms": 447.247
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "The difference is the unit size. A byte is eight times larger than a bit, so five megabytes per second is eight times faster than five megabits per second. Five megabytes per second equals forty megabits per second, which is roughly a forty-megabit connection. Five megabits per second is a slow broadband speed by today's standards.",
+          "words": 56,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 1444,
+            "total_prompt_chars": 4223,
+            "response_text": "The difference is the unit size. A byte is eight times larger than a bit, so five megabytes per second is eight times faster than five megabits per second. Five megabytes per second equals forty megabits per second, which is roughly a forty-megabit connection. Five megabits per second is a slow broadband speed by today's standards.",
+            "response_chars": 333,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 80.40780003648251,
+            "total_ms": 1296.0426000063308,
+            "tokens_out": 75,
+            "tokens_per_sec": 61.696160723483935,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1347,
+              "cached_tokens": 1343,
+              "processed_tokens": 4,
+              "prefill_ms": 72.941
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "The key difference is that \"megabytes\" and \"megabits\" measure different things, and a byte is eight times bigger than a bit. So five megabytes per second is actually eight times faster than five megabits per second. To convert, you multiply the megabit number by eight to get the equivalent in kilobytes per second, so five megabits per second equals about six hundred twenty-five kilobytes per second. Meanwhile, five megabytes per second equals forty megabits per second. You'll often see megabits used for internet speeds and megabytes used for file sizes, which is where the confusion usually comes from.",
+          "words": 98,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 1444,
+            "total_prompt_chars": 3694,
+            "response_text": "The key difference is that \"megabytes\" and \"megabits\" measure different things, and a byte is eight times bigger than a bit. So five megabytes per second is actually eight times faster than five megabits per second. To convert, you multiply the megabit number by eight to get the equivalent in kilobytes per second, so five megabits per second equals about six hundred twenty-five kilobytes per second. Meanwhile, five megabytes per second equals forty megabits per second. You'll often see megabits used for internet speeds and megabytes used for file sizes, which is where the confusion usually comes from.",
+            "response_chars": 608,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 475.85570003138855,
+            "total_ms": 2662.956500018481,
+            "tokens_out": 134,
+            "tokens_per_sec": 61.26832380144107,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1244,
+              "cached_tokens": 315,
+              "processed_tokens": 929,
+              "prefill_ms": 408.383
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "The key difference is that a megabyte is eight times bigger than a megabit, so five megabytes per second is eight times faster than five megabits per second. In other words, five megabytes per second equals forty megabits per second. This often trips people up because internet speeds are usually advertised in megabits, while file sizes are shown in megabytes.",
+          "words": 60,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 1444,
+            "total_prompt_chars": 3694,
+            "response_text": "The key difference is that a megabyte is eight times bigger than a megabit, so five megabytes per second is eight times faster than five megabits per second. In other words, five megabytes per second equals forty megabits per second. This often trips people up because internet speeds are usually advertised in megabits, while file sizes are shown in megabytes.",
+            "response_chars": 361,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 78.34349997574463,
+            "total_ms": 1362.3480999958701,
+            "tokens_out": 78,
+            "tokens_per_sec": 60.747445919412925,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1244,
+              "cached_tokens": 1240,
+              "processed_tokens": 4,
+              "prefill_ms": 70.835
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "The key difference is that megabytes are eight times larger than megabits. So five megabytes per second is actually fifty megabits per second. That means the first one is eight times faster than the second. You'll see megabits per second used for internet speeds, while megabytes per second is used for file sizes and storage.",
+          "words": 55,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 1444,
+            "total_prompt_chars": 4223,
+            "response_text": "The key difference is that megabytes are eight times larger than megabits. So five megabytes per second is actually fifty megabits per second. That means the first one is eight times faster than the second. You'll see megabits per second used for internet speeds, while megabytes per second is used for file sizes and storage.",
+            "response_chars": 326,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 464.8753000074066,
+            "total_ms": 1618.208699976094,
+            "tokens_out": 71,
+            "tokens_per_sec": 61.560690084868455,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1347,
+              "cached_tokens": 315,
+              "processed_tokens": 1032,
+              "prefill_ms": 457.325
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "no_table",
+      "input": "compare buying and renting a bicycle for a weekend",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "I don't have any earlier details about the bicycle, so I'll compare the two options generally.\n\nBuying a bicycle for a weekend is usually only sensible if you plan to keep it, because even a cheap bike costs more upfront than a rental. Renting, on the other hand, lets you use a bike for just that weekend without the cost of owning, storing, or maintaining it, and most places include a helmet and basic support.\n\nThe trade-off is control versus convenience. If you buy, you get a bike you can ride again and again, but you're paying for something you might barely use. If you rent, you pay a small daily fee with no long-term commitment, which makes it the better choice for a single weekend. The break-even point depends on the rental rate versus the bike's price, but for just one weekend, renting almost always wins unless you intend to keep riding afterward.\n\nWant me to work out the break-even math for a specific rental price and bike price?",
+          "words": 170,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 2947,
+            "total_prompt_chars": 5162,
+            "response_text": "I don't have any earlier details about the bicycle, so I'll compare the two options generally.\n\nBuying a bicycle for a weekend is usually only sensible if you plan to keep it, because even a cheap bike costs more upfront than a rental. Renting, on the other hand, lets you use a bike for just that weekend without the cost of owning, storing, or maintaining it, and most places include a helmet and basic support.\n\nThe trade-off is control versus convenience. If you buy, you get a bike you can ride again and again, but you're paying for something you might barely use. If you rent, you pay a small daily fee with no long-term commitment, which makes it the better choice for a single weekend. The break-even point depends on the rental rate versus the bike's price, but for just one weekend, renting almost always wins unless you intend to keep riding afterward.\n\nWant me to work out the break-even math for a specific rental price and bike price?",
+            "response_chars": 949,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 627.8938000323251,
+            "total_ms": 3936.61970004905,
+            "tokens_out": 204,
+            "tokens_per_sec": 61.65515251625069,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1577,
+              "cached_tokens": 315,
+              "processed_tokens": 1262,
+              "prefill_ms": 533.262
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "Buying gives you ownership and you can keep using it after the weekend, but it costs more upfront and you're responsible for storage and maintenance. Renting is cheaper for a single weekend and requires no storage, but you pay every time and can't keep it. For just one weekend, renting is usually the better deal unless you plan to ride regularly.",
+          "words": 61,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 2947,
+            "total_prompt_chars": 5691,
+            "response_text": "Buying gives you ownership and you can keep using it after the weekend, but it costs more upfront and you're responsible for storage and maintenance. Renting is cheaper for a single weekend and requires no storage, but you pay every time and can't keep it. For just one weekend, renting is usually the better deal unless you plan to ride regularly.",
+            "response_chars": 348,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 679.2716999771073,
+            "total_ms": 1829.8783999634907,
+            "tokens_out": 71,
+            "tokens_per_sec": 61.706576192229925,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1680,
+              "cached_tokens": 315,
+              "processed_tokens": 1365,
+              "prefill_ms": 544.29
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "Buying a bicycle for a weekend gives you ownership and no hourly limits, but you'll likely pay far more than the trip is worth and be stuck storing it afterward. Renting means you pay a modest flat fee for those two days, with no storage or maintenance worries, and most shops offer weekend rates. Unless you plan to keep riding beyond the weekend or want a specific bike you'd otherwise buy, renting is almost always the better value for a single short trip.",
+          "words": 83,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 2947,
+            "total_prompt_chars": 5691,
+            "response_text": "Buying a bicycle for a weekend gives you ownership and no hourly limits, but you'll likely pay far more than the trip is worth and be stuck storing it afterward. Renting means you pay a modest flat fee for those two days, with no storage or maintenance worries, and most shops offer weekend rates. Unless you plan to keep riding beyond the weekend or want a specific bike you'd otherwise buy, renting is almost always the better value for a single short trip.",
+            "response_chars": 459,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 83.18030001828447,
+            "total_ms": 1597.7187000098638,
+            "tokens_out": 94,
+            "tokens_per_sec": 62.06511502152909,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1680,
+              "cached_tokens": 1676,
+              "processed_tokens": 4,
+              "prefill_ms": 75.498
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "Buying a bike for a weekend is a big commitment for such short use. You might spend one hundred to five hundred dollars upfront, get to keep it after, and deal with storage and security, but you'd be paying for a whole bike just to ride it for two days. Renting usually costs twenty to fifty dollars for a weekend, includes a helmet and sometimes a lock, and you can pick the exact type of bike you want without owning anything. For a single weekend, renting is almost always the better deal unless you're planning to keep riding after that.",
+          "words": 100,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 2947,
+            "total_prompt_chars": 5162,
+            "response_text": "Buying a bike for a weekend is a big commitment for such short use. You might spend one hundred to five hundred dollars upfront, get to keep it after, and deal with storage and security, but you'd be paying for a whole bike just to ride it for two days. Renting usually costs twenty to fifty dollars for a weekend, includes a helmet and sometimes a lock, and you can pick the exact type of bike you want without owning anything. For a single weekend, renting is almost always the better deal unless you're planning to keep riding after that.",
+            "response_chars": 541,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 171.71800002688542,
+            "total_ms": 2007.284499995876,
+            "tokens_out": 114,
+            "tokens_per_sec": 62.106167225173195,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1577,
+              "cached_tokens": 1573,
+              "processed_tokens": 4,
+              "prefill_ms": 74.677
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "I don't have any earlier conversation about a bicycle, so I'll just answer fresh.\n\nBuying and renting for a single weekend come down to cost, convenience, and what you want afterward. Renting is usually the cheaper option for just one weekend \u2014 you pay a modest daily rate, get a bike that's already serviced and fitted, and skip all the hassle of transporting, storing, or insuring it. The tradeoff is you don't keep it, and the bike is often a generic shared model rather than something tuned to you.\n\nBuying makes sense if the weekend is the start of a habit. A decent used bike might cost a few hundred dollars, which is more than a weekend rental up front, but if you'll ride it regularly it pays for itself in a few months and you get a bike that fits your body and how you ride. The downsides are you need somewhere to store and lock it, you're responsible for any repairs, and it's a poor deal if you're only ever going to ride that one weekend.\n\nSo the short version: rent for a one-off, buy if you think you'll keep riding. If you tell me your budget and how often you'd realistically use it, I can help you weigh a specific option.",
+          "words": 214,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 2947,
+            "total_prompt_chars": 5162,
+            "response_text": "I don't have any earlier conversation about a bicycle, so I'll just answer fresh.\n\nBuying and renting for a single weekend come down to cost, convenience, and what you want afterward. Renting is usually the cheaper option for just one weekend \u2014 you pay a modest daily rate, get a bike that's already serviced and fitted, and skip all the hassle of transporting, storing, or insuring it. The tradeoff is you don't keep it, and the bike is often a generic shared model rather than something tuned to you.\n\nBuying makes sense if the weekend is the start of a habit. A decent used bike might cost a few hundred dollars, which is more than a weekend rental up front, but if you'll ride it regularly it pays for itself in a few months and you get a bike that fits your body and how you ride. The downsides are you need somewhere to store and lock it, you're responsible for any repairs, and it's a poor deal if you're only ever going to ride that one weekend.\n\nSo the short version: rent for a one-off, buy if you think you'll keep riding. If you tell me your budget and how often you'd realistically use it, I can help you weigh a specific option.",
+            "response_chars": 1142,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 71.8887000111863,
+            "total_ms": 4261.698300018907,
+            "tokens_out": 257,
+            "tokens_per_sec": 61.33930286462813,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1577,
+              "cached_tokens": 1573,
+              "processed_tokens": 4,
+              "prefill_ms": 64.456
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "Buying a bicycle for a weekend gives you ownership and the ability to keep it, but you pay the full cost upfront, maybe a few hundred dollars, and then have to store or sell it later. Renting costs less for just two days, typically fifty to a hundred dollars, and you skip the hassle of storage and resale. If you might ride again soon, buying starts to make more sense because the cost gets spread out, while renting is the cheaper, lower-commitment option for a one-off weekend.",
+          "words": 87,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 2947,
+            "total_prompt_chars": 5691,
+            "response_text": "Buying a bicycle for a weekend gives you ownership and the ability to keep it, but you pay the full cost upfront, maybe a few hundred dollars, and then have to store or sell it later. Renting costs less for just two days, typically fifty to a hundred dollars, and you skip the hassle of storage and resale. If you might ride again soon, buying starts to make more sense because the cost gets spread out, while renting is the cheaper, lower-commitment option for a one-off weekend.",
+            "response_chars": 480,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 163.3674000040628,
+            "total_ms": 1836.6953000077046,
+            "tokens_out": 103,
+            "tokens_per_sec": 61.55398472694792,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1680,
+              "cached_tokens": 1676,
+              "processed_tokens": 4,
+              "prefill_ms": 65.743
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "detail",
+      "input": "give me six steps for planning a small dinner party with an example and one thing to watch out for",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "Here are six steps for planning a small dinner party:\n\n1. **Set the date and guest count.** Pick a date that works for most people and keep the group small\u2014six to eight guests is a good number for a manageable, intimate dinner.\n\n2. **Plan the menu.** Choose dishes you can mostly prep ahead. For example, a roasted chicken with potatoes and a simple green salad, plus a dessert like a fruit crumble.\n\n3. **Shop and prep.** Do your grocery shopping a day or two before, and pre-chop or marinate anything you can the night before.\n\n4. **Set the scene.** Clear the table, set out plates and glasses, and add a few small touches like candles or a vase of flowers.\n\n5. **Time the cooking.** Start with the longest-cooking item first, then work backward so everything is hot and ready at the same time.\n\n6. **Relax and host.** Once the food is out, put away the kitchen tools and focus on your guests.\n\n**Example:** You're hosting six friends on a Saturday. You decide on a herb-roasted chicken, roasted potatoes, a lemony green salad, and a peach crumble. On Friday you marinate the chicken and chop the vegetables. On Saturday you start the potatoes roasting, then the chicken, then finish the salad while everything bakes, so dinner is ready at seven.\n\n**One thing to watch out for:** Underestimating how long things take. Buffets and \"easy\" recipes often take longer than they look, so build in extra time and pre-prep as much as possible. That's the difference between a relaxed host and one who's scrambling while guests wait.",
+          "words": 265,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 3641,
+            "total_prompt_chars": 5904,
+            "response_text": "Here are six steps for planning a small dinner party:\n\n1. **Set the date and guest count.** Pick a date that works for most people and keep the group small\u2014six to eight guests is a good number for a manageable, intimate dinner.\n\n2. **Plan the menu.** Choose dishes you can mostly prep ahead. For example, a roasted chicken with potatoes and a simple green salad, plus a dessert like a fruit crumble.\n\n3. **Shop and prep.** Do your grocery shopping a day or two before, and pre-chop or marinate anything you can the night before.\n\n4. **Set the scene.** Clear the table, set out plates and glasses, and add a few small touches like candles or a vase of flowers.\n\n5. **Time the cooking.** Start with the longest-cooking item first, then work backward so everything is hot and ready at the same time.\n\n6. **Relax and host.** Once the food is out, put away the kitchen tools and focus on your guests.\n\n**Example:** You're hosting six friends on a Saturday. You decide on a herb-roasted chicken, roasted potatoes, a lemony green salad, and a peach crumble. On Friday you marinate the chicken and chop the vegetables. On Saturday you start the potatoes roasting, then the chicken, then finish the salad while everything bakes, so dinner is ready at seven.\n\n**One thing to watch out for:** Underestimating how long things take. Buffets and \"easy\" recipes often take longer than they look, so build in extra time and pre-prep as much as possible. That's the difference between a relaxed host and one who's scrambling while guests wait.",
+            "response_chars": 1526,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 668.7099999981001,
+            "total_ms": 6405.116100038867,
+            "tokens_out": 352,
+            "tokens_per_sec": 61.36246176809177,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1740,
+              "cached_tokens": 315,
+              "processed_tokens": 1425,
+              "prefill_ms": 571.319
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "For a small dinner party, I'd do it like this:\n\n1. **Set the date and guest count** \u2014 Pick a date that works for most people and keep it intimate, say four to six guests, so you're not overwhelmed.\n\n2. **Decide on a menu** \u2014 Aim for a simple, cohesive meal. For example, a pasta dish like a creamy mushroom risotto, a fresh green salad, garlic bread, and a simple dessert like chocolate cake. The idea is that most of it can be prepped ahead.\n\n3. **Make a shopping list and buy early** \u2014 Write everything down and shop a day or two before so you're not scrambling.\n\n4. **Prep in advance** \u2014 Make as much as possible the day before: the salad dressing, the dessert, and any sauces. On the day, you just want to finish cooking and plate.\n\n5. **Set the table and mood** \u2014 Get the table set, add a candle or two, and maybe a playlist. This takes ten minutes but makes a big difference.\n\n6. **Have a backup plan** \u2014 In case something doesn't go right, have a simple fallback ready, like store-bought bread if the homemade version fails.\n\nOne thing to watch out for: **don't overcomplicate the menu.** The biggest mistake is picking too many dishes that need to come out at once. Keep the number of components low and make sure at least half of it can be made ahead, so you're actually present with your guests instead of stuck in the kitchen.",
+          "words": 250,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 3641,
+            "total_prompt_chars": 6433,
+            "response_text": "For a small dinner party, I'd do it like this:\n\n1. **Set the date and guest count** \u2014 Pick a date that works for most people and keep it intimate, say four to six guests, so you're not overwhelmed.\n\n2. **Decide on a menu** \u2014 Aim for a simple, cohesive meal. For example, a pasta dish like a creamy mushroom risotto, a fresh green salad, garlic bread, and a simple dessert like chocolate cake. The idea is that most of it can be prepped ahead.\n\n3. **Make a shopping list and buy early** \u2014 Write everything down and shop a day or two before so you're not scrambling.\n\n4. **Prep in advance** \u2014 Make as much as possible the day before: the salad dressing, the dessert, and any sauces. On the day, you just want to finish cooking and plate.\n\n5. **Set the table and mood** \u2014 Get the table set, add a candle or two, and maybe a playlist. This takes ten minutes but makes a big difference.\n\n6. **Have a backup plan** \u2014 In case something doesn't go right, have a simple fallback ready, like store-bought bread if the homemade version fails.\n\nOne thing to watch out for: **don't overcomplicate the menu.** The biggest mistake is picking too many dishes that need to come out at once. Keep the number of components low and make sure at least half of it can be made ahead, so you're actually present with your guests instead of stuck in the kitchen.",
+            "response_chars": 1337,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 714.2314999946393,
+            "total_ms": 5994.957600021735,
+            "tokens_out": 323,
+            "tokens_per_sec": 61.16583096372726,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1843,
+              "cached_tokens": 315,
+              "processed_tokens": 1528,
+              "prefill_ms": 575.776
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "Here are six steps for planning a small dinner party:\n\n1. **Set the date, time, and guest list.** Pick a date that works for everyone and keep the guest list small, maybe four to six people, so the meal and conversation stay manageable.\n\n2. **Choose the menu early.** Plan a few dishes you can prepare ahead. For example, a small dinner party for four could be a grilled salmon with roasted vegetables, a simple green salad, and lemon cake for dessert.\n\n3. **Shop and prep.** Buy ingredients two or three days ahead, and do anything that can be made in advance, like the salad dressing or the cake, so the day of isn't rushed.\n\n4. **Prepare the space.** Set the table, clear clutter, and set the mood with lighting and music before guests arrive.\n\n5. **Time your cooking.** Start the dishes that take longest first, so everything comes out at the right temperature when you're ready to serve.\n\n6. **Relax and host.** Once the food is out, resist the urge to stay in the kitchen and enjoy the conversation instead.\n\nOne thing to watch out for is over-planning the timing. A common mistake is trying to have every dish arrive at the exact same minute, which leads to stress and burnt food. Instead, build in a buffer and serve things as they're ready rather than as they're \"supposed\" to be.",
+          "words": 230,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 3641,
+            "total_prompt_chars": 6433,
+            "response_text": "Here are six steps for planning a small dinner party:\n\n1. **Set the date, time, and guest list.** Pick a date that works for everyone and keep the guest list small, maybe four to six people, so the meal and conversation stay manageable.\n\n2. **Choose the menu early.** Plan a few dishes you can prepare ahead. For example, a small dinner party for four could be a grilled salmon with roasted vegetables, a simple green salad, and lemon cake for dessert.\n\n3. **Shop and prep.** Buy ingredients two or three days ahead, and do anything that can be made in advance, like the salad dressing or the cake, so the day of isn't rushed.\n\n4. **Prepare the space.** Set the table, clear clutter, and set the mood with lighting and music before guests arrive.\n\n5. **Time your cooking.** Start the dishes that take longest first, so everything comes out at the right temperature when you're ready to serve.\n\n6. **Relax and host.** Once the food is out, resist the urge to stay in the kitchen and enjoy the conversation instead.\n\nOne thing to watch out for is over-planning the timing. A common mistake is trying to have every dish arrive at the exact same minute, which leads to stress and burnt food. Instead, build in a buffer and serve things as they're ready rather than as they're \"supposed\" to be.",
+            "response_chars": 1289,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 82.32840005075559,
+            "total_ms": 4831.849700014573,
+            "tokens_out": 293,
+            "tokens_per_sec": 61.69042762314428,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1843,
+              "cached_tokens": 1839,
+              "processed_tokens": 4,
+              "prefill_ms": 74.541
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "Here are six steps for planning a small dinner party:\n\n1. **Set the date, guest count, and menu.** Pick a date that works for everyone, keep it to four to eight people, and choose a menu you can actually cook without stress \u2014 a main, a side, and a dessert.\n\n2. **Send invites early and confirm.** Give guests a week or two, and follow up a few days before to lock in the headcount.\n\n3. **Shop for and prep ahead.** Buy ingredients two to three days out, and do what you can in advance \u2014 marinate, chop, or make the dessert the day before.\n\n4. **Plan the timing.** Work backward from when guests arrive: what needs to cook last, what can sit out, and when to plate.\n\n5. **Set the scene.** Clear the table, set out plates and glasses, and put on some light background music.\n\n6. **Relax and join in.** Once the food is out, resist the urge to hover \u2014 grab a drink and enjoy the company.\n\n**Example:** You're hosting six friends on a Saturday. You send invites on a Monday, confirm by Thursday, and choose a roasted chicken, roasted vegetables, and a store-bought cheesecake. On Friday you marinate the chicken and make the cheesecake; on Saturday you roast the vegetables in the final hour so everything's ready when guests arrive at seven.\n\n**One thing to watch out for:** overcommitting on the menu. The most common reason a small dinner party feels chaotic is too many fresh dishes on the stove at once. Keep at least one element simple or store-bought so you can actually talk to your guests.",
+          "words": 271,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 3641,
+            "total_prompt_chars": 5904,
+            "response_text": "Here are six steps for planning a small dinner party:\n\n1. **Set the date, guest count, and menu.** Pick a date that works for everyone, keep it to four to eight people, and choose a menu you can actually cook without stress \u2014 a main, a side, and a dessert.\n\n2. **Send invites early and confirm.** Give guests a week or two, and follow up a few days before to lock in the headcount.\n\n3. **Shop for and prep ahead.** Buy ingredients two to three days out, and do what you can in advance \u2014 marinate, chop, or make the dessert the day before.\n\n4. **Plan the timing.** Work backward from when guests arrive: what needs to cook last, what can sit out, and when to plate.\n\n5. **Set the scene.** Clear the table, set out plates and glasses, and put on some light background music.\n\n6. **Relax and join in.** Once the food is out, resist the urge to hover \u2014 grab a drink and enjoy the company.\n\n**Example:** You're hosting six friends on a Saturday. You send invites on a Monday, confirm by Thursday, and choose a roasted chicken, roasted vegetables, and a store-bought cheesecake. On Friday you marinate the chicken and make the cheesecake; on Saturday you roast the vegetables in the final hour so everything's ready when guests arrive at seven.\n\n**One thing to watch out for:** overcommitting on the menu. The most common reason a small dinner party feels chaotic is too many fresh dishes on the stove at once. Keep at least one element simple or store-bought so you can actually talk to your guests.",
+            "response_chars": 1494,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 174.04529999475926,
+            "total_ms": 5880.447899980936,
+            "tokens_out": 350,
+            "tokens_per_sec": 61.3346138600259,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1740,
+              "cached_tokens": 1736,
+              "processed_tokens": 4,
+              "prefill_ms": 73.917
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "Here are six steps for planning a small dinner party, with a quick example woven in and one thing to watch out for.\n\nOne, pick a date and guest count that works for your calendar and space. For example, you might set it for a Saturday evening and invite six friends.\n\nTwo, choose a theme or menu that fits the crowd. Say you're going for a casual Italian night with pasta and salad.\n\nThree, confirm who's coming and ask about allergies or dietary needs. If one guest is vegetarian, you might add a mushroom risotto alongside the pasta.\n\nFour, plan your prep timeline so you're not stuck cooking all day. Start the slow-cooking items, like a sauce, a day ahead.\n\nFive, set up the space with enough seating, plates, and a little ambient music.\n\nSix, send a light reminder the day before and have a backup plan for anything that might fall through.\n\nOne thing to watch out for: don't overcommit on the menu. It's tempting to make everything from scratch, but picking one or two dishes to prep ahead keeps you from being trapped in the kitchen while your guests are trying to enjoy themselves.",
+          "words": 196,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 3641,
+            "total_prompt_chars": 5904,
+            "response_text": "Here are six steps for planning a small dinner party, with a quick example woven in and one thing to watch out for.\n\nOne, pick a date and guest count that works for your calendar and space. For example, you might set it for a Saturday evening and invite six friends.\n\nTwo, choose a theme or menu that fits the crowd. Say you're going for a casual Italian night with pasta and salad.\n\nThree, confirm who's coming and ask about allergies or dietary needs. If one guest is vegetarian, you might add a mushroom risotto alongside the pasta.\n\nFour, plan your prep timeline so you're not stuck cooking all day. Start the slow-cooking items, like a sauce, a day ahead.\n\nFive, set up the space with enough seating, plates, and a little ambient music.\n\nSix, send a light reminder the day before and have a backup plan for anything that might fall through.\n\nOne thing to watch out for: don't overcommit on the menu. It's tempting to make everything from scratch, but picking one or two dishes to prep ahead keeps you from being trapped in the kitchen while your guests are trying to enjoy themselves.",
+            "response_chars": 1089,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 72.22630002070218,
+            "total_ms": 3988.3079000283033,
+            "tokens_out": 241,
+            "tokens_per_sec": 61.54110782562147,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1740,
+              "cached_tokens": 1736,
+              "processed_tokens": 4,
+              "prefill_ms": 64.47
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "Here are six steps for planning a small dinner party. First, set the date and guest list. Second, pick a simple menu you can actually cook. Third, shop for ingredients a day or two ahead. Fourth, prep what you can in advance, like chopping or marinating. Fifth, set the table and light some candles. Sixth, cook the main course close to serving time so it's hot.\n\nAs an example, if you're hosting four friends for a Friday dinner, you might plan a pasta dish with a big salad. You'd shop on Thursday, chop the vegetables that afternoon, and then just boil the pasta and plate everything on Friday evening.\n\nOne thing to watch out for: don't overcomplicate the menu. A simple, well-executed meal beats a complicated one that ends up cold or makes you stressed in the kitchen.",
+          "words": 138,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 3641,
+            "total_prompt_chars": 6433,
+            "response_text": "Here are six steps for planning a small dinner party. First, set the date and guest list. Second, pick a simple menu you can actually cook. Third, shop for ingredients a day or two ahead. Fourth, prep what you can in advance, like chopping or marinating. Fifth, set the table and light some candles. Sixth, cook the main course close to serving time so it's hot.\n\nAs an example, if you're hosting four friends for a Friday dinner, you might plan a pasta dish with a big salad. You'd shop on Thursday, chop the vegetables that afternoon, and then just boil the pasta and plate everything on Friday evening.\n\nOne thing to watch out for: don't overcomplicate the menu. A simple, well-executed meal beats a complicated one that ends up cold or makes you stressed in the kitchen.",
+            "response_chars": 774,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 534.8551999777555,
+            "total_ms": 3376.917499990668,
+            "tokens_out": 174,
+            "tokens_per_sec": 61.22314771186031,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1843,
+              "cached_tokens": 831,
+              "processed_tokens": 1012,
+              "prefill_ms": 437.127
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "id": "ambiguous",
+      "input": "change it to twenty",
+      "runs": [
+        {
+          "variant": "baseline",
+          "repeat": 1,
+          "reply": "Updated \u2014 your dinner budget is now twenty dollars for six guests.",
+          "words": 12,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 275,
+            "total_prompt_chars": 2459,
+            "response_text": "Updated \u2014 your dinner budget is now twenty dollars for six guests.",
+            "response_chars": 66,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 470.00889998162165,
+            "total_ms": 691.7303999653086,
+            "tokens_out": 14,
+            "tokens_per_sec": 63.142275336537246,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 972,
+              "cached_tokens": 315,
+              "processed_tokens": 657,
+              "prefill_ms": 332.899
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 1,
+          "reply": "Got it \u2014 your dinner budget is now twenty dollars for six guests.",
+          "words": 13,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 275,
+            "total_prompt_chars": 2988,
+            "response_text": "Got it \u2014 your dinner budget is now twenty dollars for six guests.",
+            "response_chars": 65,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 336.26800001366064,
+            "total_ms": 579.8396000172943,
+            "tokens_out": 15,
+            "tokens_per_sec": 61.583534368441256,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1075,
+              "cached_tokens": 456,
+              "processed_tokens": 619,
+              "prefill_ms": 329.265
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 2,
+          "reply": "Updated \u2014 your dinner budget is now twenty dollars for six guests.",
+          "words": 12,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 275,
+            "total_prompt_chars": 2988,
+            "response_text": "Updated \u2014 your dinner budget is now twenty dollars for six guests.",
+            "response_chars": 66,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 81.9795000134036,
+            "total_ms": 306.6549000213854,
+            "tokens_out": 14,
+            "tokens_per_sec": 62.31211783534217,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1075,
+              "cached_tokens": 1071,
+              "processed_tokens": 4,
+              "prefill_ms": 74.907
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 2,
+          "reply": "Got it \u2014 I've updated your dinner budget to twenty dollars for six guests.",
+          "words": 14,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 275,
+            "total_prompt_chars": 2459,
+            "response_text": "Got it \u2014 I've updated your dinner budget to twenty dollars for six guests.",
+            "response_chars": 74,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 347.31390001252294,
+            "total_ms": 617.8558000246994,
+            "tokens_out": 17,
+            "tokens_per_sec": 62.83684708074745,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 972,
+              "cached_tokens": 315,
+              "processed_tokens": 657,
+              "prefill_ms": 339.321
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "baseline",
+          "repeat": 3,
+          "reply": "Got it \u2014 your dinner budget is now twenty dollars for six guests.",
+          "words": 13,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2165,
+            "context_block_chars": 275,
+            "total_prompt_chars": 2459,
+            "response_text": "Got it \u2014 your dinner budget is now twenty dollars for six guests.",
+            "response_chars": 65,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 81.35530003346503,
+            "total_ms": 323.1408999999985,
+            "tokens_out": 15,
+            "tokens_per_sec": 62.03843405925006,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 972,
+              "cached_tokens": 968,
+              "processed_tokens": 4,
+              "prefill_ms": 74.201
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        },
+        {
+          "variant": "candidate",
+          "repeat": 3,
+          "reply": "Updated \u2014 your dinner budget is now twenty dollars for six guests.",
+          "words": 12,
+          "generation": {
+            "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "system_prompt_chars": 2694,
+            "context_block_chars": 275,
+            "total_prompt_chars": 2988,
+            "response_text": "Updated \u2014 your dinner budget is now twenty dollars for six guests.",
+            "response_chars": 66,
+            "reasoning_text": "",
+            "thinking_enabled": false,
+            "ttft_ms": 369.46269997861236,
+            "total_ms": 594.1448999801651,
+            "tokens_out": 14,
+            "tokens_per_sec": 62.31023196276007,
+            "tool_calls": [],
+            "prompt_cache": {
+              "prompt_tokens": 1075,
+              "cached_tokens": 315,
+              "processed_tokens": 760,
+              "prefill_ms": 361.524
+            },
+            "finish_reason": "stop",
+            "error": null
+          }
+        }
+      ]
+    }
+  ],
+  "finished_at": "2026-09-08T17:18:14.579350+00:00"
+}

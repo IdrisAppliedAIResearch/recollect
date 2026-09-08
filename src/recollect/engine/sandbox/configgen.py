@@ -57,6 +57,7 @@ def build_config(
     api_key: str,
     steps: int,
     runtime_workdir: str | None = None,
+    runtime_python: str | None = None,
     prompt_dir: str | None = None,
 ) -> dict:
     """Return a local-provider-only config using native OpenCode agents."""
@@ -117,7 +118,11 @@ def build_config(
         "mcp": {
             MCP_SERVER: {
                 "type": "local",
-                "command": [sys.executable, "-m", "recollect.engine.mcp_research"],
+                "command": [
+                    runtime_python or sys.executable,
+                    "-m",
+                    "recollect.engine.mcp_research",
+                ],
                 "cwd": runtime_workdir,
                 "timeout": 120_000,
                 "enabled": True,
@@ -134,6 +139,7 @@ def write_config(
     api_key: str,
     steps: int,
     runtime_workdir: str | None = None,
+    runtime_python: str | None = None,
     prompt_dir: str | None = None,
 ) -> Path:
     """Write the only host file mounted read-only into the container."""
@@ -145,6 +151,7 @@ def write_config(
         api_key=api_key,
         steps=steps,
         runtime_workdir=runtime_workdir,
+        runtime_python=runtime_python,
         prompt_dir=prompt_dir,
     )
     config_path = workdir / "opencode.json"

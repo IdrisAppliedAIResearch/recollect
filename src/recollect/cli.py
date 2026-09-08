@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 from .config import RecollectConfig
 
@@ -37,6 +38,15 @@ def main(argv: list[str] | None = None) -> int:
     chat = subparsers.add_parser("chat", help="a terminal conversation")
     chat.add_argument("--session", default=None, help="session id to continue")
 
+    voice_setup = subparsers.add_parser(
+        "voice-setup", help="download the local speech models"
+    )
+    voice_setup.add_argument("--model-dir", type=Path, default=None)
+    voice_setup.add_argument("--whisper", action="store_true",
+                             help="also provision GPU Whisper Turbo transcription")
+    voice_setup.add_argument("--asr-model-dir", type=Path, default=None)
+    subparsers.add_parser("voice-doctor", help="load and check local speech models")
+
     args = parser.parse_args(argv)
 
     if args.command == "serve":
@@ -45,6 +55,36 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_doctor())
     if args.command == "chat":
         return asyncio.run(_chat(args.session))
+    if args.command == "voice-setup":
+        from .voice_setup import setup_voice, setup_whisper
+
+        config = RecollectConfig.from_env()
+        try:
+            for path in setup_voice(args.model_dir or config.voice_model_dir):
+                print(f"  ready: {path}")
+            if args.whisper:
+                for path in setup_whisper(
+                    args.asr_model_dir or config.voice_asr_model_dir,
+                ):
+                    print(f"  ready: {path}")
+        except Exception as error:
+            print(f"Speech setup failed: {error}", file=sys.stderr)
+            return 1
+        return 0
+    if args.command == "voice-doctor":
+        from .engine.voice import VoiceService
+
+        config = RecollectConfig.from_env()
+        try:
+            voice = VoiceService(config)
+            voice.warm_up()
+        except Exception as error:
+            print(f"Speech check failed: {error}", file=sys.stderr)
+            return 1
+        print(f"Local speech ready. Wake phrase: {config.voice_wake_phrase}")
+        print(f"Transcription: {config.voice_asr_backend}")
+        print(f"Kokoro execution: {voice.status()['provider']}")
+        return 0
     return 1
 
 

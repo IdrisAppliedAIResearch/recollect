@@ -4,18 +4,30 @@
  */
 import { chars, ms, pct } from '../lib/format.ts'
 import { headline } from '../lib/derive.ts'
+import { EMPTY_PAYLOAD_CHARS } from '../lib/render.ts'
 import type { TurnTrace } from '../types/trace.ts'
 
 export function Strip({ trace }: { trace: TurnTrace }) {
   const head = headline(trace)
+  const longTermEmpty = head.retrievalCharsDelivered <= EMPTY_PAYLOAD_CHARS
+  const longTermReason =
+    trace.store.episode_count === 0
+      ? 'empty · no episodes yet'
+      : head.recency >= trace.store.episode_count
+        ? 'empty · all in recency'
+        : 'empty · nothing admitted'
 
   return (
     <div className="strip mono">
-      <Cell label="delivered" value={String(head.delivered)} sub={`${head.dropped} dropped`} />
       <Cell
-        label="allowance"
-        value={`${chars(head.retrievalCharsDelivered)} / ${chars(head.budget)}`}
-        sub={pct(head.utilization)}
+        label="delivered"
+        value={head.charsDelivered <= EMPTY_PAYLOAD_CHARS ? '—' : chars(head.charsDelivered)}
+        sub={`${head.delivered} episodes · ${head.dropped} dropped`}
+      />
+      <Cell
+        label="long-term"
+        value={longTermEmpty ? '—' : `${chars(head.retrievalCharsDelivered)} / ${chars(head.budget)}`}
+        sub={longTermEmpty ? longTermReason : pct(head.utilization)}
       />
       <div className="strip__cell">
         <span className="strip__label">tiers</span>

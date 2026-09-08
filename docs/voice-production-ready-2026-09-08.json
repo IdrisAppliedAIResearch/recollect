@@ -1,0 +1,39 @@
+{
+  "checked_at": "2026-09-08T18:44:20.217573+00:00",
+  "server_pid": 25912,
+  "generator_pid": 20008,
+  "listener_open_s": [
+    2.8601618999964558,
+    0.0027224000077694654
+  ],
+  "listener_states": [
+    {
+      "type": "state",
+      "state": "waiting",
+      "wake_phrase": "hey idris"
+    },
+    {
+      "type": "state",
+      "state": "waiting",
+      "wake_phrase": "hey idris"
+    }
+  ],
+  "voice": {
+    "available": true,
+    "wake_phrase": "hey idris",
+    "sample_rate": 16000,
+    "device": "cuda",
+    "provider": "CUDAExecutionProvider",
+    "asr_backend": "whisper",
+    "asr_model": "var\\models\\voice\\whisper-large-v3-turbo",
+    "asr_device": "cuda",
+    "asr_compute_type": "float16",
+    "asr_ready": true,
+    "error": null
+  },
+  "embedder_sentinel_matches_research": true,
+  "generator": {
+    "status": "ok"
+  },
+  "created_chat_turns": 0
+}

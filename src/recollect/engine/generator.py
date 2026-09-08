@@ -37,6 +37,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from dataclasses import dataclass
 
 import httpx
@@ -202,13 +203,16 @@ class Generator:
         max_tokens: int | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Wait for the single local-model slot, then stream a completion."""
-        async with self._model_slot:
-            async for chunk in self._stream_unlocked(
+        async with (
+            self._model_slot,
+            aclosing(self._stream_unlocked(
                 messages,
                 trace=trace,
                 tools=tools,
                 max_tokens=max_tokens,
-            ):
+            )) as stream,
+        ):
+            async for chunk in stream:
                 yield chunk
 
     async def _stream_unlocked(

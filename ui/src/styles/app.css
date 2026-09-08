@@ -489,11 +489,64 @@ table,
   gap: 8px;
   align-items: flex-end;
 }
-/* Single-row height, kept 1:1 with .btn so the two halves of the row sit on
-   the same baseline and end at the same edge. */
+.voice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-faint);
+}
+.voice__status {
+  flex: 1 1 auto;
+  min-width: min(180px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.voice__controls {
+  display: flex;
+  flex-wrap: wrap;
+  flex-basis: 100%;
+  gap: 6px;
+}
+.voice__controls .btn {
+  height: 32px;
+  padding: 0 10px;
+}
+.voice__review {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px;
+  font-size: var(--fs-sm);
+}
+.voice__review p {
+  margin: 0 0 8px;
+}
+.voice__label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.voice[data-active='true'] .voice__label {
+  color: var(--accent);
+}
+.voice__detail {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+  max-height: 5em;
+  overflow-y: auto;
+}
+/* Start aligned with the Send button; long drafts and live transcripts grow
+   within a bounded composer so the conversation stays visible. */
 .composer__input {
   flex: 1 1 auto;
+  min-width: 0;
   height: 40px;
+  min-height: 40px;
+  max-height: 144px;
+  overflow-y: auto;
   resize: none;
   padding: 10px 11px;
   border: 1px solid var(--border-strong);

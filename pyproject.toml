@@ -29,6 +29,22 @@ dependencies = [
 # The pinned embedder loads the carried GGUF through llama.cpp in-process.
 # The wheel is part of the identity, not just the version - see docs/EMBEDDER.md.
 llama = ["llama-cpp-python==0.3.25"]
+voice = [
+    "vosk==0.3.45",
+    "kokoro-onnx==0.6.1; python_version < '3.14'",
+    "onnxruntime==1.29.0; python_version < '3.14'",
+]
+voice-gpu = [
+    "vosk==0.3.45",
+    "kokoro-onnx==0.6.1; python_version < '3.14'",
+    "onnxruntime-gpu==1.29.0; python_version < '3.14'",
+]
+voice-whisper = [
+    "faster-whisper==1.2.1",
+    "ctranslate2==4.8.2",
+    "nvidia-cublas-cu12==12.9.2.10; sys_platform == 'win32'",
+    "nvidia-cudnn-cu12==9.25.1.1; sys_platform == 'win32'",
+]
 
 [dependency-groups]
 dev = [
@@ -47,6 +63,16 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/recollect"]
+
+[tool.uv]
+# Both distributions provide the same onnxruntime module. Kokoro and Whisper
+# declare the CPU distribution, even when Recollect selects GPU synthesis.
+# Choose exactly one runtime here without changing the upstream packages.
+conflicts = [[{ extra = "voice" }, { extra = "voice-gpu" }]]
+exclude-dependencies = [
+    { package = { name = "kokoro-onnx", version = "0.6.1" }, dependencies = ["onnxruntime"] },
+    { package = { name = "faster-whisper", version = "1.2.1" }, dependencies = ["onnxruntime"] },
+]
 
 [tool.uv.sources]
 # The mechanism library is developed in the research repository and consumed

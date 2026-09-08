@@ -35,7 +35,7 @@ export function Workspace({ workspace }: Props) {
       : workspace.phase === 'synthesizing'
         ? 'Synthesizing answer'
         : failed
-          ? 'No answer returned'
+          ? 'Research failed'
           : 'Complete'
 
   return (
@@ -121,7 +121,7 @@ export function Workspace({ workspace }: Props) {
             <div className="callout callout--bad workpane__failure">
               <span className="callout__mark">!</span>
               <div className="callout__body">
-                <div className="callout__title">The subagent returned no answer</div>
+                <div className="callout__title">The research task did not complete</div>
                 {workspace.failure ?? 'The subagent run ended without usable output.'}
               </div>
             </div>
