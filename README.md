@@ -200,6 +200,54 @@ The UI is served from the same origin as the API, so `recollect serve` is the
 only process you need. For UI development, `cd ui && npm run dev` proxies
 `/api` and `/v1` to port 8080.
 
+### Hands-free conversation
+
+Recollect can listen locally for **“Hey Idris”**, transcribe your speech with
+Vosk, run the existing verified chat turn, and speak the reply with Kokoro 82M.
+Silero VAD gives you time to pause and detects when you start speaking again.
+Install the optional CPU speech packages and download the models once:
+
+```bash
+uv sync --extra voice --inexact
+uv run --no-sync recollect voice-setup
+uv run --no-sync recollect voice-doctor
+uv run --no-sync recollect serve
+```
+
+`--inexact` preserves the manually installed, binary-pinned embedder. Open the
+inspector on localhost, choose a conversation, click **Enable voice**, and allow
+microphone access. Say **“Hey Idris, what did we decide?”** and watch the live
+transcript in the text box. A 1.4-second pause submits your request. Ask follow-up
+questions without repeating the wake phrase. Speaking during generation or
+playback interrupts the old reply. **Stop voice** releases the microphone and
+stops playback.
+
+For NVIDIA GPU synthesis, stop Recollect, run `uv pip uninstall onnxruntime`,
+then `uv sync --extra voice-gpu --inexact`. Set
+`RECOLLECT_VOICE_DEVICE=cuda` to require GPU execution and restart the server.
+The GPU runtime needs CUDA 13 and cuDNN 9; an optional absolute
+`RECOLLECT_VOICE_CUDA_DLL_DIR` can point to those DLLs in a compatible PyTorch
+installation. Default `auto` prefers an available GPU; `cpu` selects CPU
+synthesis. The GPU and CPU voice extras must not be installed together.
+
+Kokoro speaks the completed, verified reply in audio chunks, starting playback
+when the first chunk is ready while later chunks are still being synthesized.
+
+GPU Whisper Turbo dictation is available with the additional `voice-whisper`
+extra. Run `uv sync --extra voice-gpu --extra voice-whisper --inexact`, then
+`uv run --no-sync recollect voice-setup --whisper`. Select
+`RECOLLECT_VOICE_ASR_BACKEND=whisper` and restart Recollect. Vosk still detects
+the wake phrase; Silero handles interruptions independently of GPU decoding.
+See [voice setup](docs/VOICE.md) for runtime requirements and the distinction
+between live transcript revisions and final submitted text.
+
+Voice remains active while the page is open and the browser and computer are
+awake. The microphone stays open while enabled, with browser echo cancellation;
+use headphones if speaker echo causes unwanted interruptions. Existing voice
+installations reuse their verified models and download only the new 2.3 MB
+Silero model. Setup, model sources, settings, and troubleshooting are in
+[docs/VOICE.md](docs/VOICE.md).
+
 ### Using it from Open WebUI
 
 Add an OpenAI-compatible connection pointing at

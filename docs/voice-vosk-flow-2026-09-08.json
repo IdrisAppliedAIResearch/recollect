@@ -1,0 +1,1953 @@
+{
+  "started_at": "2026-09-08T18:38:05.920716+00:00",
+  "method": "Real-time paced synthetic PCM over HTTP/WebSocket with an independent event collector and continuous silence during chat/synthesis. Real configured ASR, verified retrieval, local chat, and Kokoro. Marked probes hold one real ASR result in the evaluator. Playback controls simulate browser state; no speaker, microphone, AEC, or perception score.",
+  "settings": {
+    "asr_backend": "vosk",
+    "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+    "max_utterance_s": 20,
+    "end_s": 1.4,
+    "wait_s": 8.0,
+    "frame_s": 0.05
+  },
+  "planned_conversation_turns": 12,
+  "turns": [
+    {
+      "id": "two_values",
+      "segments": [
+        "Remember my dinner budget is forty dollars and there will be six guests."
+      ],
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "remember my dinner budget is forty dollars and there will be six guests"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 488986.4763908
+          },
+          {
+            "type": "partial",
+            "text": "remember my dinner budget",
+            "at": 488988.0047951
+          },
+          {
+            "type": "partial",
+            "text": "remember my dinner budget is forty dollars",
+            "at": 488989.4501156
+          },
+          {
+            "type": "partial",
+            "text": "remember my dinner budget is forty dollars and there will be",
+            "at": 488990.6214139
+          },
+          {
+            "type": "partial",
+            "text": "remember my dinner budget is forty dollars and there will be six guests",
+            "at": 488990.8674677
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 488991.3446135
+          },
+          {
+            "type": "transcript",
+            "text": "remember my dinner budget is forty dollars and there will be six guests",
+            "at": 488991.3446217
+          }
+        ],
+        "input_audio_s": 3.9253125,
+        "first_partial_s": 1.98060400004033,
+        "partial_before_final": true,
+        "partial_while_speaking": true,
+        "final_after_input_s": 1.3955171999987215,
+        "speech_start_s": [
+          0.45219969999743626
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.0
+      },
+      "chat": {
+        "turn_id": "02edcbf38fde41ef",
+        "committed": true,
+        "chat_wall_s": 1.1638926999876276,
+        "reply": "Got it — I'll remember that your dinner budget is forty dollars for six guests.",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 35,
+          "total_prompt_chars": 2271,
+          "response_text": "Got it — I'll remember that your dinner budget is forty dollars for six guests.",
+          "response_chars": 79,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 347.77250001206994,
+          "total_ms": 636.6014999803156,
+          "tokens_out": 18,
+          "tokens_per_sec": 62.32061185676976,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 919,
+            "cached_tokens": 315,
+            "processed_tokens": 604,
+            "prefill_ms": 340.1
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "cf98a3928c489ae413e801ef5a844e81c474f7d037f5ab84c3d0cb7378d74909",
+          "shadow_payload_sha256": "cf98a3928c489ae413e801ef5a844e81c474f7d037f5ab84c3d0cb7378d74909",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.010299962013959885
+        },
+        "memory_payload": "<recent_context/>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 0,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 23,
+        "pcm_frames_during_synthesis": 3
+      },
+      "speech": {
+        "first_audio_s": 0.1752200000337325,
+        "synthesis_wall_s": 0.17638870002701879,
+        "audio_s": 4.309333333333333,
+        "chunk_count": 1,
+        "chunk_durations_s": [
+          4.309333333333333
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "Got it — I'll remember that your dinner budget is forty dollars for six guests.",
+      "status": "pass"
+    },
+    {
+      "id": "clarify",
+      "segments": [
+        "I mean the budget. Keep the number of guests the same."
+      ],
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "i mean the budget keep the number of guess the same"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 488994.3635155
+          },
+          {
+            "type": "partial",
+            "text": "i mean the budget",
+            "at": 488995.8407124
+          },
+          {
+            "type": "partial",
+            "text": "i mean the budget keep the number of guess the",
+            "at": 488997.0282026
+          },
+          {
+            "type": "partial",
+            "text": "i mean the budget keep the number of guess the same",
+            "at": 488997.7663873
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 488998.1813798
+          },
+          {
+            "type": "transcript",
+            "text": "i mean the budget keep the number of guess the same",
+            "at": 488998.1813875
+          }
+        ],
+        "input_audio_s": 2.944,
+        "first_partial_s": 1.9754448999883607,
+        "partial_before_final": true,
+        "partial_while_speaking": true,
+        "final_after_input_s": 1.3672836000332609,
+        "speech_start_s": [
+          0.49824799998896196
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.09090909090909091
+      },
+      "chat": {
+        "turn_id": "f295cb1725404425",
+        "committed": true,
+        "chat_wall_s": 0.515722599986475,
+        "reply": "No response requested.",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 270,
+          "total_prompt_chars": 2486,
+          "response_text": "No response requested.",
+          "response_chars": 22,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 321.7581000062637,
+          "total_ms": 401.7117000184953,
+          "tokens_out": 5,
+          "tokens_per_sec": 62.536271027634534,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 976,
+            "cached_tokens": 403,
+            "processed_tokens": 573,
+            "prefill_ms": 314.506
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "bc44df4db5bd27cd5c78f811865c2835e1cbe85b109873e1187cad9d6b95041e",
+          "shadow_payload_sha256": "bc44df4db5bd27cd5c78f811865c2835e1cbe85b109873e1187cad9d6b95041e",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.08379999781027436
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 1,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 10,
+        "pcm_frames_during_synthesis": 2
+      },
+      "speech": {
+        "first_audio_s": 0.10684750002110377,
+        "synthesis_wall_s": 0.10806679999222979,
+        "audio_s": 1.5573333333333332,
+        "chunk_count": 1,
+        "chunk_durations_s": [
+          1.5573333333333332
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "No response requested.",
+      "status": "pass"
+    },
+    {
+      "id": "confirm",
+      "segments": [
+        "What is the budget and how many guests are coming?"
+      ],
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "what is the budget and how many guests are coming"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 489000.5435124
+          },
+          {
+            "type": "partial",
+            "text": "what is the budget",
+            "at": 489001.9962834
+          },
+          {
+            "type": "partial",
+            "text": "what is the budget and how many",
+            "at": 489002.975445
+          },
+          {
+            "type": "partial",
+            "text": "what is the budget and how many guests are coming",
+            "at": 489003.4224893
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 489003.9353202
+          },
+          {
+            "type": "transcript",
+            "text": "what is the budget and how many guests are coming",
+            "at": 489003.9353253
+          }
+        ],
+        "input_audio_s": 2.5386875,
+        "first_partial_s": 1.9724583000061102,
+        "partial_before_final": true,
+        "partial_while_speaking": true,
+        "final_after_input_s": 1.384183199959807,
+        "speech_start_s": [
+          0.5196873000240885
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.0
+      },
+      "chat": {
+        "turn_id": "99960b8bd3bc4e95",
+        "committed": true,
+        "chat_wall_s": 0.7277594999759458,
+        "reply": "Your dinner budget is forty dollars, and there will be six guests coming.",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 411,
+          "total_prompt_chars": 2625,
+          "response_text": "Your dinner budget is forty dollars, and there will be six guests coming.",
+          "response_chars": 73,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 331.48509997408837,
+          "total_ms": 599.3954999721609,
+          "tokens_out": 16,
+          "tokens_per_sec": 59.721459115118755,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1012,
+            "cached_tokens": 460,
+            "processed_tokens": 552,
+            "prefill_ms": 323.202
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "1ca5af95ef9d8aac2da587b3d6560f44206cd0f0836304b4d76b7cebd87d1b47",
+          "shadow_payload_sha256": "1ca5af95ef9d8aac2da587b3d6560f44206cd0f0836304b4d76b7cebd87d1b47",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.08680002065375447
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 2,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 14,
+        "pcm_frames_during_synthesis": 3
+      },
+      "speech": {
+        "first_audio_s": 0.16220680001424626,
+        "synthesis_wall_s": 0.16343429998960346,
+        "audio_s": 3.712,
+        "chunk_count": 1,
+        "chunk_durations_s": [
+          3.712
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "Your dinner budget is forty dollars, and there will be six guests coming.",
+      "status": "pass"
+    },
+    {
+      "id": "ongoing_beyond_eight_seconds",
+      "segments": [
+        "For the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guest names and the red envelope contains the receipts. Repeat only the three colors."
+      ],
+      "minimum_audio_s": 8,
+      "requires_partial": true,
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 489006.8240109
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party",
+            "at": 489008.241137
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that",
+            "at": 489009.1941346
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that the blue",
+            "at": 489010.3353974
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that the blue folder contains the shopping",
+            "at": 489010.8354078
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that the blue folder contains the shopping list",
+            "at": 489012.2728544
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that the blue folder contains the shopping list and the green",
+            "at": 489013.0411844
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the",
+            "at": 489013.7336741
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names",
+            "at": 489014.4268198
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the",
+            "at": 489015.4488485
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts",
+            "at": 489017.0943442
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the",
+            "at": 489018.2730597
+          },
+          {
+            "type": "partial",
+            "text": "for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors",
+            "at": 489018.7695248
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 489019.2978438
+          },
+          {
+            "type": "transcript",
+            "text": "for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors",
+            "at": 489019.297849
+          }
+        ],
+        "input_audio_s": 11.6906875,
+        "first_partial_s": 2.026813199976459,
+        "partial_before_final": true,
+        "partial_while_speaking": true,
+        "final_after_input_s": 1.3926414000452496,
+        "speech_start_s": [
+          0.6096870999899693
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.11764705882352941
+      },
+      "chat": {
+        "turn_id": "11d5ec5f4b4a4fdf",
+        "committed": true,
+        "chat_wall_s": 1.0174409999744967,
+        "reply": "Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 601,
+          "total_prompt_chars": 2966,
+          "response_text": "Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.",
+          "response_chars": 139,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 334.6998000051826,
+          "total_ms": 850.7237000158057,
+          "tokens_out": 32,
+          "tokens_per_sec": 62.0126315841984,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1085,
+            "cached_tokens": 496,
+            "processed_tokens": 589,
+            "prefill_ms": 327.504
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "1a2cca0f1740d60b3004d8aca8d1111fb0ec7c0b5dace8af40f91f4aa558c2ae",
+          "shadow_payload_sha256": "1a2cca0f1740d60b3004d8aca8d1111fb0ec7c0b5dace8af40f91f4aa558c2ae",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.11209998046979308
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>what is the budget and how many guests are coming</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 3,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 20,
+        "pcm_frames_during_synthesis": 6
+      },
+      "speech": {
+        "first_audio_s": 0.08124749996932223,
+        "synthesis_wall_s": 0.32117200002539903,
+        "audio_s": 8.0,
+        "chunk_count": 2,
+        "chunk_durations_s": [
+          0.768,
+          7.232
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.",
+      "status": "pass"
+    },
+    {
+      "id": "pause_inside_request",
+      "segments": [
+        "Remember the blue folder",
+        0.8,
+        "and put it on the top shelf."
+      ],
+      "requires_partial": true,
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "remember the blue folder and put it on the top shelf"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 489022.3247961
+          },
+          {
+            "type": "partial",
+            "text": "remember the blue folder",
+            "at": 489023.8265738
+          },
+          {
+            "type": "partial",
+            "text": "remember the blue folder and put it on the top",
+            "at": 489025.7225981
+          },
+          {
+            "type": "partial",
+            "text": "remember the blue folder and put it on the top shelf",
+            "at": 489026.2210791
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 489026.7812121
+          },
+          {
+            "type": "transcript",
+            "text": "remember the blue folder and put it on the top shelf",
+            "at": 489026.7812182
+          }
+        ],
+        "input_audio_s": 3.552,
+        "first_partial_s": 1.9549924000166357,
+        "partial_before_final": true,
+        "partial_while_speaking": true,
+        "final_after_input_s": 1.3653107000282034,
+        "speech_start_s": [
+          0.4532146999845281
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.0
+      },
+      "chat": {
+        "turn_id": "873378870a4d486b",
+        "committed": true,
+        "chat_wall_s": 1.1843116999953054,
+        "reply": "I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 1008,
+          "total_prompt_chars": 3225,
+          "response_text": "I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.",
+          "response_chars": 173,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 329.5363999786787,
+          "total_ms": 1050.1416999613866,
+          "tokens_out": 45,
+          "tokens_per_sec": 62.4475007345628,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1151,
+            "cached_tokens": 569,
+            "processed_tokens": 582,
+            "prefill_ms": 321.292
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "16de0c6b6aacf0dba9c80071ab8585970935d865522c6edfdfe15cd995733b64",
+          "shadow_payload_sha256": "16de0c6b6aacf0dba9c80071ab8585970935d865522c6edfdfe15cd995733b64",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.13609998859465122
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>what is the budget and how many guests are coming</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors</user>\n<assistant>Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 4,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 23,
+        "pcm_frames_during_synthesis": 8
+      },
+      "speech": {
+        "first_audio_s": 0.18317779997596517,
+        "synthesis_wall_s": 0.37547949998406693,
+        "audio_s": 9.728000000000002,
+        "chunk_count": 2,
+        "chunk_durations_s": [
+          4.586666666666667,
+          5.141333333333334
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.",
+      "status": "pass"
+    },
+    {
+      "id": "time_explicit",
+      "segments": [
+        "Remember my appointment is at four hours and thirty minutes PM."
+      ],
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "remember my appointment is that four hours and thirty minutes pm"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 489030.0611798
+          },
+          {
+            "type": "partial",
+            "text": "remember my appointment",
+            "at": 489031.5955385
+          },
+          {
+            "type": "partial",
+            "text": "remember my appointment is that four",
+            "at": 489032.740725
+          },
+          {
+            "type": "partial",
+            "text": "remember my appointment is that four hours and thirty",
+            "at": 489033.4829561
+          },
+          {
+            "type": "partial",
+            "text": "remember my appointment is that four hours and thirty minutes pm",
+            "at": 489034.1773933
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 489034.7300357
+          },
+          {
+            "type": "transcript",
+            "text": "remember my appointment is that four hours and thirty minutes pm",
+            "at": 489034.7300405
+          }
+        ],
+        "input_audio_s": 3.7333125,
+        "first_partial_s": 1.9816090000094846,
+        "partial_before_final": true,
+        "partial_while_speaking": true,
+        "final_after_input_s": 1.3787049999809824,
+        "speech_start_s": [
+          0.44725030002882704
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.09090909090909091
+      },
+      "chat": {
+        "turn_id": "1dee05f74e664884",
+        "committed": true,
+        "chat_wall_s": 1.19432060001418,
+        "reply": "I'm sorry, I'm not sure what you meant there. \"four hours and thirty minutes pm\" isn't a time I can save — could you tell me what time your appointment is, like four thirty in the afternoon?",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 1301,
+          "total_prompt_chars": 3530,
+          "response_text": "I'm sorry, I'm not sure what you meant there. \"four hours and thirty minutes pm\" isn't a time I can save — could you tell me what time your appointment is, like four thirty in the afternoon?",
+          "response_chars": 190,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 312.60060000931844,
+          "total_ms": 1060.9627999947406,
+          "tokens_out": 47,
+          "tokens_per_sec": 62.80381344877593,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1229,
+            "cached_tokens": 635,
+            "processed_tokens": 594,
+            "prefill_ms": 304.99
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "800c1484f5c0fba145c506857289ca0e01a3d8e69a3c00d4c5dd7c40e9b76785",
+          "shadow_payload_sha256": "800c1484f5c0fba145c506857289ca0e01a3d8e69a3c00d4c5dd7c40e9b76785",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.14509999891743064
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>what is the budget and how many guests are coming</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors</user>\n<assistant>Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>remember the blue folder and put it on the top shelf</user>\n<assistant>I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 5,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 23,
+        "pcm_frames_during_synthesis": 8
+      },
+      "speech": {
+        "first_audio_s": 0.11789270001463592,
+        "synthesis_wall_s": 0.3911521999980323,
+        "audio_s": 10.773333333333333,
+        "chunk_count": 2,
+        "chunk_durations_s": [
+          2.112,
+          8.661333333333333
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "I'm sorry, I'm not sure what you meant there. \"four hours and thirty minutes pm\" isn't a time I can save — could you tell me what time your appointment is, like four thirty in the afternoon?",
+      "status": "pass"
+    },
+    {
+      "id": "time_correction",
+      "segments": [
+        "Actually the appointment is at five forty five PM."
+      ],
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "actually the appointment is that five forty five pm"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 489037.9643352
+          },
+          {
+            "type": "partial",
+            "text": "actually",
+            "at": 489039.4936001
+          },
+          {
+            "type": "partial",
+            "text": "actually the appointment",
+            "at": 489040.1881467
+          },
+          {
+            "type": "partial",
+            "text": "actually the appointment is that five",
+            "at": 489040.9231292
+          },
+          {
+            "type": "partial",
+            "text": "actually the appointment is that five forty five pm",
+            "at": 489041.3661487
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 489042.0870072
+          },
+          {
+            "type": "transcript",
+            "text": "actually the appointment is that five forty five pm",
+            "at": 489042.0870124
+          }
+        ],
+        "input_audio_s": 3.1786875,
+        "first_partial_s": 1.9803911999915726,
+        "partial_before_final": true,
+        "partial_while_speaking": true,
+        "final_after_input_s": 1.3871995999943465,
+        "speech_start_s": [
+          0.45112630003131926
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.1111111111111111
+      },
+      "chat": {
+        "turn_id": "51db454d337f4c8a",
+        "committed": true,
+        "chat_wall_s": 0.7556754999677651,
+        "reply": "Got it — I'll remember that your appointment is at 5:45 PM.",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 1623,
+          "total_prompt_chars": 3839,
+          "response_text": "Got it — I'll remember that your appointment is at 5:45 PM.",
+          "response_chars": 59,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 326.43320003990084,
+          "total_ms": 625.5159000284038,
+          "tokens_out": 19,
+          "tokens_per_sec": 63.52757949801301,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1307,
+            "cached_tokens": 713,
+            "processed_tokens": 594,
+            "prefill_ms": 318.511
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "e3aff0405cfd04672a027539b24d720b635ac39ac388bd4d453188745b8b4b8b",
+          "shadow_payload_sha256": "e3aff0405cfd04672a027539b24d720b635ac39ac388bd4d453188745b8b4b8b",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.1715999678708613
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>what is the budget and how many guests are coming</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors</user>\n<assistant>Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>remember the blue folder and put it on the top shelf</user>\n<assistant>I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>remember my appointment is that four hours and thirty minutes pm</user>\n<assistant>I'm sorry, I'm not sure what you meant there. \"four hours and thirty minutes pm\" isn't a time I can save — could you tell me what time your appointment is, like four thirty in the afternoon?</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 6,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 15,
+        "pcm_frames_during_synthesis": 3
+      },
+      "speech": {
+        "first_audio_s": 0.17208180000307038,
+        "synthesis_wall_s": 0.17332459997851402,
+        "audio_s": 4.352,
+        "chunk_count": 1,
+        "chunk_durations_s": [
+          4.352
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "Got it — I'll remember that your appointment is at 5:45 PM.",
+      "status": "pass"
+    },
+    {
+      "id": "time_corrected_recall",
+      "segments": [
+        "Please repeat the appointment time."
+      ],
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "please repeat the appointment time"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 489044.6837858
+          },
+          {
+            "type": "partial",
+            "text": "please repeat the",
+            "at": 489046.1367292
+          },
+          {
+            "type": "partial",
+            "text": "please repeat the appointment time",
+            "at": 489046.8214309
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 489047.3356645
+          },
+          {
+            "type": "transcript",
+            "text": "please repeat the appointment time",
+            "at": 489047.3356692
+          }
+        ],
+        "input_audio_s": 1.8346875,
+        "first_partial_s": 1.9740332000073977,
+        "partial_before_final": true,
+        "partial_while_speaking": false,
+        "final_after_input_s": 1.3384109000326134,
+        "speech_start_s": [
+          0.5210897999932058
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.0
+      },
+      "chat": {
+        "turn_id": "e7bb6049b61447b6",
+        "committed": true,
+        "chat_wall_s": 0.6188095000106841,
+        "reply": "Your appointment is at 5:45 PM.",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 1801,
+          "total_prompt_chars": 4000,
+          "response_text": "Your appointment is at 5:45 PM.",
+          "response_chars": 31,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 319.6447999798693,
+          "total_ms": 509.1019999817945,
+          "tokens_out": 12,
+          "tokens_per_sec": 63.3388438121014,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1354,
+            "cached_tokens": 791,
+            "processed_tokens": 563,
+            "prefill_ms": 311.057
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "dc118f1965586c4172e1f1addd629584a0742cce0975b2c937ced3e85a301b30",
+          "shadow_payload_sha256": "dc118f1965586c4172e1f1addd629584a0742cce0975b2c937ced3e85a301b30",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.18229999113827944
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>what is the budget and how many guests are coming</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors</user>\n<assistant>Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>remember the blue folder and put it on the top shelf</user>\n<assistant>I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>remember my appointment is that four hours and thirty minutes pm</user>\n<assistant>I'm sorry, I'm not sure what you meant there. \"four hours and thirty minutes pm\" isn't a time I can save — could you tell me what time your appointment is, like four thirty in the afternoon?</assistant>\n</episode>\n<episode turn=\"7\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it — I'll remember that your appointment is at 5:45 PM.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 7,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 12,
+        "pcm_frames_during_synthesis": 3
+      },
+      "speech": {
+        "first_audio_s": 0.1372881000279449,
+        "synthesis_wall_s": 0.13858300005085766,
+        "audio_s": 2.7733333333333334,
+        "chunk_count": 1,
+        "chunk_durations_s": [
+          2.7733333333333334
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "Your appointment is at 5:45 PM.",
+      "status": "pass"
+    },
+    {
+      "id": "money_precision",
+      "segments": [
+        "The cost is fifty cents per request. That is not fifty dollars."
+      ],
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "the cost is fifty cents per request that is not fifty dollars"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 489049.8993144
+          },
+          {
+            "type": "partial",
+            "text": "the cost is fifty",
+            "at": 489051.3338231
+          },
+          {
+            "type": "partial",
+            "text": "the cost is fifty cents per request that",
+            "at": 489052.4996065
+          },
+          {
+            "type": "partial",
+            "text": "the cost is fifty cents per request that is not fifty dollars",
+            "at": 489054.1710261
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 489054.6941178
+          },
+          {
+            "type": "transcript",
+            "text": "the cost is fifty cents per request that is not fifty dollars",
+            "at": 489054.6941261
+          }
+        ],
+        "input_audio_s": 3.9253125,
+        "first_partial_s": 1.9716476000612602,
+        "partial_before_final": true,
+        "partial_while_speaking": true,
+        "final_after_input_s": 1.406856199959293,
+        "speech_start_s": [
+          0.5371389000210911
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.0
+      },
+      "chat": {
+        "turn_id": "a7257cc78e0d4550",
+        "committed": true,
+        "chat_wall_s": 1.042758599971421,
+        "reply": "I don't have a record of any cost in our conversation, so I'm not sure which price you're correcting. Could you clarify what the fifty cents per request is for?",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 1934,
+          "total_prompt_chars": 4160,
+          "response_text": "I don't have a record of any cost in our conversation, so I'm not sure which price you're correcting. Could you clarify what the fifty cents per request is for?",
+          "response_chars": 160,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 315.7692999811843,
+          "total_ms": 908.5748000070453,
+          "tokens_out": 37,
+          "tokens_per_sec": 62.415075430956506,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1400,
+            "cached_tokens": 838,
+            "processed_tokens": 562,
+            "prefill_ms": 306.543
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "8eea909110c78f7c438d3a36e72698ce34fafd4ca9c41d8f6c0eea2e3b794836",
+          "shadow_payload_sha256": "8eea909110c78f7c438d3a36e72698ce34fafd4ca9c41d8f6c0eea2e3b794836",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.19449996761977673
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>what is the budget and how many guests are coming</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors</user>\n<assistant>Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>remember the blue folder and put it on the top shelf</user>\n<assistant>I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>remember my appointment is that four hours and thirty minutes pm</user>\n<assistant>I'm sorry, I'm not sure what you meant there. \"four hours and thirty minutes pm\" isn't a time I can save — could you tell me what time your appointment is, like four thirty in the afternoon?</assistant>\n</episode>\n<episode turn=\"7\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it — I'll remember that your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"8\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 8,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 20,
+        "pcm_frames_during_synthesis": 7
+      },
+      "speech": {
+        "first_audio_s": 0.18890949996421114,
+        "synthesis_wall_s": 0.33225159998983145,
+        "audio_s": 8.128,
+        "chunk_count": 2,
+        "chunk_durations_s": [
+          4.949333333333334,
+          3.1786666666666665
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "I don't have a record of any cost in our conversation, so I'm not sure which price you're correcting. Could you clarify what the fifty cents per request is for?",
+      "status": "pass"
+    },
+    {
+      "id": "quote_full_contrast",
+      "segments": [
+        "Repeat all of these words, including the last part: fifty cents per request, not fifty dollars."
+      ],
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "repeat all of these words including the last part fifty cents per request not fifty dollars"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 489057.7097561
+          },
+          {
+            "type": "partial",
+            "text": "repeat all of these",
+            "at": 489059.2617275
+          },
+          {
+            "type": "partial",
+            "text": "repeat all of these words including",
+            "at": 489060.4301259
+          },
+          {
+            "type": "partial",
+            "text": "repeat all of these words including the last part",
+            "at": 489061.1977045
+          },
+          {
+            "type": "partial",
+            "text": "repeat all of these words including the last part fifty cents per request not",
+            "at": 489062.6319162
+          },
+          {
+            "type": "partial",
+            "text": "repeat all of these words including the last part fifty cents per request not fifty dollars",
+            "at": 489064.023819
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 489064.4341976
+          },
+          {
+            "type": "transcript",
+            "text": "repeat all of these words including the last part fifty cents per request not fifty dollars",
+            "at": 489064.4342039
+          }
+        ],
+        "input_audio_s": 5.7173125,
+        "first_partial_s": 1.9416225000168197,
+        "partial_before_final": true,
+        "partial_while_speaking": true,
+        "final_after_input_s": 1.405462599999737,
+        "speech_start_s": [
+          0.3896511000348255
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.0
+      },
+      "chat": {
+        "turn_id": "ab9e637a5b844bbe",
+        "committed": true,
+        "chat_wall_s": 1.548829899984412,
+        "reply": "Your dinner budget is forty dollars, and there will be six guests coming. The blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts. Your appointment is at 5:45 PM. And the cost is fifty cents per request, not fifty dollars.",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 2223,
+          "total_prompt_chars": 4479,
+          "response_text": "Your dinner budget is forty dollars, and there will be six guests coming. The blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts. Your appointment is at 5:45 PM. And the cost is fifty cents per request, not fifty dollars.",
+          "response_chars": 278,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 354.85889995470643,
+          "total_ms": 1398.4811999835074,
+          "tokens_out": 64,
+          "tokens_per_sec": 61.32486820014653,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1475,
+            "cached_tokens": 884,
+            "processed_tokens": 591,
+            "prefill_ms": 346.029
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "d52cdd76d32748d161b3ca1e85448709363dee3204081aceb7e0921b4602e0fd",
+          "shadow_payload_sha256": "d52cdd76d32748d161b3ca1e85448709363dee3204081aceb7e0921b4602e0fd",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.215600011870265
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>what is the budget and how many guests are coming</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors</user>\n<assistant>Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>remember the blue folder and put it on the top shelf</user>\n<assistant>I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>remember my appointment is that four hours and thirty minutes pm</user>\n<assistant>I'm sorry, I'm not sure what you meant there. \"four hours and thirty minutes pm\" isn't a time I can save — could you tell me what time your appointment is, like four thirty in the afternoon?</assistant>\n</episode>\n<episode turn=\"7\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it — I'll remember that your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"8\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"9\">\n<user>the cost is fifty cents per request that is not fifty dollars</user>\n<assistant>I don't have a record of any cost in our conversation, so I'm not sure which price you're correcting. Could you clarify what the fifty cents per request is for?</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 9,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 30,
+        "pcm_frames_during_synthesis": 12
+      },
+      "speech": {
+        "first_audio_s": 0.16003480000654235,
+        "synthesis_wall_s": 0.5612183000193909,
+        "audio_s": 17.322666666666667,
+        "chunk_count": 2,
+        "chunk_durations_s": [
+          3.712,
+          13.610666666666667
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "Your dinner budget is forty dollars, and there will be six guests coming. The blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts. Your appointment is at 5:45 PM. And the cost is fifty cents per request, not fifty dollars.",
+      "status": "pass"
+    },
+    {
+      "id": "short_decision_prompt",
+      "segments": [
+        "Ask me whether I want to discuss books or movies."
+      ],
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "asked me whether i want to discuss books or movies"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 489068.1709423
+          },
+          {
+            "type": "partial",
+            "text": "asked me whether i",
+            "at": 489069.7122519
+          },
+          {
+            "type": "partial",
+            "text": "asked me whether i want to discuss",
+            "at": 489070.6230763
+          },
+          {
+            "type": "partial",
+            "text": "asked me whether i want to discuss books or movies",
+            "at": 489071.1242615
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 489071.7369349
+          },
+          {
+            "type": "transcript",
+            "text": "asked me whether i want to discuss books or movies",
+            "at": 489071.7369396
+          }
+        ],
+        "input_audio_s": 2.6666875,
+        "first_partial_s": 1.995356100029312,
+        "partial_before_final": true,
+        "partial_while_speaking": true,
+        "final_after_input_s": 1.3429129000287503,
+        "speech_start_s": [
+          0.45404650003183633
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.1
+      },
+      "chat": {
+        "turn_id": "10c12d75ec1144e5",
+        "committed": true,
+        "chat_wall_s": 0.6147783999913372,
+        "reply": "Would you like to talk about books or movies?",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 2661,
+          "total_prompt_chars": 4876,
+          "response_text": "Would you like to talk about books or movies?",
+          "response_chars": 45,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 318.36670002667233,
+          "total_ms": 492.87910002749413,
+          "tokens_out": 11,
+          "tokens_per_sec": 63.03277016388635,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1573,
+            "cached_tokens": 959,
+            "processed_tokens": 614,
+            "prefill_ms": 307.482
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "c111183fbf04fcf1e8ea1d98b1cf1e33443b12bbe39dd2b925fb0b7f0d8a598c",
+          "shadow_payload_sha256": "c111183fbf04fcf1e8ea1d98b1cf1e33443b12bbe39dd2b925fb0b7f0d8a598c",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.23669999791309237
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>what is the budget and how many guests are coming</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors</user>\n<assistant>Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>remember the blue folder and put it on the top shelf</user>\n<assistant>I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>remember my appointment is that four hours and thirty minutes pm</user>\n<assistant>I'm sorry, I'm not sure what you meant there. \"four hours and thirty minutes pm\" isn't a time I can save — could you tell me what time your appointment is, like four thirty in the afternoon?</assistant>\n</episode>\n<episode turn=\"7\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it — I'll remember that your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"8\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"9\">\n<user>the cost is fifty cents per request that is not fifty dollars</user>\n<assistant>I don't have a record of any cost in our conversation, so I'm not sure which price you're correcting. Could you clarify what the fifty cents per request is for?</assistant>\n</episode>\n<episode turn=\"10\">\n<user>repeat all of these words including the last part fifty cents per request not fifty dollars</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming. The blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts. Your appointment is at 5:45 PM. And the cost is fifty cents per request, not fifty dollars.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 10,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 12,
+        "pcm_frames_during_synthesis": 2
+      },
+      "speech": {
+        "first_audio_s": 0.12246739998226985,
+        "synthesis_wall_s": 0.1238022000179626,
+        "audio_s": 2.1333333333333333,
+        "chunk_count": 1,
+        "chunk_durations_s": [
+          2.1333333333333333
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "Would you like to talk about books or movies?",
+      "status": "pass"
+    },
+    {
+      "id": "short_decision",
+      "segments": [
+        "Books."
+      ],
+      "issues": [],
+      "asr": {
+        "transcripts": [
+          "books"
+        ],
+        "events": [
+          {
+            "type": "speech_start",
+            "at": 489074.112893
+          },
+          {
+            "type": "partial",
+            "text": "books",
+            "at": 489074.8726271
+          },
+          {
+            "type": "state",
+            "state": "listening",
+            "wake_phrase": "hey idris",
+            "at": 489075.6425482
+          },
+          {
+            "type": "transcript",
+            "text": "books",
+            "at": 489075.6425567
+          }
+        ],
+        "input_audio_s": 0.704,
+        "first_partial_s": 1.2079275000141934,
+        "partial_before_final": true,
+        "partial_while_speaking": false,
+        "final_after_input_s": 1.2697450999403372,
+        "speech_start_s": [
+          0.44819340005051345
+        ],
+        "errors": [],
+        "waiting_events": [],
+        "word_error_rate": 0.0
+      },
+      "chat": {
+        "turn_id": "23768763d37b48a7",
+        "committed": true,
+        "chat_wall_s": 0.979019399965182,
+        "reply": "Great choice — books! What kind do you enjoy? I can recommend something based on your favorite genre, or we could chat about a book you've read recently.",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 2825,
+          "total_prompt_chars": 4995,
+          "response_text": "Great choice — books! What kind do you enjoy? I can recommend something based on your favorite genre, or we could chat about a book you've read recently.",
+          "response_chars": 153,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 315.1589999906719,
+          "total_ms": 861.2569000106305,
+          "tokens_out": 34,
+          "tokens_per_sec": 62.259898818064265,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1609,
+            "cached_tokens": 1057,
+            "processed_tokens": 552,
+            "prefill_ms": 306.502
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "29e605322e0b0666676e4aff95182696576a0686a192cd07c52d6608ad3ce15d",
+          "shadow_payload_sha256": "29e605322e0b0666676e4aff95182696576a0686a192cd07c52d6608ad3ce15d",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.24319998919963837
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>what is the budget and how many guests are coming</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors</user>\n<assistant>Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>remember the blue folder and put it on the top shelf</user>\n<assistant>I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>remember my appointment is that four hours and thirty minutes pm</user>\n<assistant>I'm sorry, I'm not sure what you meant there. \"four hours and thirty minutes pm\" isn't a time I can save — could you tell me what time your appointment is, like four thirty in the afternoon?</assistant>\n</episode>\n<episode turn=\"7\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it — I'll remember that your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"8\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"9\">\n<user>the cost is fifty cents per request that is not fifty dollars</user>\n<assistant>I don't have a record of any cost in our conversation, so I'm not sure which price you're correcting. Could you clarify what the fifty cents per request is for?</assistant>\n</episode>\n<episode turn=\"10\">\n<user>repeat all of these words including the last part fifty cents per request not fifty dollars</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming. The blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts. Your appointment is at 5:45 PM. And the cost is fifty cents per request, not fifty dollars.</assistant>\n</episode>\n<episode turn=\"11\">\n<user>asked me whether i want to discuss books or movies</user>\n<assistant>Would you like to talk about books or movies?</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 11,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 19,
+        "pcm_frames_during_synthesis": 7
+      },
+      "speech": {
+        "first_audio_s": 0.12578309996752068,
+        "synthesis_wall_s": 0.3270105999545194,
+        "audio_s": 8.021333333333333,
+        "chunk_count": 2,
+        "chunk_durations_s": [
+          2.517333333333333,
+          5.504
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "Great choice — books! What kind do you enjoy? I can recommend something based on your favorite genre, or we could chat about a book you've read recently.",
+      "status": "pass"
+    }
+  ],
+  "probes": [
+    {
+      "id": "nonspeech_silence_False",
+      "status": "pass",
+      "kind": "silence",
+      "playback_active": false,
+      "input_audio_s": 3,
+      "issues": [],
+      "events": []
+    },
+    {
+      "id": "nonspeech_hiss_False",
+      "status": "pass",
+      "kind": "hiss",
+      "playback_active": false,
+      "input_audio_s": 3,
+      "issues": [],
+      "events": []
+    },
+    {
+      "id": "nonspeech_clicks_False",
+      "status": "pass",
+      "kind": "clicks",
+      "playback_active": false,
+      "input_audio_s": 3,
+      "issues": [],
+      "events": []
+    },
+    {
+      "id": "nonspeech_silence_True",
+      "status": "pass",
+      "kind": "silence",
+      "playback_active": true,
+      "input_audio_s": 3,
+      "issues": [],
+      "events": []
+    },
+    {
+      "id": "nonspeech_hiss_True",
+      "status": "pass",
+      "kind": "hiss",
+      "playback_active": true,
+      "input_audio_s": 3,
+      "issues": [],
+      "events": []
+    },
+    {
+      "id": "nonspeech_clicks_True",
+      "status": "pass",
+      "kind": "clicks",
+      "playback_active": true,
+      "input_audio_s": 3,
+      "issues": [],
+      "events": []
+    },
+    {
+      "id": "mute_held_asr",
+      "status": "not_applicable",
+      "artificial_result_hold": true,
+      "issues": [],
+      "reason": "Whisper-only probe."
+    },
+    {
+      "id": "mute_held_asr_with_playback",
+      "status": "not_applicable",
+      "artificial_result_hold": true,
+      "issues": [],
+      "reason": "Whisper-only probe."
+    },
+    {
+      "id": "speech_resumes_before_final",
+      "status": "not_applicable",
+      "artificial_result_hold": true,
+      "issues": [],
+      "reason": "Whisper-only probe."
+    },
+    {
+      "id": "limit_discard",
+      "status": "pass",
+      "issues": [],
+      "captured_text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the",
+      "limit_s": 20,
+      "unpause": {
+        "control": "unpause",
+        "ack_s": 0.0015153000131249428,
+        "event": {
+          "type": "state",
+          "state": "listening",
+          "wake_phrase": "hey idris",
+          "control_id": 1,
+          "at": 489129.4033588
+        }
+      },
+      "stored_before": 12,
+      "stored_after": 12,
+      "events": [
+        {
+          "type": "speech_start",
+          "at": 489110.0569159
+        },
+        {
+          "type": "partial",
+          "text": "the silver key",
+          "at": 489111.5004074
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs",
+          "at": 489112.6478025
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the",
+          "at": 489113.3734153
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs",
+          "at": 489115.0267285
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the",
+          "at": 489116.4734376
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key",
+          "at": 489117.9195802
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue",
+          "at": 489118.6698061
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the",
+          "at": 489119.8234496
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key",
+          "at": 489120.8308972
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside",
+          "at": 489121.5244616
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue",
+          "at": 489122.5247499
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver",
+          "at": 489122.9753908
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside",
+          "at": 489124.1673309
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver",
+          "at": 489125.3692475
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the",
+          "at": 489127.0238135
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder",
+          "at": 489128.4826428
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key",
+          "at": 489129.2271412
+        },
+        {
+          "type": "state",
+          "state": "paused",
+          "wake_phrase": "hey idris",
+          "at": 489129.3974933
+        },
+        {
+          "type": "limit",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the",
+          "limit_s": 20,
+          "at": 489129.397502
+        },
+        {
+          "type": "state",
+          "state": "listening",
+          "wake_phrase": "hey idris",
+          "control_id": 1,
+          "at": 489129.4033588
+        }
+      ]
+    },
+    {
+      "id": "limit_send",
+      "status": "pass",
+      "issues": [],
+      "captured_text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the",
+      "limit_s": 20,
+      "unpause": {
+        "control": "unpause",
+        "ack_s": 0.0008812000160105526,
+        "event": {
+          "type": "state",
+          "state": "listening",
+          "wake_phrase": "hey idris",
+          "control_id": 2,
+          "at": 489149.7411515
+        }
+      },
+      "chat": {
+        "turn_id": "7816f29273cd4be3",
+        "committed": true,
+        "chat_wall_s": 0.7815073999809101,
+        "reply": "Got it — I'll remember that the silver key belongs beside the blue folder.",
+        "generation": {
+          "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "base_url": "http://127.0.0.1:8000/v1",
+          "system_prompt_chars": 2165,
+          "context_block_chars": 3052,
+          "total_prompt_chars": 5526,
+          "response_text": "Got it — I'll remember that the silver key belongs beside the blue folder.",
+          "response_chars": 74,
+          "reasoning_text": "",
+          "thinking_enabled": false,
+          "ttft_ms": 337.94350002426654,
+          "total_ms": 611.5399000118487,
+          "tokens_out": 17,
+          "tokens_per_sec": 62.13532049680328,
+          "tool_calls": [],
+          "prompt_cache": {
+            "prompt_tokens": 1721,
+            "cached_tokens": 1093,
+            "processed_tokens": 628,
+            "prefill_ms": 329.661
+          },
+          "finish_reason": "stop",
+          "error": null
+        },
+        "verification": {
+          "payload_identical": true,
+          "report_fields_identical": true,
+          "authority_payload_sha256": "7be0f108c3fe5bb33ea63f8bceab3c42393db640b3dae9f4c3688bfb5e05699e",
+          "shadow_payload_sha256": "7be0f108c3fe5bb33ea63f8bceab3c42393db640b3dae9f4c3688bfb5e05699e",
+          "mismatched_fields": [],
+          "library_version": "0.2.0",
+          "shadow_latency_ms": 0.5760999629274011
+        },
+        "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>remember my dinner budget is forty dollars and there will be six guests</user>\n<assistant>Got it — I'll remember that your dinner budget is forty dollars for six guests.</assistant>\n</episode>\n<episode turn=\"2\">\n<user>i mean the budget keep the number of guess the same</user>\n<assistant>No response requested.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>what is the budget and how many guests are coming</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>for the dinner party please remember that the blue folder contains the shopping list and the green notebook has the guess names and the read on below contains the receipts repeat only the three colors</user>\n<assistant>Got it. I'll remember that the blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>remember the blue folder and put it on the top shelf</user>\n<assistant>I'm sorry, I'm a digital assistant, so I can't physically move your blue folder. But I've noted in my memory that it's on the top shelf, just in case you ask about it later.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>remember my appointment is that four hours and thirty minutes pm</user>\n<assistant>I'm sorry, I'm not sure what you meant there. \"four hours and thirty minutes pm\" isn't a time I can save — could you tell me what time your appointment is, like four thirty in the afternoon?</assistant>\n</episode>\n<episode turn=\"7\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it — I'll remember that your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"8\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"9\">\n<user>the cost is fifty cents per request that is not fifty dollars</user>\n<assistant>I don't have a record of any cost in our conversation, so I'm not sure which price you're correcting. Could you clarify what the fifty cents per request is for?</assistant>\n</episode>\n<episode turn=\"10\">\n<user>repeat all of these words including the last part fifty cents per request not fifty dollars</user>\n<assistant>Your dinner budget is forty dollars, and there will be six guests coming. The blue folder has the shopping list, the green notebook has the guest names, and the red one has the receipts. Your appointment is at 5:45 PM. And the cost is fifty cents per request, not fifty dollars.</assistant>\n</episode>\n<episode turn=\"11\">\n<user>asked me whether i want to discuss books or movies</user>\n<assistant>Would you like to talk about books or movies?</assistant>\n</episode>\n<episode turn=\"12\">\n<user>books</user>\n<assistant>Great choice — books! What kind do you enjoy? I can recommend something based on your favorite genre, or we could chat about a book you've read recently.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+        "store_before": {
+          "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-a924cr3o\\sessions\\1eac493d23a1\\episodes.sqlite",
+          "episode_count": 12,
+          "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+          "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+          "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+        },
+        "subagent": null,
+        "research_events": [],
+        "pcm_frames_during_chat": 16,
+        "pcm_frames_during_synthesis": 3
+      },
+      "speech": {
+        "first_audio_s": 0.1701496999594383,
+        "synthesis_wall_s": 0.17131279996829107,
+        "audio_s": 4.181333333333333,
+        "chunk_count": 1,
+        "chunk_durations_s": [
+          4.181333333333333
+        ],
+        "completed": true,
+        "errors": []
+      },
+      "spoken_text": "Got it — I'll remember that the silver key belongs beside the blue folder.",
+      "stored_before": 12,
+      "stored_after": 13,
+      "events": [
+        {
+          "type": "speech_start",
+          "at": 489130.3256044
+        },
+        {
+          "type": "partial",
+          "text": "the silver key",
+          "at": 489131.7854907
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs",
+          "at": 489132.9816721
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the",
+          "at": 489133.7211238
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside",
+          "at": 489135.3675367
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue",
+          "at": 489136.8227645
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver",
+          "at": 489137.5741145
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key",
+          "at": 489138.5305406
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue",
+          "at": 489139.2358704
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder",
+          "at": 489140.1796644
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key",
+          "at": 489140.6778318
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside",
+          "at": 489141.8721128
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver",
+          "at": 489142.8261116
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the",
+          "at": 489144.2758933
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder",
+          "at": 489145.9333694
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key",
+          "at": 489146.434784
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the",
+          "at": 489147.8730149
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder",
+          "at": 489148.8205292
+        },
+        {
+          "type": "partial",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver",
+          "at": 489149.3246099
+        },
+        {
+          "type": "state",
+          "state": "paused",
+          "wake_phrase": "hey idris",
+          "at": 489149.7359652
+        },
+        {
+          "type": "limit",
+          "text": "the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the blue folder the silver key belongs beside the",
+          "limit_s": 20,
+          "at": 489149.7359735
+        },
+        {
+          "type": "state",
+          "state": "listening",
+          "wake_phrase": "hey idris",
+          "control_id": 2,
+          "at": 489149.7411515
+        }
+      ]
+    }
+  ],
+  "voice_status": {
+    "available": true,
+    "wake_phrase": "hey idris",
+    "sample_rate": 16000,
+    "device": "cuda",
+    "provider": "CUDAExecutionProvider",
+    "asr_backend": "vosk",
+    "asr_model": "vosk-model-small-en-us-0.15",
+    "asr_device": "cpu",
+    "asr_compute_type": null,
+    "asr_ready": true,
+    "error": null
+  },
+  "embedder": {
+    "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+    "sentinel_matches_research": true,
+    "expected_sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+    "model_path": "C:\\Users\\muzaf\\.cache\\huggingface\\hub\\Qwen3-Embedding-0.6B-GGUF\\Qwen3-Embedding-0.6B-Q8_0.gguf",
+    "n_threads": 8,
+    "n_ctx": 512,
+    "cold_load_ms": 463.2726999698207,
+    "embedding_dimension": 1024
+  },
+  "activation": {
+    "events": [
+      {
+        "type": "state",
+        "state": "listening",
+        "wake_phrase": "hey idris",
+        "at": 488984.027536
+      }
+    ],
+    "unexpected_transcripts": []
+  },
+  "stored_turn_count": 13,
+  "pcm_frames_sent": 3370,
+  "late_frame_delays_s": [],
+  "finished_at": "2026-09-08T18:40:56.942376+00:00",
+  "temporary_data_removed": true
+}

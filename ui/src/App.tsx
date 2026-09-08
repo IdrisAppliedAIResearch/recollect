@@ -13,8 +13,11 @@ import { createMockSource } from './api/mock.ts'
 import { Chat } from './components/Chat.tsx'
 import { Inspector } from './components/Inspector.tsx'
 import { chars, int, ms, pct } from './lib/format.ts'
+import { initialSendOutcome, updateSendOutcome } from './lib/send-outcome.ts'
+import { finishWorkspace, recordResearchResult } from './lib/workspace.ts'
 import type { ChatEvent, DataSource, HealthResponse, SessionInfo } from './types/api.ts'
 import type { TurnTrace } from './types/trace.ts'
+import { useVoice } from './voice/useVoice.ts'
 
 /** One subagent step as streamed mid-turn. Never persisted. */
 export interface WorkspaceStep {
@@ -64,6 +67,8 @@ export function App() {
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const sending = useRef(false)
   const [banner, setBanner] = useState<string | null>(null)
   const [chatWidth, setChatWidth] = useState(480)
   const [detailsOpen, setDetailsOpen] = useState(
@@ -78,6 +83,9 @@ export function App() {
     setExchanges([])
     setSelectedId(null)
     setBanner(null)
+    setSession(null)
+    setHealth(null)
+    setLoading(true)
 
     let cancelled = false
     void (async () => {
@@ -118,6 +126,8 @@ export function App() {
               `Try "recollect serve", or switch on Mock data to explore the UI.`,
           )
         }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     })()
     return () => {
@@ -128,9 +138,16 @@ export function App() {
   // -- sending ----------------------------------------------------------
 
   const send = useCallback(
-    async (message: string) => {
-      if (!session || busy) return
+    async (
+      message: string,
+      signal?: AbortSignal,
+      inputMode: 'text' | 'voice' = 'text',
+    ): Promise<string | null> => {
+      if (!session || loading || sending.current || source.kind === 'mock' || signal?.aborted) {
+        return null
+      }
       const localId = `pending-${Date.now()}`
+      sending.current = true
       setBusy(true)
       setBanner(null)
       setExchanges((current) => [
@@ -159,9 +176,11 @@ export function App() {
       // its own id, so the derivation would append every token to every
       // historical bubble and destroy the chat history.
       let activeId = localId
+      let outcome = initialSendOutcome
 
       try {
         await source.chat(session.session_id, message, (event: ChatEvent) => {
+          if (signal?.aborted) return
           switch (event.type) {
             case 'retrieval':
               // Retrieval lands before the model says a word. Adopt the real
@@ -231,36 +250,28 @@ export function App() {
                   item.id === activeId && item.workspace
                     ? {
                         ...item,
-                        workspace: {
-                          ...item.workspace,
-                          phase: 'synthesizing',
-                          sources: event.sources,
-                          researchNote: event.error ?? null,
-                        },
+                        workspace: recordResearchResult(item.workspace, event),
                       }
                     : item,
                 ),
               )
               break
             case 'done':
+              outcome = updateSendOutcome(outcome, event)
               setExchanges((current) =>
                 current.map((item) =>
                   item.id === event.turn_id
                     ? {
                         ...item,
+                        assistant: event.generation.response_text,
+                        error: event.generation.error,
                         streaming: false,
                         workspace: item.workspace
-                          ? {
-                              ...item.workspace,
-                              phase: event.generation.response_text.trim()
-                                ? 'complete'
-                                : 'failed',
-                              failure: event.generation.response_text.trim()
-                                ? null
-                                : (event.generation.error ??
-                                  item.workspace.researchNote ??
-                                  'The subagent returned no answer.'),
-                            }
+                          ? finishWorkspace(
+                              item.workspace,
+                              event.generation.response_text,
+                              event.generation.error,
+                            )
                           : null,
                       }
                     : item,
@@ -285,42 +296,52 @@ export function App() {
               })()
               break
             case 'error':
+              outcome = updateSendOutcome(outcome, event)
+              patch(activeId, { error: event.message })
               setBanner(event.message)
               break
           }
-        })
+        }, signal, inputMode)
+        if (!outcome.completedId && !outcome.failed && !signal?.aborted) {
+          const message = 'The connection ended before the reply completed.'
+          outcome = updateSendOutcome(outcome, { type: 'error', message })
+          patch(activeId, { error: message })
+          setBanner(message)
+        }
       } catch (error) {
-        patch(activeId, { error: (error as Error).message })
-        setBanner((error as Error).message)
+        outcome = updateSendOutcome(outcome, { type: 'error', message: (error as Error).message })
+        patch(activeId, { error: signal?.aborted ? 'Reply stopped.' : (error as Error).message })
+        if (!signal?.aborted) setBanner((error as Error).message)
       } finally {
+        sending.current = false
         setBusy(false)
         setExchanges((current) =>
           current.map((item) => {
             if (!item.streaming) return item
-            const answered = Boolean(item.assistant.trim())
             return {
               ...item,
               streaming: false,
               workspace: item.workspace
-                ? {
-                    ...item.workspace,
-                    phase: answered ? 'complete' : 'failed',
-                    failure: answered
-                      ? null
-                      : (item.error ??
-                        item.workspace.researchNote ??
-                        'The subagent returned no answer.'),
-                  }
+                ? finishWorkspace(item.workspace, item.assistant, item.error)
                 : null,
             }
           }),
         )
-        setSession((current) =>
-          current ? { ...current, turn_count: current.turn_count + 1 } : current,
-        )
+        if (outcome.committed) {
+          setSession((current) =>
+            current ? { ...current, turn_count: current.turn_count + 1 } : current,
+          )
+        }
       }
+      return !signal?.aborted ? outcome.speechTurnId : null
     },
-    [session, busy, source],
+    [session, loading, source],
+  )
+
+  const voice = useVoice(
+    session?.session_id ?? null,
+    !useMock && source.kind === 'live' && !loading,
+    send,
   )
 
   // -- details pane ------------------------------------------------------
@@ -432,6 +453,7 @@ export function App() {
             type="button"
             className={useMock ? 'ctl ctl--on' : 'ctl'}
             onClick={() => setUseMock((value) => !value)}
+            disabled={busy || voice.active || loading}
             title="Explore the whole UI with a realistic generated trace and no server"
           >
             Mock data
@@ -451,6 +473,8 @@ export function App() {
             busy={busy}
             session={session}
             readOnly={source.kind === 'mock'}
+            loading={loading}
+            voice={voice}
           />
         </div>
 

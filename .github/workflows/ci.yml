@@ -19,7 +19,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -80,6 +79,10 @@ jobs:
       - name: Install
         working-directory: ui
         run: npm ci
+
+      - name: Test conversation controls
+        working-directory: ui
+        run: npm test
 
       # `build` runs `tsc --noEmit` before vite, so this covers types too.
       - name: Typecheck and build

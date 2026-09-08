@@ -59,7 +59,13 @@ export type ChatEvent =
       returned_chars: number
       error?: string
     }
-  | { type: 'done'; turn_id: string; generation: GenerationTrace; total_ms: number | null }
+  | {
+      type: 'done'
+      turn_id: string
+      generation: GenerationTrace
+      total_ms: number | null
+      committed?: boolean
+    }
   | { type: 'error'; message: string }
 
 export interface DataSource {
@@ -75,5 +81,6 @@ export interface DataSource {
     message: string,
     onEvent: (event: ChatEvent) => void,
     signal?: AbortSignal,
+    inputMode?: 'text' | 'voice',
   ): Promise<void>
 }

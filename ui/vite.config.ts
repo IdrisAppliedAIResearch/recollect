@@ -16,7 +16,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // SSE flows through here; http-proxy streams it without buffering.
-      '/api': { target: BACKEND, changeOrigin: true },
+      '/api': { target: BACKEND, changeOrigin: true, ws: true },
       '/v1': { target: BACKEND, changeOrigin: true },
     },
   },

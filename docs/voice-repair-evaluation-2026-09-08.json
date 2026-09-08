@@ -1,0 +1,1044 @@
+{
+  "started_at": "2026-09-08T17:21:47.283944+00:00",
+  "method": "Synthetic Kokoro input through local HTTP/WebSocket app; real in-process embedder and verified retrieval, Vosk/Silero, Qwen, CUDA Kokoro output. Most input is accelerated; explicitly marked real-time trials only. No physical microphone, browser speaker playback, or perceptual listening score.",
+  "settings": {
+    "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+    "temperature": 0.7,
+    "wake": "hey idris",
+    "endpoint_s": 1.4,
+    "recent_n": 32
+  },
+  "conversations": [
+    {
+      "group": "repair",
+      "turns": [
+        {
+          "id": "technical_clarification",
+          "text": "I mean a cache in a computer. What is that?",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "i mean occassion a computer what is that"
+            ],
+            "partial_count": 3,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 3.1573125,
+            "transport_wall_s": 0.6902767000137828,
+            "realtime_input": false,
+            "transcript_at": 484404.4364999,
+            "input_ended_at": null,
+            "word_error_rate": 0.3,
+            "listening_state_events": 2
+          },
+          "chat": {
+            "turn_id": "aeb46b6c875644be",
+            "committed": true,
+            "chat_wall_s": 2.043309600034263,
+            "reply": "I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 35,
+              "total_prompt_chars": 2240,
+              "response_text": "I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!",
+              "response_chars": 302,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 260.1111000403762,
+              "total_ms": 1490.8291000174358,
+              "tokens_out": 76,
+              "tokens_per_sec": 61.75257045189607,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 915,
+                "cached_tokens": 559,
+                "processed_tokens": 356,
+                "prefill_ms": 251.859
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "cf98a3928c489ae413e801ef5a844e81c474f7d037f5ab84c3d0cb7378d74909",
+              "shadow_payload_sha256": "cf98a3928c489ae413e801ef5a844e81c474f7d037f5ab84c3d0cb7378d74909",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.010300020221620798
+            },
+            "memory_payload": "<recent_context/>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 0,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!",
+          "reply_word_count": 54,
+          "speech": {
+            "first_audio_s": 0.23191259999293834,
+            "synthesis_wall_s": 0.5561148999840952,
+            "audio_s": 17.344,
+            "chunk_count": 2,
+            "chunk_durations_s": [
+              6.72,
+              10.624
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "repaired_referent",
+          "text": "Give me another analogy for that.",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "give me another analogy for that"
+            ],
+            "partial_count": 2,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 1.856,
+            "transport_wall_s": 0.6105132999946363,
+            "realtime_input": false,
+            "transcript_at": 484407.7581712,
+            "input_ended_at": null,
+            "word_error_rate": 0.0,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "05054e494e0d4f2e",
+            "committed": true,
+            "chat_wall_s": 1.3590127999777906,
+            "reply": "I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 462,
+              "total_prompt_chars": 2659,
+              "response_text": "I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.",
+              "response_chars": 235,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 269.9161000200547,
+              "total_ms": 1225.882200000342,
+              "tokens_out": 59,
+              "tokens_per_sec": 61.71766969688216,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1023,
+                "cached_tokens": 559,
+                "processed_tokens": 464,
+                "prefill_ms": 262.253
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "cca8d2aae32fa24ebea8570114e595affe2836b4f050ef006f1870f5e914ece0",
+              "shadow_payload_sha256": "cca8d2aae32fa24ebea8570114e595affe2836b4f050ef006f1870f5e914ece0",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.10829995153471828
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 1,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.",
+          "reply_word_count": 48,
+          "speech": {
+            "first_audio_s": 0.2144807000295259,
+            "synthesis_wall_s": 0.4673253999790177,
+            "audio_s": 13.525333333333332,
+            "chunk_count": 2,
+            "chunk_durations_s": [
+              5.952,
+              7.573333333333333
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "time_explicit",
+          "text": "Remember my appointment is at four hours and thirty minutes PM.",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "remember my appointment is at four hours and thirty minutes pm"
+            ],
+            "partial_count": 3,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 3.7333125,
+            "transport_wall_s": 0.7774995000218041,
+            "realtime_input": false,
+            "transcript_at": 484410.5189452,
+            "input_ended_at": null,
+            "word_error_rate": 0.0,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "eb9fcfc1de6b4ebe",
+            "committed": true,
+            "chat_wall_s": 0.7771021000226028,
+            "reply": "Got it, I'll remember that your appointment is at 4:30 PM.",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 797,
+              "total_prompt_chars": 3024,
+              "response_text": "Got it, I'll remember that your appointment is at 4:30 PM.",
+              "response_chars": 58,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 348.53799996199086,
+              "total_ms": 651.8481000093743,
+              "tokens_out": 19,
+              "tokens_per_sec": 62.64216060405439,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1115,
+                "cached_tokens": 559,
+                "processed_tokens": 556,
+                "prefill_ms": 340.943
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "1cec52619ec5ad0cdc244f46e1d009651040101b417d29a4e80f62ffaf593ffd",
+              "shadow_payload_sha256": "1cec52619ec5ad0cdc244f46e1d009651040101b417d29a4e80f62ffaf593ffd",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.11119997361674905
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n<episode turn=\"2\">\n<user>give me another analogy for that</user>\n<assistant>I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 2,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "Got it, I'll remember that your appointment is at 4:30 PM.",
+          "reply_word_count": 11,
+          "speech": {
+            "first_audio_s": 0.15734710003016517,
+            "synthesis_wall_s": 0.15856310003437102,
+            "audio_s": 3.84,
+            "chunk_count": 1,
+            "chunk_durations_s": [
+              3.84
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "time_confirmation",
+          "text": "What time is my appointment?",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "what time is my appointment"
+            ],
+            "partial_count": 2,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 1.5146875,
+            "transport_wall_s": 0.558095799991861,
+            "realtime_input": false,
+            "transcript_at": 484412.1115515,
+            "input_ended_at": null,
+            "word_error_rate": 0.0,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "fa35702013584114",
+            "committed": true,
+            "chat_wall_s": 0.6246059999684803,
+            "reply": "Your appointment is at 4:30 PM.",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 985,
+              "total_prompt_chars": 3177,
+              "response_text": "Your appointment is at 4:30 PM.",
+              "response_chars": 31,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 321.54860004084185,
+              "total_ms": 511.3159000175074,
+              "tokens_out": 12,
+              "tokens_per_sec": 63.235341396940164,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1162,
+                "cached_tokens": 599,
+                "processed_tokens": 563,
+                "prefill_ms": 313.457
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "83774c1ceb7ea5786cd646c608cb03032ae93d7829819633e7317628906d9b7b",
+              "shadow_payload_sha256": "83774c1ceb7ea5786cd646c608cb03032ae93d7829819633e7317628906d9b7b",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.12430001515895128
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n<episode turn=\"2\">\n<user>give me another analogy for that</user>\n<assistant>I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>remember my appointment is at four hours and thirty minutes pm</user>\n<assistant>Got it, I'll remember that your appointment is at 4:30 PM.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 3,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "Your appointment is at 4:30 PM.",
+          "reply_word_count": 6,
+          "speech": {
+            "first_audio_s": 0.12898999999742955,
+            "synthesis_wall_s": 0.13018490001559258,
+            "audio_s": 2.432,
+            "chunk_count": 1,
+            "chunk_durations_s": [
+              2.432
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "time_correction",
+          "text": "Actually the appointment is at five forty five PM.",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "actually the appointment is that five forty five pm"
+            ],
+            "partial_count": 3,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 3.1786875,
+            "transport_wall_s": 0.704515099991113,
+            "realtime_input": false,
+            "transcript_at": 484413.714054,
+            "input_ended_at": null,
+            "word_error_rate": 0.1111111111111111,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "8a8101c833a44d36",
+            "committed": true,
+            "chat_wall_s": 0.7821665999945253,
+            "reply": "Got it, I'll update that — your appointment is at 5:45 PM.",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 1111,
+              "total_prompt_chars": 3327,
+              "response_text": "Got it, I'll update that — your appointment is at 5:45 PM.",
+              "response_chars": 58,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 331.67909999610856,
+              "total_ms": 657.3594000074081,
+              "tokens_out": 20,
+              "tokens_per_sec": 61.40991640976164,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1205,
+                "cached_tokens": 646,
+                "processed_tokens": 559,
+                "prefill_ms": 323.33
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "feb0e9308442814c9d3cb1d245c61b9595fa3bfa07c46880cd31111679910a86",
+              "shadow_payload_sha256": "feb0e9308442814c9d3cb1d245c61b9595fa3bfa07c46880cd31111679910a86",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.1370999962091446
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n<episode turn=\"2\">\n<user>give me another analogy for that</user>\n<assistant>I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>remember my appointment is at four hours and thirty minutes pm</user>\n<assistant>Got it, I'll remember that your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>what time is my appointment</user>\n<assistant>Your appointment is at 4:30 PM.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 4,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "Got it, I'll update that — your appointment is at 5:45 PM.",
+          "reply_word_count": 12,
+          "speech": {
+            "first_audio_s": 0.17057010001735762,
+            "synthesis_wall_s": 0.17173790000379086,
+            "audio_s": 4.309333333333333,
+            "chunk_count": 1,
+            "chunk_durations_s": [
+              4.309333333333333
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "time_corrected_recall",
+          "text": "Please repeat the appointment time.",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "please repeat the appointment time"
+            ],
+            "partial_count": 2,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 1.8346875,
+            "transport_wall_s": 0.6120296000153758,
+            "realtime_input": false,
+            "transcript_at": 484415.3863793,
+            "input_ended_at": null,
+            "word_error_rate": 0.0,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "077da2b23f794bbf",
+            "committed": true,
+            "chat_wall_s": 0.6326524000032805,
+            "reply": "Your appointment is at 5:45 PM.",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 1288,
+              "total_prompt_chars": 3487,
+              "response_text": "Your appointment is at 5:45 PM.",
+              "response_chars": 31,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 321.8728000065312,
+              "total_ms": 514.1413999954239,
+              "tokens_out": 12,
+              "tokens_per_sec": 62.41268725466997,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1253,
+                "cached_tokens": 689,
+                "processed_tokens": 564,
+                "prefill_ms": 313.581
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "73a7f79285e2768ccc15bb40997a66e89ab993f8af9b2ae349433d41fba9eb27",
+              "shadow_payload_sha256": "73a7f79285e2768ccc15bb40997a66e89ab993f8af9b2ae349433d41fba9eb27",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.4120999947190285
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n<episode turn=\"2\">\n<user>give me another analogy for that</user>\n<assistant>I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>remember my appointment is at four hours and thirty minutes pm</user>\n<assistant>Got it, I'll remember that your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>what time is my appointment</user>\n<assistant>Your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it, I'll update that — your appointment is at 5:45 PM.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 5,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "Your appointment is at 5:45 PM.",
+          "reply_word_count": 6,
+          "speech": {
+            "first_audio_s": 0.1374185000313446,
+            "synthesis_wall_s": 0.13860659999772906,
+            "audio_s": 2.7733333333333334,
+            "chunk_count": 1,
+            "chunk_durations_s": [
+              2.7733333333333334
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "money_precision",
+          "text": "The cost is fifty cents per request. That is not fifty dollars.",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "the cost is fifty cents per request that is not fifty dollars"
+            ],
+            "partial_count": 4,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 3.9253125,
+            "transport_wall_s": 0.8095796999987215,
+            "realtime_input": false,
+            "transcript_at": 484417.1257844,
+            "input_ended_at": null,
+            "word_error_rate": 0.0,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "dfc4c3f26c8a431e",
+            "committed": true,
+            "chat_wall_s": 0.9856389000196941,
+            "reply": "I don't have a clear memory of a cost we discussed, but I'll take your correction: the cost is fifty cents per request, not fifty dollars.",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 1421,
+              "total_prompt_chars": 3647,
+              "response_text": "I don't have a clear memory of a cost we discussed, but I'll take your correction: the cost is fifty cents per request, not fifty dollars.",
+              "response_chars": 138,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 322.06980005139485,
+              "total_ms": 852.9547000071034,
+              "tokens_out": 33,
+              "tokens_per_sec": 62.16036659312249,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1299,
+                "cached_tokens": 737,
+                "processed_tokens": 562,
+                "prefill_ms": 313.844
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "039260fe04872411ad19a37fa6492d2917dc73d31e1dd7a3df9023933e8da0a1",
+              "shadow_payload_sha256": "039260fe04872411ad19a37fa6492d2917dc73d31e1dd7a3df9023933e8da0a1",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.16709999181330204
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n<episode turn=\"2\">\n<user>give me another analogy for that</user>\n<assistant>I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>remember my appointment is at four hours and thirty minutes pm</user>\n<assistant>Got it, I'll remember that your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>what time is my appointment</user>\n<assistant>Your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it, I'll update that — your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 6,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "I don't have a clear memory of a cost we discussed, but I'll take your correction: the cost is fifty cents per request, not fifty dollars.",
+          "reply_word_count": 26,
+          "speech": {
+            "first_audio_s": 0.22960580000653863,
+            "synthesis_wall_s": 0.3254710000474006,
+            "audio_s": 8.064,
+            "chunk_count": 2,
+            "chunk_durations_s": [
+              6.762666666666667,
+              1.3013333333333332
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "quote_full_contrast",
+          "text": "Repeat all of these words, including the last part: fifty cents per request, not fifty dollars.",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "repeat all of these words including the last part fifty cents per request not fifty dollars"
+            ],
+            "partial_count": 5,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 5.7173125,
+            "transport_wall_s": 1.0024062999873422,
+            "realtime_input": false,
+            "transcript_at": 484419.6402909,
+            "input_ended_at": null,
+            "word_error_rate": 0.0,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "2cccfad82c374b55",
+            "committed": true,
+            "chat_wall_s": 2.445841400010977,
+            "reply": "Sure, here's everything I've noted from our chat: first, you asked what \"occassion\" means in relation to a computer, and we were trying to pin that down. Then you asked for another analogy for something, and I asked you to clarify which concept you meant. Next, you told me your appointment is at four thirty PM, and I confirmed that. Then you corrected it to five forty five PM, and I updated it. Finally, you mentioned that the cost is fifty cents per request, not fifty dollars. Is there anything you'd like me to repeat or clarify further?",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 1688,
+              "total_prompt_chars": 3944,
+              "response_text": "Sure, here's everything I've noted from our chat: first, you asked what \"occassion\" means in relation to a computer, and we were trying to pin that down. Then you asked for another analogy for something, and I asked you to clarify which concept you meant. Next, you told me your appointment is at four thirty PM, and I confirmed that. Then you corrected it to five forty five PM, and I updated it. Finally, you mentioned that the cost is fifty cents per request, not fifty dollars. Is there anything you'd like me to repeat or clarify further?",
+              "response_chars": 543,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 326.5071999630891,
+              "total_ms": 2285.1041999529116,
+              "tokens_out": 121,
+              "tokens_per_sec": 61.77891623474801,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1370,
+                "cached_tokens": 783,
+                "processed_tokens": 587,
+                "prefill_ms": 318.135
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "990eb0327f4517a122aef8b5190f96351e28aaa918893a504748fe21460f8013",
+              "shadow_payload_sha256": "990eb0327f4517a122aef8b5190f96351e28aaa918893a504748fe21460f8013",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.18229999113827944
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n<episode turn=\"2\">\n<user>give me another analogy for that</user>\n<assistant>I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>remember my appointment is at four hours and thirty minutes pm</user>\n<assistant>Got it, I'll remember that your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>what time is my appointment</user>\n<assistant>Your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it, I'll update that — your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"7\">\n<user>the cost is fifty cents per request that is not fifty dollars</user>\n<assistant>I don't have a clear memory of a cost we discussed, but I'll take your correction: the cost is fifty cents per request, not fifty dollars.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 7,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "Sure, here's everything I've noted from our chat: first, you asked what \"occassion\" means in relation to a computer, and we were trying to pin that down. Then you asked for another analogy for something, and I asked you to clarify which concept you meant. Next, you told me your appointment is at four thirty PM, and I confirmed that. Then you corrected it to five forty five PM, and I updated it. Finally, you mentioned that the cost is fifty cents per request, not fifty dollars. Is there anything you'd like me to repeat or clarify further?",
+          "reply_word_count": 98,
+          "speech": {
+            "first_audio_s": 0.23512799997115508,
+            "synthesis_wall_s": 1.0032059999648482,
+            "audio_s": 33.152,
+            "chunk_count": 3,
+            "chunk_durations_s": [
+              6.954666666666666,
+              12.8,
+              13.397333333333334
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "short_decision_prompt",
+          "text": "Ask me whether I want to discuss books or movies.",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "asked me whether i want to discuss books or movies"
+            ],
+            "partial_count": 3,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 2.6666875,
+            "transport_wall_s": 0.6733981000143103,
+            "realtime_input": false,
+            "transcript_at": 484423.8952115,
+            "input_ended_at": null,
+            "word_error_rate": 0.1,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "88b67af5c2334feb",
+            "committed": true,
+            "chat_wall_s": 0.925169000052847,
+            "reply": "I don't recall asking you that, but I'm happy to go either way. Would you like to talk about books or movies?",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 2390,
+              "total_prompt_chars": 4605,
+              "response_text": "I don't recall asking you that, but I'm happy to go either way. Would you like to talk about books or movies?",
+              "response_chars": 109,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 336.2374000134878,
+              "total_ms": 796.7952000326477,
+              "tokens_out": 28,
+              "tokens_per_sec": 60.79584364619415,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1525,
+                "cached_tokens": 854,
+                "processed_tokens": 671,
+                "prefill_ms": 327.619
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "c950a8b39d7a3b53bbf2c9eee0a23cb1b34963c10e7b906311c22132f587c627",
+              "shadow_payload_sha256": "c950a8b39d7a3b53bbf2c9eee0a23cb1b34963c10e7b906311c22132f587c627",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.22330001229420304
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n<episode turn=\"2\">\n<user>give me another analogy for that</user>\n<assistant>I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>remember my appointment is at four hours and thirty minutes pm</user>\n<assistant>Got it, I'll remember that your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>what time is my appointment</user>\n<assistant>Your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it, I'll update that — your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"7\">\n<user>the cost is fifty cents per request that is not fifty dollars</user>\n<assistant>I don't have a clear memory of a cost we discussed, but I'll take your correction: the cost is fifty cents per request, not fifty dollars.</assistant>\n</episode>\n<episode turn=\"8\">\n<user>repeat all of these words including the last part fifty cents per request not fifty dollars</user>\n<assistant>Sure, here's everything I've noted from our chat: first, you asked what \"occassion\" means in relation to a computer, and we were trying to pin that down. Then you asked for another analogy for something, and I asked you to clarify which concept you meant. Next, you told me your appointment is at four thirty PM, and I confirmed that. Then you corrected it to five forty five PM, and I updated it. Finally, you mentioned that the cost is fifty cents per request, not fifty dollars. Is there anything you'd like me to repeat or clarify further?</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 8,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "I don't recall asking you that, but I'm happy to go either way. Would you like to talk about books or movies?",
+          "reply_word_count": 22,
+          "speech": {
+            "first_audio_s": 0.2102366000181064,
+            "synthesis_wall_s": 0.2115388999809511,
+            "audio_s": 5.866666666666666,
+            "chunk_count": 1,
+            "chunk_durations_s": [
+              5.866666666666666
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "short_decision",
+          "text": "Books.",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "books"
+            ],
+            "partial_count": 1,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 0.704,
+            "transport_wall_s": 0.42925149999791756,
+            "realtime_input": false,
+            "transcript_at": 484425.5374569,
+            "input_ended_at": null,
+            "word_error_rate": 0.0,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "b39f51cee4014757",
+            "committed": true,
+            "chat_wall_s": 0.9825051000225358,
+            "reply": "Books it is. What kind are you in the mood for—fiction, nonfiction, a specific genre, or do you just want a recommendation to get started?",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 2617,
+              "total_prompt_chars": 4787,
+              "response_text": "Books it is. What kind are you in the mood for—fiction, nonfiction, a specific genre, or do you just want a recommendation to get started?",
+              "response_chars": 138,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 323.59669997822493,
+              "total_ms": 868.6538999900222,
+              "tokens_out": 34,
+              "tokens_per_sec": 62.378774189688905,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1576,
+                "cached_tokens": 1009,
+                "processed_tokens": 567,
+                "prefill_ms": 315.142
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "0746b504e7d7898275809cf1be6d6f0569ad9f33de37ad7f20a329cd12a3b3bf",
+              "shadow_payload_sha256": "0746b504e7d7898275809cf1be6d6f0569ad9f33de37ad7f20a329cd12a3b3bf",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.22660003742203116
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n<episode turn=\"2\">\n<user>give me another analogy for that</user>\n<assistant>I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>remember my appointment is at four hours and thirty minutes pm</user>\n<assistant>Got it, I'll remember that your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>what time is my appointment</user>\n<assistant>Your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it, I'll update that — your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"7\">\n<user>the cost is fifty cents per request that is not fifty dollars</user>\n<assistant>I don't have a clear memory of a cost we discussed, but I'll take your correction: the cost is fifty cents per request, not fifty dollars.</assistant>\n</episode>\n<episode turn=\"8\">\n<user>repeat all of these words including the last part fifty cents per request not fifty dollars</user>\n<assistant>Sure, here's everything I've noted from our chat: first, you asked what \"occassion\" means in relation to a computer, and we were trying to pin that down. Then you asked for another analogy for something, and I asked you to clarify which concept you meant. Next, you told me your appointment is at four thirty PM, and I confirmed that. Then you corrected it to five forty five PM, and I updated it. Finally, you mentioned that the cost is fifty cents per request, not fifty dollars. Is there anything you'd like me to repeat or clarify further?</assistant>\n</episode>\n<episode turn=\"9\">\n<user>asked me whether i want to discuss books or movies</user>\n<assistant>I don't recall asking you that, but I'm happy to go either way. Would you like to talk about books or movies?</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 9,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "Books it is. What kind are you in the mood for—fiction, nonfiction, a specific genre, or do you just want a recommendation to get started?",
+          "reply_word_count": 25,
+          "speech": {
+            "first_audio_s": 0.08719530003145337,
+            "synthesis_wall_s": 0.33558960002847016,
+            "audio_s": 8.576,
+            "chunk_count": 2,
+            "chunk_durations_s": [
+              0.9813333333333333,
+              7.594666666666667
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "stop_topic",
+          "text": "No, let us change the topic. Why is the sky blue?",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "no let us change the topic why is the sky blue"
+            ],
+            "partial_count": 3,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 3.0506875,
+            "transport_wall_s": 0.7325022000004537,
+            "realtime_input": false,
+            "transcript_at": 484427.7272589,
+            "input_ended_at": null,
+            "word_error_rate": 0.0,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "2997e076fbb74a83",
+            "committed": true,
+            "chat_wall_s": 1.4812810000148602,
+            "reply": "The sky looks blue because of a process called Rayleigh scattering. Sunlight is actually made up of all the colors, and when it hits the gases in our atmosphere, the shorter blue wavelengths scatter much more than the longer red ones. That scattered blue light is what reaches your eyes from all over the sky.",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 2829,
+              "total_prompt_chars": 5040,
+              "response_text": "The sky looks blue because of a process called Rayleigh scattering. Sunlight is actually made up of all the colors, and when it hits the gases in our atmosphere, the shorter blue wavelengths scatter much more than the longer red ones. That scattered blue light is what reaches your eyes from all over the sky.",
+              "response_chars": 309,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 328.93320004222915,
+              "total_ms": 1347.3448000149801,
+              "tokens_out": 63,
+              "tokens_per_sec": 61.86103929068134,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1645,
+                "cached_tokens": 1060,
+                "processed_tokens": 585,
+                "prefill_ms": 320.435
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "9216d7e237f9ae5fd23e7e0a32a8fc54764a985c50252356f8d69cadc47b3e2c",
+              "shadow_payload_sha256": "9216d7e237f9ae5fd23e7e0a32a8fc54764a985c50252356f8d69cadc47b3e2c",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.25530002312734723
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n<episode turn=\"2\">\n<user>give me another analogy for that</user>\n<assistant>I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>remember my appointment is at four hours and thirty minutes pm</user>\n<assistant>Got it, I'll remember that your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>what time is my appointment</user>\n<assistant>Your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it, I'll update that — your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"7\">\n<user>the cost is fifty cents per request that is not fifty dollars</user>\n<assistant>I don't have a clear memory of a cost we discussed, but I'll take your correction: the cost is fifty cents per request, not fifty dollars.</assistant>\n</episode>\n<episode turn=\"8\">\n<user>repeat all of these words including the last part fifty cents per request not fifty dollars</user>\n<assistant>Sure, here's everything I've noted from our chat: first, you asked what \"occassion\" means in relation to a computer, and we were trying to pin that down. Then you asked for another analogy for something, and I asked you to clarify which concept you meant. Next, you told me your appointment is at four thirty PM, and I confirmed that. Then you corrected it to five forty five PM, and I updated it. Finally, you mentioned that the cost is fifty cents per request, not fifty dollars. Is there anything you'd like me to repeat or clarify further?</assistant>\n</episode>\n<episode turn=\"9\">\n<user>asked me whether i want to discuss books or movies</user>\n<assistant>I don't recall asking you that, but I'm happy to go either way. Would you like to talk about books or movies?</assistant>\n</episode>\n<episode turn=\"10\">\n<user>books</user>\n<assistant>Books it is. What kind are you in the mood for—fiction, nonfiction, a specific genre, or do you just want a recommendation to get started?</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 10,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "The sky looks blue because of a process called Rayleigh scattering. Sunlight is actually made up of all the colors, and when it hits the gases in our atmosphere, the shorter blue wavelengths scatter much more than the longer red ones. That scattered blue light is what reaches your eyes from all over the sky.",
+          "reply_word_count": 55,
+          "speech": {
+            "first_audio_s": 0.1519671999849379,
+            "synthesis_wall_s": 0.596997199987527,
+            "audio_s": 16.618666666666666,
+            "chunk_count": 3,
+            "chunk_durations_s": [
+              3.584,
+              9.173333333333334,
+              3.8613333333333335
+            ],
+            "completed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "scope_control",
+          "text": "Explain it in ten words.",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "explain it in ten words"
+            ],
+            "partial_count": 2,
+            "speech_start_count": 1,
+            "errors": [],
+            "input_audio_s": 1.472,
+            "transport_wall_s": 0.5185111999744549,
+            "realtime_input": false,
+            "transcript_at": 484430.4212592,
+            "input_ended_at": null,
+            "word_error_rate": 0.0,
+            "listening_state_events": 1
+          },
+          "chat": {
+            "turn_id": "ec28de8de2624e96",
+            "committed": true,
+            "chat_wall_s": 0.6494916999945417,
+            "reply": "The sky is blue because sunlight scatters blue light most.",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 3253,
+              "total_prompt_chars": 5441,
+              "response_text": "The sky is blue because sunlight scatters blue light most.",
+              "response_chars": 58,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": 328.37890001246706,
+              "total_ms": 533.6245999787934,
+              "tokens_out": 13,
+              "tokens_per_sec": 63.33872038309619,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": 1736,
+                "cached_tokens": 1129,
+                "processed_tokens": 607,
+                "prefill_ms": 319.39
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "654b34a8244268104bea0f726397428251ed7da27befaa91526accac2ba1f063",
+              "shadow_payload_sha256": "654b34a8244268104bea0f726397428251ed7da27befaa91526accac2ba1f063",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.272100034635514
+            },
+            "memory_payload": "<recent_context>\n<episode turn=\"1\">\n<user>i mean occassion a computer what is that</user>\n<assistant>I think you're asking what \"occassion\" means, but I'm not sure how it connects to \"a computer.\" Did you mean \"occasion\" (as in a specific event or time), or were you asking about a computer term like \"occurrence\" or \"occasion\" in programming? Let me know what you're trying to figure out and I'll help!</assistant>\n</episode>\n<episode turn=\"2\">\n<user>give me another analogy for that</user>\n<assistant>I don't quite have the full picture of what \"that\" refers to from our earlier chat, so I'd hate to guess wrong. Could you remind me which concept or idea you'd like a new analogy for? Once I know, I can give you a fresh one right away.</assistant>\n</episode>\n<episode turn=\"3\">\n<user>remember my appointment is at four hours and thirty minutes pm</user>\n<assistant>Got it, I'll remember that your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"4\">\n<user>what time is my appointment</user>\n<assistant>Your appointment is at 4:30 PM.</assistant>\n</episode>\n<episode turn=\"5\">\n<user>actually the appointment is that five forty five pm</user>\n<assistant>Got it, I'll update that — your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"6\">\n<user>please repeat the appointment time</user>\n<assistant>Your appointment is at 5:45 PM.</assistant>\n</episode>\n<episode turn=\"7\">\n<user>the cost is fifty cents per request that is not fifty dollars</user>\n<assistant>I don't have a clear memory of a cost we discussed, but I'll take your correction: the cost is fifty cents per request, not fifty dollars.</assistant>\n</episode>\n<episode turn=\"8\">\n<user>repeat all of these words including the last part fifty cents per request not fifty dollars</user>\n<assistant>Sure, here's everything I've noted from our chat: first, you asked what \"occassion\" means in relation to a computer, and we were trying to pin that down. Then you asked for another analogy for something, and I asked you to clarify which concept you meant. Next, you told me your appointment is at four thirty PM, and I confirmed that. Then you corrected it to five forty five PM, and I updated it. Finally, you mentioned that the cost is fifty cents per request, not fifty dollars. Is there anything you'd like me to repeat or clarify further?</assistant>\n</episode>\n<episode turn=\"9\">\n<user>asked me whether i want to discuss books or movies</user>\n<assistant>I don't recall asking you that, but I'm happy to go either way. Would you like to talk about books or movies?</assistant>\n</episode>\n<episode turn=\"10\">\n<user>books</user>\n<assistant>Books it is. What kind are you in the mood for—fiction, nonfiction, a specific genre, or do you just want a recommendation to get started?</assistant>\n</episode>\n<episode turn=\"11\">\n<user>no let us change the topic why is the sky blue</user>\n<assistant>The sky looks blue because of a process called Rayleigh scattering. Sunlight is actually made up of all the colors, and when it hits the gases in our atmosphere, the shorter blue wavelengths scatter much more than the longer red ones. That scattered blue light is what reaches your eyes from all over the sky.</assistant>\n</episode>\n</recent_context>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-6fapp1jb\\sessions\\f82644c8efd6\\episodes.sqlite",
+              "episode_count": 11,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": null,
+            "research_events": []
+          },
+          "spoken_text": "The sky is blue because sunlight scatters blue light most.",
+          "reply_word_count": 10,
+          "speech": {
+            "first_audio_s": 0.14988919999450445,
+            "synthesis_wall_s": 0.15104150003753603,
+            "audio_s": 3.2,
+            "chunk_count": 1,
+            "chunk_durations_s": [
+              3.2
+            ],
+            "completed": true,
+            "errors": []
+          }
+        }
+      ],
+      "stored_turn_count": 12
+    }
+  ],
+  "voice_status": {
+    "available": true,
+    "wake_phrase": "hey idris",
+    "sample_rate": 16000,
+    "device": "cuda",
+    "provider": "CUDAExecutionProvider",
+    "error": null
+  },
+  "embedder": {
+    "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+    "sentinel_matches_research": true,
+    "expected_sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+    "model_path": "C:\\Users\\muzaf\\.cache\\huggingface\\hub\\Qwen3-Embedding-0.6B-GGUF\\Qwen3-Embedding-0.6B-Q8_0.gguf",
+    "n_threads": 8,
+    "n_ctx": 512,
+    "cold_load_ms": 481.163699994795,
+    "embedding_dimension": 1024
+  },
+  "finished_at": "2026-09-08T17:22:17.532819+00:00",
+  "temporary_data_removed": true,
+  "metric_note": "listening_state_events counts state messages, including turn endings; it is not a wake activation count."
+}

@@ -83,11 +83,15 @@ export const liveSource: DataSource = {
       `/api/sessions/${encodeURIComponent(sessionId)}/episodes/${encodeURIComponent(episodeId)}`,
     ),
 
-  async chat(sessionId, message, onEvent, signal) {
+  async chat(sessionId, message, onEvent, signal, inputMode = 'text') {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ session_id: sessionId, message }),
+      body: JSON.stringify({
+        session_id: sessionId,
+        message,
+        ...(inputMode === 'voice' ? { input_mode: inputMode } : {}),
+      }),
       signal,
     })
     if (!response.ok) {
@@ -155,6 +159,7 @@ function toChatEvent(name: string, payload: unknown): ChatEvent | null {
         turn_id: String(record.turn_id ?? ''),
         generation: record.generation as GenerationTrace,
         total_ms: typeof record.total_ms === 'number' ? record.total_ms : null,
+        committed: typeof record.committed === 'boolean' ? record.committed : undefined,
       }
     case 'error':
       return { type: 'error', message: String(record.message ?? 'unknown error') }

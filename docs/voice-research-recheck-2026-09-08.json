@@ -1,0 +1,797 @@
+{
+  "started_at": "2026-09-08T17:26:53.981510+00:00",
+  "method": "Synthetic Kokoro input through local HTTP/WebSocket app; real in-process embedder and verified retrieval, Vosk/Silero, Qwen, CUDA Kokoro output. Most input is accelerated; explicitly marked real-time trials only. No physical microphone, browser speaker playback, or perceptual listening score.",
+  "settings": {
+    "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+    "temperature": 0.7,
+    "wake": "hey idris",
+    "endpoint_s": 1.4,
+    "recent_n": 32
+  },
+  "conversations": [
+    {
+      "group": "research",
+      "turns": [
+        {
+          "id": "current_lookup",
+          "text": "Look up the current official Austin Central Library opening hours for today. Tell me when to arrive if I need ninety minutes before closing. Include the source on screen.",
+          "voice": "af_heart",
+          "speed": 1.0,
+          "asr": {
+            "transcripts": [
+              "look up the current official austin central library opening hours for today tell me when to arrive if i need ninety minutes before closing include the source on screen"
+            ],
+            "partial_count": 9,
+            "speech_start_count": 1,
+            "listening_state_events": 2,
+            "errors": [],
+            "input_audio_s": 11.5626875,
+            "transport_wall_s": 1.3300364000024274,
+            "realtime_input": false,
+            "transcript_at": 484711.9498735,
+            "input_ended_at": null,
+            "word_error_rate": 0.0
+          },
+          "chat": {
+            "turn_id": "033295a3c2d74737",
+            "committed": true,
+            "chat_wall_s": 197.39698610000778,
+            "reply": "The subagent stopped without returning a well-formed result.\n\nSources:\n- https://www.aplb.org/locations/central\n- https://arxiv.org/abs/2307.16192v1\n- https://doi.org/10.12987/9780300289329-002\n- https://arxiv.org/abs/1404.1905v1\n- https://doi.org/10.1093/library/s1-8.1.511\n- https://arxiv.org/abs/1303.0042v1\n- https://doi.org/10.1300/j118v13n01_05\n- https://www.aplb.org/locations\n- https://www.aplb.org/locations/central-branch\n- https://www.aplb.org/\n- https://www.apl.org/locations/central\n- https://www.apl.org/\n- https://arxiv.org/abs/1404.1905v1\n- http://hdl.handle.net/2346/62009\n- https://doi.org/10.1300/j118v05n01_10\n- https://arxiv.org/abs/2501.07812v2\n- https://doi.org/10.62915/2157-0396.1927\n- https://arxiv.org/abs/1808.07234v1\n- https://doi.org/10.62915/2157-0396.1242\n- https://apl.org/locations/central\n- http://archive.org/wayback/available?url=apl.org/locations/central\n- https://www.austintexas.gov/department/austin-public-library\n- http://archive.org/wayback/available?url=www.apl.org/locations/central&timestamp=20260908\n- http://web.archive.org/cdx/search/cdx?url=apl.org/locations*&output=text&limit=40&from=2025&collapse=urlkey\n- http://web.archive.org/cdx/search/cdx?url=apl.org&matchType=domain&from=2026&output=text&limit=30&filter=statuscode:200\n- https://web.archive.org/web/20260816155953/https://apl.org/\n- https://www.austinpubliclibrary.org/\n- https://www.austintexas.gov/page/austin-public-library\n- http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&from=2026&output=text&limit=50&filter=statuscode:200&collapse=urlkey\n- http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&output=text&limit=30&collapse=urlkey\n- https://www.austinpubliclibrary.org/locations/central\n- https://www.austintexas.gov/department/austin-public-library/locations\n- http://web.archive.org/cdx/search/cdx?url=aplb.org&output=text&limit=20&from=2020&collapse=timestamp:6\n- http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&output=text&limit=25&from=2022&collapse=urlkey\n- https://web.archive.org/web/20220222084822/https://austinpubliclibrary.org/\n- https://www.austinlibrary.org/\n- https://www.austintexas.gov/department/library\n- https://library.austintexas.gov/locations\n- https://library.austintexas.gov/locations/central\n- https://library.austintexas.gov/central\n- https://library.austintexas.gov/sitemap.xml\n- https://library.austintexas.gov/central-library\n- https://library.austintexas.gov/central-library/hours\n- http://archive.org/wayback/available?url=library.austintexas.gov/central-library&timestamp=20260908\n- http://web.archive.org/web/20260728012827/https://library.austintexas.gov/central-library\n- http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&from=2026&output=text&limit=100&filter=statuscode:200&collapse=urlkey\n- http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&output=text&limit=60&filter=original:.*[Hh]our.*&collapse=urlkey&from=2024",
+            "generation": {
+              "model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+              "base_url": "http://127.0.0.1:8000/v1",
+              "system_prompt_chars": 2165,
+              "context_block_chars": 35,
+              "total_prompt_chars": 2367,
+              "response_text": "The subagent stopped without returning a well-formed result.\n\nSources:\n- https://www.aplb.org/locations/central\n- https://arxiv.org/abs/2307.16192v1\n- https://doi.org/10.12987/9780300289329-002\n- https://arxiv.org/abs/1404.1905v1\n- https://doi.org/10.1093/library/s1-8.1.511\n- https://arxiv.org/abs/1303.0042v1\n- https://doi.org/10.1300/j118v13n01_05\n- https://www.aplb.org/locations\n- https://www.aplb.org/locations/central-branch\n- https://www.aplb.org/\n- https://www.apl.org/locations/central\n- https://www.apl.org/\n- https://arxiv.org/abs/1404.1905v1\n- http://hdl.handle.net/2346/62009\n- https://doi.org/10.1300/j118v05n01_10\n- https://arxiv.org/abs/2501.07812v2\n- https://doi.org/10.62915/2157-0396.1927\n- https://arxiv.org/abs/1808.07234v1\n- https://doi.org/10.62915/2157-0396.1242\n- https://apl.org/locations/central\n- http://archive.org/wayback/available?url=apl.org/locations/central\n- https://www.austintexas.gov/department/austin-public-library\n- http://archive.org/wayback/available?url=www.apl.org/locations/central&timestamp=20260908\n- http://web.archive.org/cdx/search/cdx?url=apl.org/locations*&output=text&limit=40&from=2025&collapse=urlkey\n- http://web.archive.org/cdx/search/cdx?url=apl.org&matchType=domain&from=2026&output=text&limit=30&filter=statuscode:200\n- https://web.archive.org/web/20260816155953/https://apl.org/\n- https://www.austinpubliclibrary.org/\n- https://www.austintexas.gov/page/austin-public-library\n- http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&from=2026&output=text&limit=50&filter=statuscode:200&collapse=urlkey\n- http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&output=text&limit=30&collapse=urlkey\n- https://www.austinpubliclibrary.org/locations/central\n- https://www.austintexas.gov/department/austin-public-library/locations\n- http://web.archive.org/cdx/search/cdx?url=aplb.org&output=text&limit=20&from=2020&collapse=timestamp:6\n- http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&output=text&limit=25&from=2022&collapse=urlkey\n- https://web.archive.org/web/20220222084822/https://austinpubliclibrary.org/\n- https://www.austinlibrary.org/\n- https://www.austintexas.gov/department/library\n- https://library.austintexas.gov/locations\n- https://library.austintexas.gov/locations/central\n- https://library.austintexas.gov/central\n- https://library.austintexas.gov/sitemap.xml\n- https://library.austintexas.gov/central-library\n- https://library.austintexas.gov/central-library/hours\n- http://archive.org/wayback/available?url=library.austintexas.gov/central-library&timestamp=20260908\n- http://web.archive.org/web/20260728012827/https://library.austintexas.gov/central-library\n- http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&from=2026&output=text&limit=100&filter=statuscode:200&collapse=urlkey\n- http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&output=text&limit=60&filter=original:.*[Hh]our.*&collapse=urlkey&from=2024",
+              "response_chars": 3021,
+              "reasoning_text": "",
+              "thinking_enabled": false,
+              "ttft_ms": null,
+              "total_ms": 4.791200044564903,
+              "tokens_out": null,
+              "tokens_per_sec": null,
+              "tool_calls": [],
+              "prompt_cache": {
+                "prompt_tokens": null,
+                "cached_tokens": null,
+                "processed_tokens": null,
+                "prefill_ms": null
+              },
+              "finish_reason": "stop",
+              "error": null
+            },
+            "verification": {
+              "payload_identical": true,
+              "report_fields_identical": true,
+              "authority_payload_sha256": "cf98a3928c489ae413e801ef5a844e81c474f7d037f5ab84c3d0cb7378d74909",
+              "shadow_payload_sha256": "cf98a3928c489ae413e801ef5a844e81c474f7d037f5ab84c3d0cb7378d74909",
+              "mismatched_fields": [],
+              "library_version": "0.2.0",
+              "shadow_latency_ms": 0.010299962013959885
+            },
+            "memory_payload": "<recent_context/>\n\n<retrieved_stm/>",
+            "store_before": {
+              "path": "C:\\Users\\muzaf\\AppData\\Local\\Temp\\recollect-voice-eval-x09e5hn9\\sessions\\bb615f24327c\\episodes.sqlite",
+              "episode_count": 0,
+              "config_json": "{\"aspect_enabled\":true,\"aspect_model\":\"en_core_web_sm\",\"aspect_share\":0.5,\"bm25_b\":0.75,\"bm25_k1\":1.2,\"budget_accounting\":\"exact_serialized\",\"candidate_policy\":\"full_store\",\"embed_call_shape\":\"solo\",\"embedder_sha256\":\"06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439\",\"k_threshold\":0.48,\"recency_window_n\":32,\"retrieval_budget_chars\":32000,\"seed\":5005,\"selector\":\"A3\",\"selector_cluster_count\":16,\"selector_cost_exponent\":0.0,\"selector_lambda\":0.1,\"semantic_dense_weight\":0.8,\"unsafe_cosine_top_n\":100}",
+              "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+              "embedder_model_sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+            },
+            "subagent": {
+              "task": "Find the official opening hours for the Austin Central Library (Austin Public Library Central Branch, 710 West 6th Street, Austin, TX) for today, Tuesday, September 8, 2026. Get the exact opening and closing times from the official Austin Public Library website (aplb.org). Report the source URL and the specific hours listed. If the site lists different hours for weekdays, confirm which apply to a Tuesday.\n\nCurrent date (UTC): 2026-09-08. Day of week (UTC): Tuesday. Interpret current, latest, and today relative to this date. Do not assume the current year from training knowledge or earlier conversation. Honor historical periods explicitly requested by the user. Check and report the dates covered by sources; older data is not automatically current data. Carry this date into research delegations.\n\nThe original user request controls the time period. If the proposed research task adds a year the user did not request, use the original request and the current date.\nOriginal user request: \"look up the current official austin central library opening hours for today tell me when to arrive if i need ninety minutes before closing include the source on screen\"",
+              "effort": "focused",
+              "backend": "opencode",
+              "isolation": "container",
+              "fresh_context": true,
+              "server_reused": false,
+              "status": "partial",
+              "steps": 36,
+              "tools_used": [
+                "web_fetch",
+                "web_search"
+              ],
+              "sources": [
+                "https://www.aplb.org/locations/central",
+                "https://arxiv.org/abs/2307.16192v1",
+                "https://doi.org/10.12987/9780300289329-002",
+                "https://arxiv.org/abs/1404.1905v1",
+                "https://doi.org/10.1093/library/s1-8.1.511",
+                "https://arxiv.org/abs/1303.0042v1",
+                "https://doi.org/10.1300/j118v13n01_05",
+                "https://www.aplb.org/locations",
+                "https://www.aplb.org/locations/central-branch",
+                "https://www.aplb.org/",
+                "https://www.apl.org/locations/central",
+                "https://www.apl.org/",
+                "http://hdl.handle.net/2346/62009",
+                "https://doi.org/10.1300/j118v05n01_10",
+                "https://arxiv.org/abs/2501.07812v2",
+                "https://doi.org/10.62915/2157-0396.1927",
+                "https://arxiv.org/abs/1808.07234v1",
+                "https://doi.org/10.62915/2157-0396.1242",
+                "https://apl.org/locations/central",
+                "http://archive.org/wayback/available?url=apl.org/locations/central",
+                "https://www.austintexas.gov/department/austin-public-library",
+                "http://archive.org/wayback/available?url=www.apl.org/locations/central&timestamp=20260908",
+                "http://web.archive.org/cdx/search/cdx?url=apl.org/locations*&output=text&limit=40&from=2025&collapse=urlkey",
+                "http://web.archive.org/cdx/search/cdx?url=apl.org&matchType=domain&from=2026&output=text&limit=30&filter=statuscode:200",
+                "https://web.archive.org/web/20260816155953/https://apl.org/",
+                "https://www.austinpubliclibrary.org/",
+                "https://www.austintexas.gov/page/austin-public-library",
+                "http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&from=2026&output=text&limit=50&filter=statuscode:200&collapse=urlkey",
+                "http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&output=text&limit=30&collapse=urlkey",
+                "https://www.austinpubliclibrary.org/locations/central",
+                "https://www.austintexas.gov/department/austin-public-library/locations",
+                "http://web.archive.org/cdx/search/cdx?url=aplb.org&output=text&limit=20&from=2020&collapse=timestamp:6",
+                "http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&output=text&limit=25&from=2022&collapse=urlkey",
+                "https://web.archive.org/web/20220222084822/https://austinpubliclibrary.org/",
+                "https://www.austinlibrary.org/",
+                "https://www.austintexas.gov/department/library",
+                "https://library.austintexas.gov/locations",
+                "https://library.austintexas.gov/locations/central",
+                "https://library.austintexas.gov/central",
+                "https://library.austintexas.gov/sitemap.xml",
+                "https://library.austintexas.gov/central-library",
+                "https://library.austintexas.gov/central-library/hours",
+                "http://archive.org/wayback/available?url=library.austintexas.gov/central-library&timestamp=20260908",
+                "http://web.archive.org/web/20260728012827/https://library.austintexas.gov/central-library",
+                "http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&from=2026&output=text&limit=100&filter=statuscode:200&collapse=urlkey",
+                "http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&output=text&limit=60&filter=original:.*[Hh]our.*&collapse=urlkey&from=2024"
+              ],
+              "returned_chars": 3209,
+              "total_ms": 190655.09369998472,
+              "error": "malformed or missing final JSON"
+            },
+            "research_events": [
+              {
+                "type": "subagent_start",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "task": "Find the official opening hours for the Austin Central Library (Austin Public Library Central Branch, 710 West 6th Street, Austin, TX) for today, Tuesday, September 8, 2026. Get the exact opening and closing times from the official Austin Public Library website (aplb.org). Report the source URL and the specific hours listed. If the site lists different hours for weekdays, confirm which apply to a Tuesday.\n\nCurrent date (UTC): 2026-09-08. Day of week (UTC): Tuesday. Interpret current, latest, and today relative to this date. Do not assume the current year from training knowledge or earlier conversation. Honor historical periods explicitly requested by the user. Check and report the dates covered by sources; older data is not automatically current data. Carry this date into research delegations.\n\nThe original user request controls the time period. If the proposed research task adds a year the user did not request, use the original request and the current date.\nOriginal user request: \"look up the current official austin central library opening hours for today tell me when to arrive if i need ninety minutes before closing include the source on screen\"",
+                  "effort": "focused"
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 1,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.aplb.org/locations/central"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.aplb.org/locations/central\", \"final_url\": \"https://www.aplb.org/locations/central\", \"error_kind\": \"not_found\", \"retryable\": false, \"error\": \"HTTP 404; do not rely on this response as a source\", \"status\": 404}",
+                    "ms": 2182.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 2,
+                    "tool": "web_search",
+                    "args": {
+                      "query": "Austin Public Library Central branch hours 710 West 6th Street site:aplb.org"
+                    },
+                    "observation": "{\"tool\": \"web_search\", \"query\": \"Austin Public Library Central branch hours 710 West 6th Street site:aplb.org\", \"results\": [{\"source\": \"arxiv\", \"title\": \"Publish for Public: Improving Access of Public Libraries Users to Research Findings through Plain Language Summaries\", \"url\": \"https://arxiv.org/abs/2307.16192v1\", \"snippet\": \"Public libraries play a crucial role in disseminating knowledge to society. However, most of their users do not have the specialized knowledge to understand the new research findings. Providing plain language summaries (PLSs) in public libraries is a way to make the new research findings more access\", \"year\": \"2023\"}, {\"source\": \"crossref\", \"title\": \"Figure 2. The 135th Street branch of the New York Public Library, circa 1915. (New York Public Library Archives)\", \"url\": \"https://doi.org/10.12987/9780300289329-002\", \"year\": 2026}, {\"source\": \"arxiv\", \"title\": \"Developing a 21st Century Global Library for Mathematics Research\", \"url\": \"https://arxiv.org/abs/1404.1905v1\", \"snippet\": \"Developing a 21st Century Global Library for Mathematics Research discusses how information about what the mathematical literature contains can be formalized and made easier to express, encode, and explore. Many of the tools necessary to make this information system a reality will require much more \", \"year\": \"2014\"}, {\"source\": \"crossref\", \"title\": \"Library Catalogues Borough of West Ham Public Libraries, Canning Town Branch. Cataglogue of the Books in the Central Lending and Reference Departments of the Library; compiled by CotgreaveAlfred, F.R.Hist.S., Chief Librarian, 1894; with supplement. (Dictionary plan.)\", \"url\": \"https://doi.org/10.1093/library/s1-8.1.511\", \"year\": 1896}, {\"source\": \"arxiv\", \"title\": \"Twelve Years of Education and Public Outreach with the Fermi Gamma-ray Space Telescope\", \"url\": \"https://arxiv.org/abs/1303.0042v1\", \"snippet\": \"During the past twelve years, NASA's Fermi Gamma-ray Space Telescope has supported a wide range of Education and Public Outreach (E/PO) activities, targeting K-14 students and the general public. The purpose of the Fermi E/PO program is to increase student and public understanding of the science of \", \"year\": \"2013\"}, {\"source\": \"crossref\", \"title\": \"Characteristics and Attitudes of the Clientele of a State Central Branch Library - Benin City, Nigeria\", \"url\": \"https://doi.org/10.1300/j118v13n01_05\", \"year\": 1993}], \"errors\": [\"semantic_scholar: HTTPStatusError: Server error '500 Internal Server Error' for url 'https://api.semanticscholar.org/graph/v1/paper/search/bulk?query=Austin+Public+Library+Central+branch+hours+710+West+6th+Street+site%3Aaplb.org&fields=title%2Cabstract%2Cyear%2Cvenue%2Curl%2CexternalIds&limit=3'\\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500\", \"web: skipped - DuckDuckGo returned a verification challenge; general web search is unavailable\"]}",
+                    "ms": 3075.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 3,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.aplb.org/locations"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.aplb.org/locations\", \"final_url\": \"https://www.aplb.org/locations\", \"error_kind\": \"not_found\", \"retryable\": false, \"error\": \"HTTP 404; do not rely on this response as a source\", \"status\": 404}",
+                    "ms": 2097.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 4,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.aplb.org/locations/central-branch"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.aplb.org/locations/central-branch\", \"final_url\": \"https://www.aplb.org/locations/central-branch\", \"error_kind\": \"not_found\", \"retryable\": false, \"error\": \"HTTP 404; do not rely on this response as a source\", \"status\": 404}",
+                    "ms": 2211.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 5,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.aplb.org/"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.aplb.org/\", \"final_url\": \"https://www.aplb.org/\", \"status\": 200, \"truncated\": true, \"text\": \"You are NOT alone We are here for YOU Please SHARE your story with us in the Chat Room We will get through this TOGETHER Experienced, professional, compassionate SUPPORT Founded in 1999 to HEAL your heart We want to HELP you MEMORIALIZE your animal companions in our Pet Memorial Honoring the animal-human bond today, and ALWAYS Join or renew your membership with the APLB. No matter which membership level you choose, know that you will always be a valued part of our family. APLB is a 501(c)(3) non-profit organization. Your generosity helps us to continue our mission of supporting all those who are grieving the loss of a beloved pet. With your free Bronze membership, our Chat Room provides a safe place to mourn your loss, hosted by professional, experienced and caring Chat Hosts. Share your story with us and other grieving pet parents. Click here for dates and times. Add a memorial to our Pet Memorial page with your Silver or Platinum membership. Platinum members can add unlimited pets to their pet family page. Navigating the waters after the loss of your beloved pet can be difficult. Here we have created a list of support topics to help you get started. You are not alone. Add yourself or your business to our Directory of Services page. All visitors to our site can use our service directory to find the support they need. Member Plans For Pet Parents Platinum Membership • UNLIMITED Pet Portraits & Memorials • ‘Pet Family’ page for all of your pet’s siblings • FREE Video Support Group Admission • FREE webinars on such topics as anticipatory grief, pet loss & grief counseling/support, how to companion others in grief, children in grief, pets in grief, etc. (updated throughout 2022) • Includes all Silver & Bronze Membership Benefits • and so much more as we continue to grow! For Directory of Services Listing Professional Membership • Create and Change Your Own Directory Listing Anytime • FREE Guest Speaker Webinars • FREE Listing of Job Openings • Pet Loss Grief Specialist Training Program – Additional registration fees apply. Must be an APLB member to register. • Pet Loss & Grief Support Brochures to promote the field of Pet Loss Support in your community • and so much more as we continue to grow! For Pet Parents Silver Membership • 1 (One) Pet Memorial • FREE Video Support Group Admission • FREE webinars on such topics as anticipatory grief, pet loss & grief counseling/support, how to companion others in grief, children in grief, pets in grief, etc. (updated throughout 2022) • Includes all Bronze Membership Benefits • and so much more as we continue to grow! For Pet Parents Bronze Membership (Free) • Access to Our Chat Room • Access to Support & Information Regarding Euthanasia and Self-Care Tips • Access to Extensive Bibliography & Directory of Services • and so much more as we continue to grow! For Extra Directory of Services Listing Professional Plus Membership - Create and Change Your Own Directory Listing Anytime - Can choose up to 3 locations - Can choose up to 3 service types - Listing receives priority on service type pages and is highlighted - Receives preferred top level placement* on DoS homepage - FREE Guest Speaker Webinars - FREE Listing of Job Openings - Pet Loss Grief Specialist Training Program – Additional registration fees apply. Must be an APLB member to register. - Pet Loss & Grief Support Brochures to promote the field of Pet Loss Support in your community - and so much more as we continue to grow! * Random Order in top Placement Pet Memorials Tina the Cat Ranger Ranger was always very close to and protective of his “Daddy” Eric for the first six years of his life. After Eric went to Heaven on 10/04/2013, Ranger grieved for several weeks. Ranger and I eventually developed a relationship, and he was my special buddy for the last eight years of his life. Writing a loving tribute ",
+                    "ms": 2515.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 6,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.apl.org/locations/central"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.apl.org/locations/central\", \"final_url\": \"https://www.apl.org/locations/central\", \"error_kind\": \"access_denied\", \"retryable\": false, \"error\": \"HTTP 403; do not rely on this response as a source\", \"status\": 403}",
+                    "ms": 352.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 7,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.apl.org/"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.apl.org/\", \"final_url\": \"https://www.apl.org/\", \"error_kind\": \"access_denied\", \"retryable\": false, \"error\": \"HTTP 403; do not rely on this response as a source\", \"status\": 403}",
+                    "ms": 262.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 8,
+                    "tool": "web_search",
+                    "args": {
+                      "query": "\"Austin Public Library\" Central Library hours \"West 6th\"",
+                      "max_results": 10
+                    },
+                    "observation": "{\"tool\": \"web_search\", \"query\": \"\\\"Austin Public Library\\\" Central Library hours \\\"West 6th\\\"\", \"results\": [{\"source\": \"arxiv\", \"title\": \"Developing a 21st Century Global Library for Mathematics Research\", \"url\": \"https://arxiv.org/abs/1404.1905v1\", \"snippet\": \"Developing a 21st Century Global Library for Mathematics Research discusses how information about what the mathematical literature contains can be formalized and made easier to express, encode, and explore. Many of the tools necessary to make this information system a reality will require much more \", \"year\": \"2014\"}, {\"source\": \"openalex\", \"title\": \"Patterns and spaces: An industrial design company and retail space\", \"url\": \"http://hdl.handle.net/2346/62009\", \"snippet\": \"8 mission 9 topic 10 scope 11 background summary 12 industrial revolution/industry 14 industry 17 bauhaus factory the machine age/industrial icons metals and metalsmithing domestic items 3 3 objects/silver/jewelry artists context summary cultural context psychological context residuals site activity\", \"year\": 1992}, {\"source\": \"crossref\", \"title\": \"1982 City Public Library Circulation and Central Library Attendance Survey\", \"url\": \"https://doi.org/10.1300/j118v05n01_10\", \"year\": 1984}, {\"source\": \"arxiv\", \"title\": \"The Qudit Cirq Library: An Extension of Google's Cirq Library for Qudits\", \"url\": \"https://arxiv.org/abs/2501.07812v2\", \"snippet\": \"This document contains a guide on how to use the Qudit Cirq library, an extension of Google's Cirq library for qudits. While Cirq provides necessary building blocks for quantum computation on qudits, the gates, curcuits and simulation of qudit systems need to be developed from scratch. Our extension\", \"year\": \"2025\"}, {\"source\": \"crossref\", \"title\": \"Georgia Library Spotlight - Ruth Holder Public Library - Temple, West Georgia Regional Library System\", \"url\": \"https://doi.org/10.62915/2157-0396.1927\", \"year\": 2016}, {\"source\": \"arxiv\", \"title\": \"Library Information System Audit Senayan Library Management System (SLiMS) Using ISO 9126\", \"url\": \"https://arxiv.org/abs/1808.07234v1\", \"snippet\": \"The library serves as a vehicle for education, research, conservation, information, and recreation to improve the nation's intelligence and empowerment [1]. The function of the library as a place of education, research, and information provides an opportunity to use the information system of Senayan\", \"year\": \"2018\"}, {\"source\": \"crossref\", \"title\": \"Coweta Public Library Partners with University of West Georgia\", \"url\": \"https://doi.org/10.62915/2157-0396.1242\", \"snippet\": \"The article reports on the partnership formed by the Coweta Public Library--Central Library with the Carrollton-based University of West Georgia's Ingram Library and Newnan Campus to enhance educational services within the community. The objective of the Central Library is to reflect on the importan\", \"year\": 2008}], \"errors\": [\"semantic_scholar: disabled for this run after HTTP 429\"]}",
+                    "ms": 805.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 9,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://apl.org/locations/central"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://apl.org/locations/central\", \"final_url\": \"https://apl.org/locations/central\", \"error_kind\": \"access_denied\", \"retryable\": false, \"error\": \"HTTP 403; do not rely on this response as a source\", \"status\": 403}",
+                    "ms": 319.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 10,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://archive.org/wayback/available?url=apl.org/locations/central"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://archive.org/wayback/available?url=apl.org/locations/central\", \"final_url\": \"http://archive.org/wayback/available?url=apl.org/locations/central\", \"status\": 200, \"truncated\": false, \"text\": \"{\\\"url\\\": \\\"apl.org/locations/central\\\", \\\"archived_snapshots\\\": {}}\"}",
+                    "ms": 485.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 11,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.austintexas.gov/department/austin-public-library"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.austintexas.gov/department/austin-public-library\", \"final_url\": \"https://www.austintexas.gov/department/austin-public-library\", \"error_kind\": \"not_found\", \"retryable\": false, \"error\": \"HTTP 404; do not rely on this response as a source\", \"status\": 404}",
+                    "ms": 663.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 12,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://archive.org/wayback/available?url=www.apl.org/locations/central&timestamp=20260908"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://archive.org/wayback/available?url=www.apl.org/locations/central&timestamp=20260908\", \"final_url\": \"http://archive.org/wayback/available?url=www.apl.org/locations/central&timestamp=20260908\", \"status\": 200, \"truncated\": false, \"text\": \"{\\\"url\\\": \\\"www.apl.org/locations/central\\\", \\\"archived_snapshots\\\": {}, \\\"timestamp\\\": \\\"20260908\\\"}\"}",
+                    "ms": 459.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 13,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://web.archive.org/cdx/search/cdx?url=apl.org/locations*&output=text&limit=40&from=2025&collapse=urlkey"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://web.archive.org/cdx/search/cdx?url=apl.org/locations*&output=text&limit=40&from=2025&collapse=urlkey\", \"final_url\": \"http://web.archive.org/cdx/search/cdx?url=apl.org/locations*&output=text&limit=40&from=2025&collapse=urlkey\", \"status\": 200, \"truncated\": false, \"text\": \"\"}",
+                    "ms": 5386.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 14,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://web.archive.org/cdx/search/cdx?url=apl.org&matchType=domain&from=2026&output=text&limit=30&filter=statuscode:200"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://web.archive.org/cdx/search/cdx?url=apl.org&matchType=domain&from=2026&output=text&limit=30&filter=statuscode:200\", \"final_url\": \"http://web.archive.org/cdx/search/cdx?url=apl.org&matchType=domain&from=2026&output=text&limit=30&filter=statuscode:200\", \"status\": 200, \"truncated\": false, \"text\": \"org,apl)/ 20260120153659 https://apl.org/ text/html 200 2WC6T7NCAEEKFGMSP52Q7BSRG6EW6F3P 26607 org,apl)/ 20260120154020 https://apl.org/ text/html 200 2WC6T7NCAEEKFGMSP52Q7BSRG6EW6F3P 26610 org,apl)/ 20260202085857 https://apl.org/ text/html 200 KHWJWX6XCYAGXRHOSZKD6BI6FC37AASO 26550 org,apl)/ 20260204042928 https://apl.org/ text/html 200 GSJBO7INDCJIHWNAMYTCTXSXRGK65ROZ 26720 org,apl)/ 20260218123149 https://apl.org/ text/html 200 UR7TIYBCLMIQTFMWPO4FRAFNBOXXLPYU 39270 org,apl)/ 20260424025259 https://apl.org/ text/html 200 5FD7ZKJCV5Z4RBK4YJ4WDSXCCRFNJMZL 39547 org,apl)/ 20260510115946 https://apl.org/ text/html 200 2ABYN2EUZNPFPZNGHJMGMG2EPES5PX3P 31686 org,apl)/ 20260608170841 https://apl.org/ text/html 200 VQRWWJIULM5OTIRULV3BVZFKAL742VPS 39582 org,apl)/ 20260627140004 https://apl.org/ text/html 200 WRI4NHQQFT4PUWZWSBV6VTVX3ZDRQPHZ 39126 org,apl)/ 20260627140048 https://apl.org/ text/html 200 WRI4NHQQFT4PUWZWSBV6VTVX3ZDRQPHZ 39333 org,apl)/ 20260814175940 https://apl.org/ text/html 200 OUGXT2DAXGS73XYUEMAIVYRQAB6F4ETR 36651 org,apl)/ 20260816155953 https://apl.org/ text/html 200 W5Y3AHJVHKTSYE545VXXBAZKVUJ72QE6 24899 org,apl)/1000-books-before-kindergarten 20260427164137 https://apl.org/1000-books-before-kindergarten/ text/html 200 PIL6CSI5EQTKT2UMTKUYPBFJ36UGABL5 39271 org,apl)/1000-books-before-kindergarten 20260714031414 https://apl.org/1000-books-before-kindergarten/ text/html 200 JG6G3672BO73MPR6OOERALPC2I4I5NAO 39758 org,apl)/2025-annual-report 20260627140213 https://apl.org/2025-annual-report/ text/html 200 DVSMKLUZK2ABBOAS3TTPXNIORSVSKAIR 49765 org,apl)/2026-community-survey 20260608170910 https://apl.org/2026-community-survey/ text/html 200 CMAI63IS3Q45HBMX4DWYEWGRHLHS4SSI 38249 org,apl)/2026-fox-cities-reads 20260427164137 https://apl.org/2026-fox-cities-reads/ text/html 200 HE3HU6TPEL5D6PPEI4EMXALQJEJOW5PY 38693 org,apl)/500-books-before-middle-school 20260427163923 https://apl.org/500-books-before-middle-school/ text/html 200 HKYOCLBDAMZMHKDFPN2335UDWGKAIRAR 39913 org,apl)/500-books-before-middle-school 20260714031427 https://apl.org/500-books-before-middle-school/ text/html 200 NCUPLNQR2L5KRHJGTCZ2OIP552ZAHJQM 40356 org,apl)/500-books-before-middle-school 20260714031452 https://apl.org/500-books-before-middle-school/ text/html 200 NCUPLNQR2L5KRHJGTCZ2OIP552ZAHJQM 39771 org,apl)/about 20260120154405 https://apl.org/about/ text/html 200 4RN6SOKGEYXKO3V3VUXAQOZTHYHTYGF3 24042 org,apl)/about 20260220095502 https://apl.org/about/ text/html 200 P475NGL22SUJIS3SSVYBAYHMV2TOEQNV 35471 org,apl)/about 20260627140044 https://apl.org/about/ text/html 200 RNDOEPG7KUGPYYNTQVAFGCEZ6P76XW3Y 35985 org,apl)/about 20260627140138 https://apl.org/about/ text/html 200 RNDOEPG7KUGPYYNTQVAFGCEZ6P76XW3Y 35430 org,apl)/about 20260714031436 https://apl.org/about/ text/html 200 V6UQA75YQN7NMDJNESK7GDKRO756O5DG 34931 org,apl)/about 20260814180036 https://apl.org/about/ text/html 200 BRO3NSW7PQM2A746OJVWHCCWGZ2ITOKN 34537 org,apl)/administrative-support-specialist 20260427164122 https://apl.org/administrative-support-specialist/ text/html 200 GEOVN5OZIV7EZOYBY5VIXY4Y3BHEKO4U 36807 org,apl)/all-online-resources 20260310171426 https://apl.org/all-online-resources/ text/html 200 7IW3T2QWS6EAB6CAWGEA7J7CYY4OCES2 59932 org,apl)/ancestry-help 20260118215706 https://apl.org/ancestry-help/ text/html 200 CKXEVAXDALRM7AI3DLB7ZTENFLQZZKGH 24068 org,apl)/apl-created 20260627140040 https://apl.org/apl-created/ text/html 200 KSW46FNDILHYRR3EIQAXJ25B7J4MIDUI 42329\"}",
+                    "ms": 4884.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 15,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://web.archive.org/web/20260816155953/https://apl.org/",
+                      "max_chars": 3000
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://web.archive.org/web/20260816155953/https://apl.org/\", \"final_url\": \"https://web.archive.org/web/20260816155953/https://apl.org/\", \"status\": 200, \"truncated\": false, \"text\": \"Welcome to Appleton Public Library Search the Catalog Upcoming programs Teen Bingo Bash Teens, before you head back to school join us for some fun Thursday, September 3 at 12:30 pm. Bring your friends (or make new ones!) and see if luck is on your side. You might win a prize! Book Matchmaker Need some help finding a new favorite author? Let our Book Matchmakers help. Simply fill out a short form and we’ll email you a list of personalized recommendations to add to your TBR list. Updated Library Catalog Coming Mid-August Something new is coming to your library experience this August! The library catalog and account experience will be getting a refresh. The update will make it easier to search, discover, and manage your library account. Keep reading to learn more about important updates and service disruptions. Staff Picks Turn Up the Heat As we approach the hottest days of summer, our staff recommends their favorite thriller and romance titles that really “turn up the heat,” offering the perfect literary escape.\"}",
+                    "ms": 1046.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 16,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.austinpubliclibrary.org/"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.austinpubliclibrary.org/\", \"final_url\": \"https://www.austinpubliclibrary.org/\", \"error_kind\": \"access_denied\", \"retryable\": false, \"error\": \"HTTP 403; do not rely on this response as a source\", \"status\": 403}",
+                    "ms": 403.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 17,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.austintexas.gov/page/austin-public-library"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.austintexas.gov/page/austin-public-library\", \"final_url\": \"https://www.austintexas.gov/page/austin-public-library\", \"error_kind\": \"not_found\", \"retryable\": false, \"error\": \"HTTP 404; do not rely on this response as a source\", \"status\": 404}",
+                    "ms": 571.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 18,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&from=2026&output=text&limit=50&filter=statuscode:200&collapse=urlkey"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&from=2026&output=text&limit=50&filter=statuscode:200&collapse=urlkey\", \"final_url\": \"http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&from=2026&output=text&limit=50&filter=statuscode:200&collapse=urlkey\", \"status\": 200, \"truncated\": false, \"text\": \"\"}",
+                    "ms": 418.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 19,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&output=text&limit=30&collapse=urlkey"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&output=text&limit=30&collapse=urlkey\", \"final_url\": \"http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&output=text&limit=30&collapse=urlkey\", \"status\": 200, \"truncated\": true, \"text\": \"org,austinpubliclibrary)/ 20040326190341 http://www.austinpubliclibrary.org:80/ text/html 200 K4G54D67QEJNUFMKAVVX2HVDI7HEKU5Z 421 org,austinpubliclibrary)/*/* 20120324014821 http://www.austinpubliclibrary.org/*/* text/html 404 QUKNL7OYPHQNDJ75OD5CXKOVF32FWSMX 8000 org,austinpubliclibrary)/, 20120309072927 http://www.austinpubliclibrary.org/,/ text/html 404 JTZNZSMBLQQCM7RYBF3DW5XLDACQG7Y5 8009 org,austinpubliclibrary)/.* 20120309073022 http://www.austinpubliclibrary.org/.* text/html 403 T6VQROO4JHXH2DGKHWDBCOHTLJGW5SAP 566 org,austinpubliclibrary)/.auth-methods 20120309072430 http://www.austinpubliclibrary.org/.auth-methods text/html 403 RWSFJPN2OTNZ2FJJPZ5Y2KHR4TBJQ2P6 573 org,austinpubliclibrary)/.block 20120324015529 http://www.austinpubliclibrary.org/.block text/html 403 EK5ZJPIFYWMA5XI7HXLLHK2KVNF5GTJF 570 org,austinpubliclibrary)/.ctools-export-ui-disabled 20120324015704 http://www.austinpubliclibrary.org/.ctools-export-ui-disabled text/html 403 IK5TEZ55E57JEUZTS6JCQLTVK3A7W4SD 581 org,austinpubliclibrary)/.drupal-overlay-open 20120309072733 http://www.austinpubliclibrary.org/.drupal-overlay-open text/html 403 UOTEM7OGG5C2UPTFDGMBZRICKAY5PN2Q 576 org,austinpubliclibrary)/.drupal-overlay.drupal-overlay-open 20120309073010 http://www.austinpubliclibrary.org/.drupal-overlay.drupal-overlay-open text/html 403 AWBDDACLNL3IURLHDVV5N2I36ID6BQVP 580 org,austinpubliclibrary)/.form-textarea-wrapper.resizable 20120324015832 http://www.austinpubliclibrary.org/.form-textarea-wrapper.resizable text/html 403 DKQ4DCW4O6I62WF32NX5ZB4MGUXUVPO6 587 org,austinpubliclibrary)/.gardens-features-toggle-disabled-empty 20120324015548 http://www.austinpubliclibrary.org/.gardens-features-toggle-disabled-empty text/html 403 H73YFIAQB2GIEK2IJLZBT3TDM75VPHAD 588 org,austinpubliclibrary)/.gardens-features-toggle-disabled-wrapper 20120324015751 http://www.austinpubliclibrary.org/.gardens-features-toggle-disabled-wrapper text/html 403 QQJAUI7YEPP3RUTWUCLS4WHIWPOXX7ZJ 593 org,austinpubliclibrary)/.menu 20120324015408 http://www.austinpubliclibrary.org/.menu text/html 403 5KVRZL5S4RU42PQHRPPOEIIV4S5A5OHT 565 org,austinpubliclibrary)/.mollom-captcha-content 20120309072656 http://www.austinpubliclibrary.org/.mollom-captcha-content text/html 403 VHHLZ2Z56B6QDHZ5PWCWRIS7VR336GOE 579 org,austinpubliclibrary)/.overlay-displace- 20120309072916 http://www.austinpubliclibrary.org/.overlay-displace- text/html 403 XHDJCC7Q5VJ3R3R677PJLCNRANEFLPV2 574 org,austinpubliclibrary)/.pane 20120324015429 http://www.austinpubliclibrary.org/.pane text/html 403 KJQ2HWLLBRCWMK4R7E4EUXK62G6IL3SE 565 org,austinpubliclibrary)/.pulldown-processed 20120324015513 http://www.austinpubliclibrary.org/.pulldown-processed text/html 403 7OXQMZ277CV74PBS4OE32PDOYFRYV6ZE 575 org,austinpubliclibrary)/.rb-slides 20120324015451 http://www.austinpubliclibrary.org/.rb-slides text/html 403 A6J5JA7NK3KSOCE53JI4T24HPKVARZ25 570 org,austinpubliclibrary)/.specialchange 20120324015151 http://www.austinpubliclibrary.org/.specialChange text/html 403 GBYOTXKHIEP6GED7KSZXO6VAFJUE73X7 574 org,austinpubliclibrary)/.specialsubmit 20120324014958 http://www.austinpubliclibrary.org/.specialSubmit text/html 403 CI3BDB66EHPXUVGIEVCRZW6FKLQYSOOQ 578 org,austinpubliclibrary)/.test 20120324015035 http://www.austinpubliclibrary.org/.TEST text/html 403 HZKMEXKMA3TTOXZHK6HUDDHATYRJYKZB 567 org,austinpubliclibrary)/.ui-dialog-content 20120309072340 http://www.austinpubliclibrary.org/.ui-dialog-content text/html 403 DARW4G77TII22EC54DVF5QFUJKDIU5SI 572 org,austinpubliclibrary)/.ui-disableselection 20120309073041 http://www.austinpubliclibrary.org/.ui-disableSelection text/html 403 RAEY6L4YCJCICK76WV",
+                    "ms": 488.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 20,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.austinpubliclibrary.org/locations/central"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.austinpubliclibrary.org/locations/central\", \"final_url\": \"https://www.austinpubliclibrary.org/locations/central\", \"error_kind\": \"access_denied\", \"retryable\": false, \"error\": \"HTTP 403; do not rely on this response as a source\", \"status\": 403}",
+                    "ms": 181.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 21,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.austintexas.gov/department/austin-public-library/locations"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.austintexas.gov/department/austin-public-library/locations\", \"final_url\": \"https://www.austintexas.gov/department/austin-public-library/locations\", \"error_kind\": \"not_found\", \"retryable\": false, \"error\": \"HTTP 404; do not rely on this response as a source\", \"status\": 404}",
+                    "ms": 586.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 22,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://web.archive.org/cdx/search/cdx?url=aplb.org&output=text&limit=20&from=2020&collapse=timestamp:6"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://web.archive.org/cdx/search/cdx?url=aplb.org&output=text&limit=20&from=2020&collapse=timestamp:6\", \"final_url\": \"http://web.archive.org/cdx/search/cdx?url=aplb.org&output=text&limit=20&from=2020&collapse=timestamp:6\", \"status\": 200, \"truncated\": false, \"text\": \"org,aplb)/ 20200130201730 http://www.aplb.org:80/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 393 org,aplb)/ 20200209032811 http://www.aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 690 org,aplb)/ 20200315180751 http://www.aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 519 org,aplb)/ 20200429042544 http://www.aplb.org/ warc/revisit - 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 595 org,aplb)/ 20200508110837 http://www.aplb.org/ warc/revisit - 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 589 org,aplb)/ 20200603015039 https://www.aplb.org/ text/html 200 DCEZDPY54ZLLXRBWFHOWLWTZ2FNIHWJF 31441 org,aplb)/ 20200720103319 http://www.aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 501 org,aplb)/ 20200802014155 http://www.aplb.org/ warc/revisit - 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 590 org,aplb)/ 20200910134326 http://aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 518 org,aplb)/ 20201020033718 http://www.aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 512 org,aplb)/ 20201101015942 https://www.aplb.org/ text/html 200 SLJYPXUMBRYIIKT5IUETDUCWST7LA5HQ 31790 org,aplb)/ 20201221054048 http://www.aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 436 org,aplb)/ 20210120083801 http://www.aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 438 org,aplb)/ 20210205182659 http://www.aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 461 org,aplb)/ 20210309112935 http://www.aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 281 org,aplb)/ 20210411032322 http://www.aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 278 org,aplb)/ 20210507041119 https://www.aplb.org/ text/html 200 MW26JYJ7XVYBTN652T7N44JYXQESMJN4 25002 org,aplb)/ 20210615162050 https://www.aplb.org/ text/html 200 4YMLAO2GI62RGWTDPG7QLLAYGBWQWLOV 20774 org,aplb)/ 20210720071916 http://www.aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 416 org,aplb)/ 20210811193304 https://aplb.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 413\"}",
+                    "ms": 29806.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 23,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&output=text&limit=25&from=2022&collapse=urlkey"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&output=text&limit=25&from=2022&collapse=urlkey\", \"final_url\": \"http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&output=text&limit=25&from=2022&collapse=urlkey\", \"status\": 200, \"truncated\": false, \"text\": \"org,austinpubliclibrary)/ 20220222084822 https://austinpubliclibrary.org/ text/html 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 361\"}",
+                    "ms": 1814.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 24,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://web.archive.org/web/20220222084822/https://austinpubliclibrary.org/"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://web.archive.org/web/20220222084822/https://austinpubliclibrary.org/\", \"final_url\": \"https://web.archive.org/web/20220222084824/https://www.aplmn.org/\", \"status\": 200, \"truncated\": false, \"text\": \"Connecting people with resources to foster literacy, equity and community in a safe, comfortable space. Join us for Reading for Life. A year-long program centered around four book lectures and focused on the act of reading. Click Here to watch the Jane Eyre Lecture Click Here for the current podcast Check the Reading For Life page for more info Mower County Resources Our hotspot program is dependent on grant monies. JOIN our mailing list Ask a Librarian a question via email at ask@aplmn.org. Typically you will receive a reply within 24 hours If you need an immediate response or do not have email, call us at (507) 433-2391.\"}",
+                    "ms": 2448.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 25,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.austinlibrary.org/"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.austinlibrary.org/\", \"final_url\": \"https://www.austinlibrary.org/\", \"error_kind\": \"access_denied\", \"retryable\": false, \"error\": \"HTTP 403; do not rely on this response as a source\", \"status\": 403}",
+                    "ms": 462.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 26,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://www.austintexas.gov/department/library"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://www.austintexas.gov/department/library\", \"final_url\": \"https://library.austintexas.gov/\", \"status\": 200, \"truncated\": false, \"text\": \"Austin Public Library Events All Ages Storytime All Ages Storytime Tuesday, September 8, 2026 10:30 AM to 11:00 AM 10:30 AM to 11:00 AM Windsor Park Branch Books and Babies Books and Babies Tuesday, September 8, 2026 11:00 AM to 11:45 AM 11:00 AM to 11:45 AM John Gillum Branch Toddler Storytime Toddler Storytime Tuesday, September 8, 2026 11:00 AM to 11:30 AM 11:00 AM to 11:30 AM Hampton Branch at Oak Hill All Ages Storytime All Ages Storytime Tuesday, September 8, 2026 11:00 AM to 11:30 AM 11:00 AM to 11:30 AM Pleasant Hill Branch\"}",
+                    "ms": 1193.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 27,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://library.austintexas.gov/locations"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://library.austintexas.gov/locations\", \"final_url\": \"https://library.austintexas.gov/locations\", \"status\": 200, \"truncated\": false, \"text\": \"Locations & Hours Holiday Closure Schedule Holiday Closure Schedule All Library locations will be closed. español 2026 New Year’s Day: Thursday, January 1 Martin Luther King, Jr.’s Birthday: Sunday & Monday, January 18 & 19 Presidents Day: Sunday & Monday, February 15 & 16 Easter: Sunday, April 5 Memorial Day: Sunday & Monday, May 24 & 25 Juneteenth: Friday, June 19 Independence Day: Friday & Saturday, July 3 & 4 Labor Day: Sunday & Monday, September 6 & 7 Veterans Day: Wednesday, November 11 Thanksgiving Day: Wednesday, November 25 (close at 5 PM); Thursday & Friday, November 26 & 27 Christmas: Wednesday, December 23 (close at 5 PM); Thursday & Friday, December 24 & 25 New Years Eve Thursday, December 31 (close at 5 PM) 2027 New Year’s Day: Friday, January 1 Printing Printing You can print from a public computer or your device at all Austin Public Library locations, except the Austin History Center. The cost is $0.20 per side. Black-and-white, letter-sized (8.5 x 11\\\") only. We do not offer color printing at this time. Customers may not bring their own paper for printing. - Print from a public computer: Send your job to print and follow the prompts. - Print from your laptop or device - Choose your Austin Public Library location from the list below, and choose: - Click Upload a file and follow the prompts to upload your file. Accept the Terms and Conditions and click Continue. You'll see a confirmation message. This is the recommended way to print from your device. - Click the Email link to forward a new or existing email for printing. It will print the email and any attachments. You'll get an email confirmation that the job is ready to print. - Choose your Austin Public Library location from the list below, and choose: Pay for and release your prints at any Self Service Print Station with a credit or debit card for any amount or cash up to $5. Cash payments over $5 can be made at the Circulation Desk. Printing Links for Library Locations - Central Library - Upload a file | Email apl_ace-bw@ewprints.com - Carver Branch - Upload a file | Email apl_acb-bw@ewprints.com - Cepeda Branch - Upload a file | Email apl_acp-bw@ewprints.com - Hampton Branch at Oak Hill - Upload a file | Email apl_aok-bw@ewprints.com - Howson Branch - Upload a file | Email apl_aho-bw@ewprints.com - John Gillum Branch (North Village) - Upload a file | Email apl_agb-bw@ewprints.com - Little Walnut Creek Branch - Upload a file | Email apl_alw-bw@ewprints.com - Menchaca Road Branch - Upload a file | Email apl_amr-bw@ewprints.com - Milwood Branch - Upload a file | Email apl_ami-bw@ewprints.com - Pleasant Hill Branch - Upload a file | Email apl_aph-bw@ewprints.com - Ruiz Branch - Upload a file | Email apl_arz-bw@ewprints.com - St. John Branch - Upload a file | Email apl_asj-bw@ewprints.com - Southeast Branch - Upload a file | Email apl_ase-bw@ewprints.com - Spicewood Springs Branch - Upload a file | Email apl_asr-bw@ewprints.com - Terrazas Branch - Upload a file | Email apl_atb-bw@ewprints.com - Twin Oaks Branch - Upload a file | Email apl_ato-bw@ewprints.com - University Hills Branch - Upload a file | Email apl_auh-bw@ewprints.com - Willie Mae Kirk Branch - Upload a file | Email apl_awk-bw@ewprints.com - Windsor Park Branch - Upload a file | Email apl_awp-bw@ewprints.com - Yarborough Branch - Upload a file | Email apl_ayb-bw@ewprints.com\"}",
+                    "ms": 402.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 28,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://library.austintexas.gov/locations/central"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://library.austintexas.gov/locations/central\", \"final_url\": \"https://library.austintexas.gov/locations/central\", \"error_kind\": \"not_found\", \"retryable\": false, \"error\": \"HTTP 404; do not rely on this response as a source\", \"status\": 404}",
+                    "ms": 3034.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 29,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://library.austintexas.gov/central"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://library.austintexas.gov/central\", \"final_url\": \"https://library.austintexas.gov/central-library\", \"status\": 200, \"truncated\": false, \"text\": \"The Austin Central Library features two levels of underground parking with 140 public parking spaces. The entrance is on West Avenue. Parking is not validated. If the lot is full try City Hall or use your favorite parking app. Parking Rates $0 0 up to 1 hour $5 Over 1 hour up to 2 hours $9 Over 2 hours up to 4 hours $11 Over 4 hours up to 7 hours $13 Over 7 hours up to 10 hours $15 Over 10 hours up to 12 hours $30 Over 12 hours or lost ticket Street Parking There is metered street parking on nearby streets. City pay stations accept credit cards, debit cards, and change. See the City of Austin's Parking page for more information. Bus Routes Call Capital Metro at (512) 474-1200 or visit capmetro.org/planner to find the most direct route. Biking The Central Library connects directly to both the Ann and Roy Butler Hike and Bike Trail, Shoal Creek Trail and the Lance Armstrong Bikeway. There are numerous free places to park bikes surrounding the Library. For Adult tours, use our Group Library Visit Request Form or call 512-974-7400 to schedule a group visit at least two weeks in advance. Tour length varies based on the topic. Field Trips for Youth To request and find out more about Youth Field Trips, visit the Central Library Field Trips Information Guide. The Central Library is a great place for school or youth organization field trips! During your visit, staff welcomes your group and tells you a little about the library, and then your group can explore the Children’s or Teen Areas. After this, your group may then explore the rest of the library on your own as best fits your interests and available time. Please schedule a youth field trip at least one month in advance (or sooner, for best availability). You can print from a public computer or your device at all Austin Public Library locations, except the Austin History Center. The cost is $0.20 per side. Black-and-white, letter-sized (8.5 x 11\\\") only. We do not offer color printing at this time. Customers may not bring their own paper for printing. Print from a public computer: Send your job to print and follow the prompts. Print from your laptop or device Choose your Austin Public Library location from the list below, and choose: Click Upload a file and follow the prompts to upload your file. Accept the Terms and Conditions and click Continue. You'll see a confirmation message. This is the recommended way to print from your device. Click the Email link to forward a new or existing email for printing. It will print the email and any attachments. You'll get an email confirmation that the job is ready to print. Pay for and release your prints at any Self Service Print Station with a credit or debit card for any amount or cash up to $5. Cash payments over $5 can be made at the Circulation Desk.\"}",
+                    "ms": 334.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 30,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://library.austintexas.gov/sitemap.xml"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://library.austintexas.gov/sitemap.xml\", \"final_url\": \"https://library.austintexas.gov/sitemap.xml\", \"error_kind\": \"not_found\", \"retryable\": false, \"error\": \"HTTP 404; do not rely on this response as a source\", \"status\": 404}",
+                    "ms": 1002.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 31,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://library.austintexas.gov/central-library",
+                      "max_chars": 20000
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://library.austintexas.gov/central-library\", \"final_url\": \"https://library.austintexas.gov/central-library\", \"status\": 200, \"truncated\": false, \"text\": \"The Austin Central Library features two levels of underground parking with 140 public parking spaces. The entrance is on West Avenue. Parking is not validated. If the lot is full try City Hall or use your favorite parking app. Parking Rates $0 0 up to 1 hour $5 Over 1 hour up to 2 hours $9 Over 2 hours up to 4 hours $11 Over 4 hours up to 7 hours $13 Over 7 hours up to 10 hours $15 Over 10 hours up to 12 hours $30 Over 12 hours or lost ticket Street Parking There is metered street parking on nearby streets. City pay stations accept credit cards, debit cards, and change. See the City of Austin's Parking page for more information. Bus Routes Call Capital Metro at (512) 474-1200 or visit capmetro.org/planner to find the most direct route. Biking The Central Library connects directly to both the Ann and Roy Butler Hike and Bike Trail, Shoal Creek Trail and the Lance Armstrong Bikeway. There are numerous free places to park bikes surrounding the Library. For Adult tours, use our Group Library Visit Request Form or call 512-974-7400 to schedule a group visit at least two weeks in advance. Tour length varies based on the topic. Field Trips for Youth To request and find out more about Youth Field Trips, visit the Central Library Field Trips Information Guide. The Central Library is a great place for school or youth organization field trips! During your visit, staff welcomes your group and tells you a little about the library, and then your group can explore the Children’s or Teen Areas. After this, your group may then explore the rest of the library on your own as best fits your interests and available time. Please schedule a youth field trip at least one month in advance (or sooner, for best availability). You can print from a public computer or your device at all Austin Public Library locations, except the Austin History Center. The cost is $0.20 per side. Black-and-white, letter-sized (8.5 x 11\\\") only. We do not offer color printing at this time. Customers may not bring their own paper for printing. Print from a public computer: Send your job to print and follow the prompts. Print from your laptop or device Choose your Austin Public Library location from the list below, and choose: Click Upload a file and follow the prompts to upload your file. Accept the Terms and Conditions and click Continue. You'll see a confirmation message. This is the recommended way to print from your device. Click the Email link to forward a new or existing email for printing. It will print the email and any attachments. You'll get an email confirmation that the job is ready to print. Pay for and release your prints at any Self Service Print Station with a credit or debit card for any amount or cash up to $5. Cash payments over $5 can be made at the Circulation Desk.\"}",
+                    "ms": 149.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 32,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "https://library.austintexas.gov/central-library/hours"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"https://library.austintexas.gov/central-library/hours\", \"final_url\": \"https://library.austintexas.gov/central-library/hours\", \"error_kind\": \"not_found\", \"retryable\": false, \"error\": \"HTTP 404; do not rely on this response as a source\", \"status\": 404}",
+                    "ms": 1178.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 33,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://archive.org/wayback/available?url=library.austintexas.gov/central-library&timestamp=20260908"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://archive.org/wayback/available?url=library.austintexas.gov/central-library&timestamp=20260908\", \"final_url\": \"http://archive.org/wayback/available?url=library.austintexas.gov/central-library&timestamp=20260908\", \"status\": 200, \"truncated\": false, \"text\": \"{\\\"url\\\": \\\"library.austintexas.gov/central-library\\\", \\\"archived_snapshots\\\": {\\\"closest\\\": {\\\"status\\\": \\\"200\\\", \\\"available\\\": true, \\\"url\\\": \\\"http://web.archive.org/web/20260728012827/https://library.austintexas.gov/central-library\\\", \\\"timestamp\\\": \\\"20260728012827\\\"}}, \\\"timestamp\\\": \\\"20260908\\\"}\"}",
+                    "ms": 787.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 34,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://web.archive.org/web/20260728012827/https://library.austintexas.gov/central-library",
+                      "max_chars": 20000
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://web.archive.org/web/20260728012827/https://library.austintexas.gov/central-library\", \"final_url\": \"http://web.archive.org/web/20260728012827/https://library.austintexas.gov/central-library\", \"status\": 200, \"truncated\": false, \"text\": \"The Austin Central Library features two levels of underground parking with 140 public parking spaces. The entrance is on West Avenue. Parking is not validated. If the lot is full try City Hall or use your favorite parking app. Parking Rates $0 0 up to 1 hour $5 Over 1 hour up to 2 hours $9 Over 2 hours up to 4 hours $11 Over 4 hours up to 7 hours $13 Over 7 hours up to 10 hours $15 Over 10 hours up to 12 hours $30 Over 12 hours or lost ticket Street Parking There is metered street parking on nearby streets. City pay stations accept credit cards, debit cards, and change. See the City of Austin's Parking page for more information. Bus Routes Call Capital Metro at (512) 474-1200 or visit capmetro.org/planner to find the most direct route. Biking The Central Library connects directly to both the Ann and Roy Butler Hike and Bike Trail, Shoal Creek Trail and the Lance Armstrong Bikeway. There are numerous free places to park bikes surrounding the Library. For Adult tours, use our Group Library Visit Request Form or call 512-974-7400 to schedule a group visit at least two weeks in advance. Tour length varies based on the topic. Field Trips for Youth To request and find out more about Youth Field Trips, visit the Central Library Field Trips Information Guide. The Central Library is a great place for school or youth organization field trips! During your visit, staff welcomes your group and tells you a little about the library, and then your group can explore the Children’s or Teen Areas. After this, your group may then explore the rest of the library on your own as best fits your interests and available time. Please schedule a youth field trip at least one month in advance (or sooner, for best availability). You can print from a public computer or your device at all Austin Public Library locations, except the Austin History Center. The cost is $0.20 per side. Black-and-white, letter-sized (8.5 x 11\\\") only. We do not offer color printing at this time. Customers may not bring their own paper for printing. Print from a public computer: Send your job to print and follow the prompts. Print from your laptop or device Choose your Austin Public Library location from the list below, and choose: Click Upload a file and follow the prompts to upload your file. Accept the Terms and Conditions and click Continue. You'll see a confirmation message. This is the recommended way to print from your device. Click the Email link to forward a new or existing email for printing. It will print the email and any attachments. You'll get an email confirmation that the job is ready to print. Pay for and release your prints at any Self Service Print Station with a credit or debit card for any amount or cash up to $5. Cash payments over $5 can be made at the Circulation Desk.\"}",
+                    "ms": 1011.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 35,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&from=2026&output=text&limit=100&filter=statuscode:200&collapse=urlkey"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&from=2026&output=text&limit=100&filter=statuscode:200&collapse=urlkey\", \"final_url\": \"http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&from=2026&output=text&limit=100&filter=statuscode:200&collapse=urlkey\", \"status\": 200, \"truncated\": true, \"text\": \"gov,austintexas,library)/ 20260113123035 https://library.austintexas.gov/ text/html 200 KC2CZQUBEWGPK6P6X7XPNYSCNSPVLQTT 13909 gov,austintexas,library)/100 20260217013906 https://library.austintexas.gov/100 text/html 200 5TRGBQH4GPCYGOOF5IK6DDC7RLQDFMZO 17411 gov,austintexas,library)/?aud=all&calendar_timestamp=21600&calendars=&current=-2656800&date=&date_format=custom&date_pattern=%20&display_reset=1&loc=211&next=21600&page=1&previous=-5248800&search= 20260123230326 https://library.austintexas.gov/?aud=All&loc=211&calendars=&previous=-5248800&current=-2656800&next=21600&date_format=custom&date_pattern=%20&display_reset=1&calendar_timestamp=21600&search=&date=&page=1 text/html 200 HLZYBCSODYF65WUXPWUQHGM5M3HCJI7K 14536 gov,austintexas,library)/?aud[31]=31&date=&loc=all&page=1 20260422080059 https://library.austintexas.gov/?aud%5B31%5D=31&loc=All&date=&page=1 text/html 200 AKRY3GYKOKPDXL723K4IEHRNJ4QNZ6CX 14705 gov,austintexas,library)/?date=&field_cat_ia[31]=31&field_cat_ia[32]=32&loc=all&page=3&search= 20260113125417 https://library.austintexas.gov/?search=&field_cat_ia%5B32%5D=32&field_cat_ia%5B31%5D=31&loc=All&date=&page=3 text/html 200 DF6CHUDQ2P232TYSU62RVNPRSNN46MHV 12054 gov,austintexas,library)/?f[0]=:129&f[1]=:3308&f[2]=:3332&f[3]=:3369&f[4]=:3443&f[5]=:4113&page=0 20260119231709 https://library.austintexas.gov/?f%5B0%5D=%3A129&f%5B1%5D=%3A3308&f%5B2%5D=%3A3332&f%5B3%5D=%3A3369&f%5B4%5D=%3A3443&f%5B5%5D=%3A4113&page=0 text/html 200 SCNRBS72BJYLJ5PEWQ4MEHWR3QR6SSHG 12297 gov,austintexas,library)/?f[0]=:130&f[1]=:3308&f[2]=:3369&f[3]=:3446&f[4]=:3962&f[5]=:4113&f[6]=aud:adult&f[7]=facet:fiction&page=8 20260118224032 https://library.austintexas.gov/?f%5B0%5D=%3A130&f%5B1%5D=%3A3308&f%5B2%5D=%3A3369&f%5B3%5D=%3A3446&f%5B4%5D=%3A3962&f%5B5%5D=%3A4113&f%5B6%5D=aud%3AAdult&f%5B7%5D=facet%3AFiction&page=8 text/html 200 NBXYG3OJRISFVVK4WUAADMSG6CTBNFMD 12315 gov,austintexas,library)/?f[0]=:130&f[1]=:3308&f[2]=:3369&f[3]=:3446&f[4]=:3962&f[5]=:4113&f[6]=aud:adult&f[7]=facet:fiction&page=9 20260118223720 https://library.austintexas.gov/?f%5B0%5D=%3A130&f%5B1%5D=%3A3308&f%5B2%5D=%3A3369&f%5B3%5D=%3A3446&f%5B4%5D=%3A3962&f%5B5%5D=%3A4113&f%5B6%5D=aud%3AAdult&f%5B7%5D=facet%3AFiction&page=9 text/html 200 L23SUHX5BFGBMF3CG532YHOR3FCPXJCP 14188 gov,austintexas,library)/?f[0]=:3306&f[1]=aud:children&page=2 20260312161154 https://library.austintexas.gov/?f%5B0%5D=%3A3306&f%5B1%5D=aud%3AChildren&page=2 text/html 200 CBRRXDKZODGI7KHENFVAJ6X2KRCPYYCF 14858 gov,austintexas,library)/?f[0]=facet:around%20the%20world&page=11 20260517120657 https://library.austintexas.gov/?f%5B0%5D=facet%3AAround%20the%20World&page=11 text/html 200 OINEKPEX2OSI54GKBQUAIJDCHCTE2HBU 14696 gov,austintexas,library)/?f[0]=facet:mystery&page=1 20260422074615 https://library.austintexas.gov/?f%5B0%5D=facet%3AMystery&page=1 text/html 200 SU6MFWSUDIM5CWWRLTKSU7DOWY2BOCND 14569 gov,austintexas,library)/?f[0]=facet:nonfiction&page=0 20260612151349 https://library.austintexas.gov/?f%5B0%5D=facet%3ANonfiction&page=0 text/html 200 DRGW2YNVACADEWQYW3LQFWT3WWIIVNUF 14844 gov,austintexas,library)/?f[0]=facet:nonfiction&page=1 20260420161015 https://library.austintexas.gov/?f%5B0%5D=facet%3ANonfiction&page=1 text/html 200 LQUD3XZIFWRUE7BHVKAEFF6CGKIMXBGV 14529 gov,austintexas,library)/?f[0]=facet:nonfiction&page=2 20260420154908 https://library.austintexas.gov/?f%5B0%5D=facet%3ANonfiction&page=2 text/html 200 DWTY6XBARWYB6KY5OUBKI4PFCEBUTBMR 14532 gov,austintexas,library)/?f[0]=field_intended_audience_2016i:3308&f[1]=field_item_list_category:129&f[2]=field_item_list_category:3337&f[3]=fie",
+                    "ms": 755.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_step",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "step": {
+                    "index": 36,
+                    "tool": "web_fetch",
+                    "args": {
+                      "url": "http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&output=text&limit=60&filter=original:.*[Hh]our.*&collapse=urlkey&from=2024"
+                    },
+                    "observation": "{\"tool\": \"web_fetch\", \"url\": \"http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&output=text&limit=60&filter=original:.*[Hh]our.*&collapse=urlkey&from=2024\", \"final_url\": \"http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&output=text&limit=60&filter=original:.*[Hh]our.*&collapse=urlkey&from=2024\", \"status\": 200, \"truncated\": true, \"text\": \"gov,austintexas,library)/blog/sunday-hours-returning-austin-public-library-locations-starting-sept-11 20241216141500 http://library.austintexas.gov/blog/sunday-hours-returning-austin-public-library-locations-starting-sept-11 unk 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 500 gov,austintexas,library)/event-tags/adult-story-hour 20250403025525 http://library.austintexas.gov/event-tags/adult-story-hour unk 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 251 gov,austintexas,library)/event/adult-story-hour-461377 20250502104000 http://library.austintexas.gov/event/adult-story-hour-461377 unk 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 241 gov,austintexas,library)/event/all-ages-storytime/community-story-hour-german-7752974 20241116195355 https://library.austintexas.gov/event/all-ages-storytime/community-story-hour-german-7752974 text/html 200 MYYP6S5NQD6UPU5T4I5VW3NDIHVA7YWX 7010 gov,austintexas,library)/event/all-ages-storytime/community-story-hour-german-7752975 20240816013015 http://library.austintexas.gov/event/all-ages-storytime/community-story-hour-german-7752975 unk 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 371 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7741184 20240502202254 https://library.austintexas.gov/event/books-and-babies/baby-social-hour-7741184 text/html 200 Y2MRMJNVK7BW724SN5JN2GZNLDTR5QXX 7198 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7741185 20240509202204 https://library.austintexas.gov/event/books-and-babies/baby-social-hour-7741185 text/html 200 743Y3463XRJFP2PTET64OPXQ2IUUHUKI 7190 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7741186 20240516202700 https://library.austintexas.gov/event/books-and-babies/baby-social-hour-7741186 text/html 200 QHRZ3KJOQ4ODWRPVECHRQRO34UFJUXSI 7298 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7741188 20240601124859 https://library.austintexas.gov/event/books-and-babies/baby-social-hour-7741188 text/html 200 IDQFWQLJNQ2FEIP4PASRDQMEJXZA4TF3 7039 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7744849 20240308210646 https://library.austintexas.gov/event/books-and-babies/baby-social-hour-7744849 text/html 200 35JFN2LNNRCLFIG52H3USESVDQ66GKAC 7189 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7744955 20240212014220 http://library.austintexas.gov/event/books-and-babies/baby-social-hour-7744955 unk 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 364 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7745450 20240311213258 https://library.austintexas.gov/event/books-and-babies/baby-social-hour-7745450 text/html 200 7QVIONIS5REQB6C3SWFSXF4DA4INYIBE 7351 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7747867 20240513105900 https://library.austintexas.gov/event/books-and-babies/baby-social-hour-7747867 text/html 200 BWAGH3RVTEUG6SLUWYESSUBYYHPJ2M3H 7430 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7747868 20240521142618 https://library.austintexas.gov/event/books-and-babies/baby-social-hour-7747868 text/html 200 XWTOYPEZIPSEIYHYUEA4R2HWEXCTM7IV 7099 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7748134 20240627202553 https://library.austintexas.gov/event/books-and-babies/baby-social-hour-7748134 text/html 200 4MAIKZTEGGHM4LK3EHXBPWKEEBR2PAJN 7237 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7752187 20240801020237 http://library.austintexas.gov/event/books-and-babies/baby-social-hour-7752187 unk 301 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 363 gov,austintexas,library)/event/books-and-babies/baby-social-hour-7752630 20241205005745",
+                    "ms": 5742.0
+                  }
+                }
+              },
+              {
+                "type": "subagent_done",
+                "data": {
+                  "run_id": "5c77b6011d0746018a562ef284f6049c",
+                  "ok": false,
+                  "steps": 36,
+                  "sources": [
+                    "https://www.aplb.org/locations/central",
+                    "https://arxiv.org/abs/2307.16192v1",
+                    "https://doi.org/10.12987/9780300289329-002",
+                    "https://arxiv.org/abs/1404.1905v1",
+                    "https://doi.org/10.1093/library/s1-8.1.511",
+                    "https://arxiv.org/abs/1303.0042v1",
+                    "https://doi.org/10.1300/j118v13n01_05",
+                    "https://www.aplb.org/locations",
+                    "https://www.aplb.org/locations/central-branch",
+                    "https://www.aplb.org/",
+                    "https://www.apl.org/locations/central",
+                    "https://www.apl.org/",
+                    "http://hdl.handle.net/2346/62009",
+                    "https://doi.org/10.1300/j118v05n01_10",
+                    "https://arxiv.org/abs/2501.07812v2",
+                    "https://doi.org/10.62915/2157-0396.1927",
+                    "https://arxiv.org/abs/1808.07234v1",
+                    "https://doi.org/10.62915/2157-0396.1242",
+                    "https://apl.org/locations/central",
+                    "http://archive.org/wayback/available?url=apl.org/locations/central",
+                    "https://www.austintexas.gov/department/austin-public-library",
+                    "http://archive.org/wayback/available?url=www.apl.org/locations/central&timestamp=20260908",
+                    "http://web.archive.org/cdx/search/cdx?url=apl.org/locations*&output=text&limit=40&from=2025&collapse=urlkey",
+                    "http://web.archive.org/cdx/search/cdx?url=apl.org&matchType=domain&from=2026&output=text&limit=30&filter=statuscode:200",
+                    "https://web.archive.org/web/20260816155953/https://apl.org/",
+                    "https://www.austinpubliclibrary.org/",
+                    "https://www.austintexas.gov/page/austin-public-library",
+                    "http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&from=2026&output=text&limit=50&filter=statuscode:200&collapse=urlkey",
+                    "http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&matchType=domain&output=text&limit=30&collapse=urlkey",
+                    "https://www.austinpubliclibrary.org/locations/central",
+                    "https://www.austintexas.gov/department/austin-public-library/locations",
+                    "http://web.archive.org/cdx/search/cdx?url=aplb.org&output=text&limit=20&from=2020&collapse=timestamp:6",
+                    "http://web.archive.org/cdx/search/cdx?url=austinpubliclibrary.org&output=text&limit=25&from=2022&collapse=urlkey",
+                    "https://web.archive.org/web/20220222084822/https://austinpubliclibrary.org/",
+                    "https://www.austinlibrary.org/",
+                    "https://www.austintexas.gov/department/library",
+                    "https://library.austintexas.gov/locations",
+                    "https://library.austintexas.gov/locations/central",
+                    "https://library.austintexas.gov/central",
+                    "https://library.austintexas.gov/sitemap.xml",
+                    "https://library.austintexas.gov/central-library",
+                    "https://library.austintexas.gov/central-library/hours",
+                    "http://archive.org/wayback/available?url=library.austintexas.gov/central-library&timestamp=20260908",
+                    "http://web.archive.org/web/20260728012827/https://library.austintexas.gov/central-library",
+                    "http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&from=2026&output=text&limit=100&filter=statuscode:200&collapse=urlkey",
+                    "http://web.archive.org/cdx/search/cdx?url=library.austintexas.gov&matchType=domain&output=text&limit=60&filter=original:.*[Hh]our.*&collapse=urlkey&from=2024"
+                  ],
+                  "returned_chars": 3209,
+                  "error": "malformed or missing final JSON"
+                }
+              }
+            ]
+          },
+          "spoken_text": "The subagent stopped without returning a well-formed result. Sources:",
+          "reply_word_count": 103,
+          "speech": {
+            "first_audio_s": 0.16924059996381402,
+            "synthesis_wall_s": 0.17049399996176362,
+            "audio_s": 4.181333333333333,
+            "chunk_count": 1,
+            "chunk_durations_s": [
+              4.181333333333333
+            ],
+            "completed": true,
+            "errors": []
+          }
+        }
+      ],
+      "stored_turn_count": 1
+    }
+  ],
+  "voice_status": {
+    "available": true,
+    "wake_phrase": "hey idris",
+    "sample_rate": 16000,
+    "device": "cuda",
+    "provider": "CUDAExecutionProvider",
+    "error": null
+  },
+  "embedder": {
+    "sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+    "sentinel_matches_research": true,
+    "expected_sentinel_sha256": "baecf77627380f36f75a69c4454b064d886133f04255c5e5b4d3f24f00e7c4b8",
+    "model_path": "C:\\Users\\muzaf\\.cache\\huggingface\\hub\\Qwen3-Embedding-0.6B-GGUF\\Qwen3-Embedding-0.6B-Q8_0.gguf",
+    "n_threads": 8,
+    "n_ctx": 512,
+    "cold_load_ms": 462.02129998710006,
+    "embedding_dimension": 1024
+  },
+  "finished_at": "2026-09-08T17:30:16.160813+00:00",
+  "temporary_data_removed": true
+}

@@ -35,6 +35,14 @@ no swap, private IPC, two bounded tmpfs mounts, and exactly two bind mounts:
 - `/workspace` is an otherwise empty scratch directory, read-write and
   erased before and after every delegation.
 
+Docker Desktop or Docker Engine must be running before a research request.
+Recollect checks that the engine responds and runs Linux containers before
+starting the subagent; an unavailable engine produces an actionable research
+error. On Windows, start Docker Desktop and retry once its engine is ready.
+The generated research-tool command uses `/usr/local/bin/python` inside the
+pinned Linux image, independently of the Windows interpreter running Recollect.
+Neither check changes the container boundary or starts a host OpenCode process.
+
 The repository, user home, Recollect data, model files, credentials files,
 and container-runtime socket are never mounted. The llama.cpp model remains
 on the host and is reached through `host.docker.internal`; the model process

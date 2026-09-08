@@ -92,6 +92,25 @@ class RecollectConfig:
     generator_max_tokens: int = 4_096
     generator_temperature: float = 0.7
 
+    # -- local speech (separate from the embedding and chat models) ---------
+    voice_model_dir: Path = Path("var/models/voice")
+    voice_wake_phrase: str = "hey idris"
+    voice_name: str = "af_heart"
+    voice_device: str = "auto"
+    voice_cuda_dll_dir: Path | None = None
+    voice_asr_backend: str = "vosk"
+    voice_asr_model_dir: Path = Path("var/models/voice/whisper-large-v3-turbo")
+    voice_asr_device: str = "cuda"
+    voice_asr_compute_type: str = "float16"
+    voice_asr_cuda_dll_dir: Path | None = None
+    voice_threads: int = 2
+    voice_max_utterance_s: float = 120.0
+    voice_wait_s: float = 8.0
+    voice_end_s: float = 1.4
+    voice_speech_start_s: float = 0.224
+    voice_speech_threshold: float = 0.5
+    voice_interrupt_threshold: float = 0.8
+
     # -- memory -------------------------------------------------------------
     budget_chars: int = DEFAULT_BUDGET_CHARS
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
@@ -153,6 +172,38 @@ class RecollectConfig:
     port: int = 8080
 
     def __post_init__(self) -> None:
+        if not self.voice_wake_phrase.strip():
+            raise ValueError("voice_wake_phrase must be non-empty")
+        if not self.voice_name.strip():
+            raise ValueError("voice_name must be non-empty")
+        if self.voice_device not in ("auto", "cpu", "cuda"):
+            raise ValueError("voice_device must be 'auto', 'cpu', or 'cuda'")
+        if (self.voice_cuda_dll_dir is not None
+                and not self.voice_cuda_dll_dir.is_absolute()):
+            raise ValueError("voice_cuda_dll_dir must be an absolute path")
+        if self.voice_threads < 1:
+            raise ValueError("voice_threads must be positive")
+        if self.voice_asr_backend not in ("vosk", "whisper"):
+            raise ValueError("voice_asr_backend must be 'vosk' or 'whisper'")
+        if self.voice_asr_device not in ("cpu", "cuda"):
+            raise ValueError("voice_asr_device must be 'cpu' or 'cuda'")
+        if self.voice_asr_compute_type not in (
+            "float32", "float16", "int8", "int8_float16", "int8_float32",
+        ):
+            raise ValueError("Unsupported voice_asr_compute_type")
+        if (self.voice_asr_cuda_dll_dir is not None
+                and not self.voice_asr_cuda_dll_dir.is_absolute()):
+            raise ValueError("voice_asr_cuda_dll_dir must be an absolute path")
+        if not 1 <= self.voice_wait_s <= self.voice_max_utterance_s <= 120:
+            raise ValueError("voice timeouts must satisfy 1 <= wait <= maximum <= 120")
+        if not 0.3 <= self.voice_end_s <= 5:
+            raise ValueError("voice_end_s must be between 0.3 and 5 seconds")
+        if not 0.064 <= self.voice_speech_start_s <= 1:
+            raise ValueError("voice_speech_start_s must be between 0.064 and 1 second")
+        if not 0 < self.voice_speech_threshold <= self.voice_interrupt_threshold < 1:
+            raise ValueError(
+                "voice thresholds must satisfy 0 < speech <= interrupt < 1"
+            )
         if self.budget_chars < 0:
             raise ValueError("budget_chars must be non-negative")
         if self.generator_max_tokens < 1:
@@ -227,6 +278,50 @@ class RecollectConfig:
 
         return cls(
             embedding_model_path=Path(model_path),
+            voice_model_dir=Path(
+                os.environ.get("RECOLLECT_VOICE_MODEL_DIR", "var/models/voice")
+            ),
+            voice_wake_phrase=os.environ.get(
+                "RECOLLECT_VOICE_WAKE_PHRASE", "hey idris"
+            ),
+            voice_name=os.environ.get("RECOLLECT_VOICE_NAME", "af_heart"),
+            voice_device=os.environ.get("RECOLLECT_VOICE_DEVICE", "auto").lower(),
+            voice_cuda_dll_dir=(
+                Path(os.environ["RECOLLECT_VOICE_CUDA_DLL_DIR"])
+                if os.environ.get("RECOLLECT_VOICE_CUDA_DLL_DIR") else None
+            ),
+            voice_threads=int(os.environ.get("RECOLLECT_VOICE_THREADS", 2)),
+            voice_asr_backend=os.environ.get(
+                "RECOLLECT_VOICE_ASR_BACKEND", "vosk"
+            ).lower(),
+            voice_asr_model_dir=Path(os.environ.get(
+                "RECOLLECT_VOICE_ASR_MODEL_DIR",
+                "var/models/voice/whisper-large-v3-turbo",
+            )),
+            voice_asr_device=os.environ.get(
+                "RECOLLECT_VOICE_ASR_DEVICE", "cuda"
+            ).lower(),
+            voice_asr_compute_type=os.environ.get(
+                "RECOLLECT_VOICE_ASR_COMPUTE_TYPE", "float16"
+            ).lower(),
+            voice_asr_cuda_dll_dir=(
+                Path(os.environ["RECOLLECT_VOICE_ASR_CUDA_DLL_DIR"])
+                if os.environ.get("RECOLLECT_VOICE_ASR_CUDA_DLL_DIR") else None
+            ),
+            voice_max_utterance_s=float(
+                os.environ.get("RECOLLECT_VOICE_MAX_UTTERANCE_S", 120)
+            ),
+            voice_wait_s=float(os.environ.get("RECOLLECT_VOICE_WAIT_S", 8)),
+            voice_end_s=float(os.environ.get("RECOLLECT_VOICE_END_S", 1.4)),
+            voice_speech_start_s=float(
+                os.environ.get("RECOLLECT_VOICE_SPEECH_START_S", 0.224)
+            ),
+            voice_speech_threshold=float(
+                os.environ.get("RECOLLECT_VOICE_SPEECH_THRESHOLD", 0.5)
+            ),
+            voice_interrupt_threshold=float(
+                os.environ.get("RECOLLECT_VOICE_INTERRUPT_THRESHOLD", 0.8)
+            ),
             embedding_threads=int(
                 os.environ.get(
                     "RECOLLECT_EMBEDDING_THREADS", DEFAULT_EMBEDDING_THREADS

@@ -1,0 +1,32 @@
+{
+  "warmup_s": 2.9897292999667116,
+  "voice": {
+    "available": true,
+    "wake_phrase": "hey idris",
+    "sample_rate": 16000,
+    "device": "cuda",
+    "provider": "CUDAExecutionProvider",
+    "asr_backend": "whisper",
+    "asr_model": "var\\models\\voice\\whisper-large-v3-turbo",
+    "asr_device": "cuda",
+    "asr_compute_type": "float16",
+    "asr_ready": true,
+    "error": null
+  },
+  "gpu": "name, memory.used [MiB], memory.free [MiB]\nNVIDIA GeForce RTX 5090, 23506 MiB, 8682 MiB\n",
+  "runs": [
+    {
+      "transcript": "My appointment is at 4.30 p.m., not 3 p.m.",
+      "decode_s": 0.138303600018844
+    },
+    {
+      "transcript": "My appointment is at 4.30 p.m., not 3 p.m.",
+      "decode_s": 0.1393652000115253
+    },
+    {
+      "transcript": "My appointment is at 4.30 p.m., not 3 p.m.",
+      "decode_s": 0.13876170001458377
+    }
+  ],
+  "audio_s": 3.4133125
+}
