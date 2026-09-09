@@ -176,3 +176,43 @@ All checks passed!
 This final run used the normal suite; the two Docker opt-in tests are included in
 the earlier Docker-enabled result. Full startup again verified Docker, Qwen GPU,
 the embedding sentinel, and warmed Whisper/Kokoro CUDA. Services remain running.
+
+## Frozen conversational replies after restart
+
+The user subsequently reported voice replies staying on thinking and canceled
+them after about 30 seconds. The API, Qwen on port 8001, embedding sentinel, and
+warmed GPU voice were healthy. An isolated `Hello` reproduced the problem without
+microphone input: native `tool_choice=required` generated repeated prose for
+62.61 seconds, exhausted 4,096 tokens, and returned no tool call. Optional native
+tool choice returned a greeting promptly, but cannot enforce the explicit memory
+decision needed by continuous chat. Stronger prompting alone was insufficient:
+a full voice-mode chat probe still stalled on `Can you hear me?`.
+
+Required foreground routing now constrains the complete response with a JSON
+schema selecting exactly one of the existing operations and its arguments. The
+generator validates the envelope and converts it into the existing tool-call
+representation, keeping internal JSON out of chat output. The context guard
+checks the same augmented prompt and schema sent to inference. Optional native
+tools and prose synthesis after a task result retain their previous protocol.
+
+An isolated full chat-path run against the real Qwen model and pinned in-process
+embedder completed all seven requests in voice mode. Greetings and a hearing
+check took 1.339 / 0.868 / 0.999 seconds; a new fact and its recall took 0.990 /
+1.008 seconds; document-task acceptance and a status question took 4.259 / 3.924
+seconds. Seven visible exchanges produced two memory episodes and one queued
+task. Greetings and work updates were display-only; the fact was retained and
+correctly recalled. This probe did not start its queued worker, capture a
+microphone, or play audio, and used separate temporary storage. These measured
+requests do not establish a latency guarantee for arbitrary conversations.
+
+Validation after the repair:
+
+```text
+All checks passed!
+977 passed, 3 skipped, 2 warnings in 71.95s (0:01:11)
+```
+
+Regression cases cover fragmented structured replies, invalid/truncated
+operations, no internal JSON emitted as user prose, release of the model slot
+after errors, unchanged optional/no-tool generation, and matching context-guard
+and inference payloads. Existing task-memory and shadow checks also pass.

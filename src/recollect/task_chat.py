@@ -46,7 +46,13 @@ _GUIDANCE = (
     "biology; research enzymes' may retain 'You teach biology.' Pure 'make a "
     "document' has memory_reply=null. 'What are enzymes?' retains the explanation. "
     "status_only=false by itself never authorizes a memory write. "
-    "Answer the user naturally after a tool response; never expose tool JSON."
+    "Before a tool result is available, call exactly one of task_reply, "
+    "run_subagent, or task_control. Even greetings and ordinary questions must "
+    "use task_reply: put the natural reply in text and include status_only and "
+    "memory_reply. Do not answer in prose outside the function call. Use an "
+    "empty memory_reply string when there is nothing substantive to remember. "
+    "After receiving a tool result, answer the user naturally in prose; "
+    "never expose tool JSON."
 )
 
 
@@ -102,14 +108,23 @@ def task_tools() -> list[dict]:
         "function": {
             "name": "task_reply",
             "description": (
-                "Reply naturally to the user using the available conversation "
-                "and task context, without starting or changing a task."
+                "Required for every direct reply, including greetings and "
+                "ordinary questions. Put your natural reply in text without "
+                "starting or changing a task."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string"},
-                    "memory_reply": memory_reply,
+                    "memory_reply": {
+                        **memory_reply,
+                        "description": (
+                            "Your substantive answer or acknowledgment of user "
+                            "facts, without task logistics. Use an empty string "
+                            "or null for greetings, work updates, or task-only "
+                            "clarification. Ordinary answers belong here too."
+                        ),
+                    },
                     "status_only": {
                         "type": "boolean",
                         "description": (
