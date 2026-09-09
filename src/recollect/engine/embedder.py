@@ -76,11 +76,28 @@ class HarnessEmbedder(PinnedEmbedder):
         self._cache: OrderedDict[str, np.ndarray] = OrderedDict()
         self._cache_size = int(cache_size)
         self._lock = threading.Lock()
+        self._call_stats = threading.local()
 
         self.calls = 0
         self.cache_hits = 0
         self.last_latency_ms = 0.0
         self.last_cache_hit = False
+
+    @property
+    def last_latency_ms(self) -> float:
+        return getattr(self._call_stats, "latency_ms", 0.0)
+
+    @last_latency_ms.setter
+    def last_latency_ms(self, value: float) -> None:
+        self._call_stats.latency_ms = value
+
+    @property
+    def last_cache_hit(self) -> bool:
+        return getattr(self._call_stats, "cache_hit", False)
+
+    @last_cache_hit.setter
+    def last_cache_hit(self, value: bool) -> None:
+        self._call_stats.cache_hit = value
 
     def _get_model(self):
         """Load the pinned artifact, varying only thread count.
@@ -121,13 +138,14 @@ class HarnessEmbedder(PinnedEmbedder):
                 self.last_latency_ms = 0.0
                 return hit.copy()
 
-        started = time.perf_counter()
-        computed = np.asarray(
-            self._get_model().embed(text), dtype=np.float32
-        ).reshape(EMBEDDING_DIMENSION)
-        elapsed = (time.perf_counter() - started) * 1_000.0
+            # A Llama instance owns mutable native context and batch buffers.
+            # Keep initialization, inference and cache publication in one lease.
+            started = time.perf_counter()
+            computed = np.asarray(
+                self._get_model().embed(text), dtype=np.float32
+            ).reshape(EMBEDDING_DIMENSION)
+            elapsed = (time.perf_counter() - started) * 1_000.0
 
-        with self._lock:
             self.calls += 1
             self.last_cache_hit = False
             self.last_latency_ms = elapsed
@@ -135,7 +153,7 @@ class HarnessEmbedder(PinnedEmbedder):
             self._cache.move_to_end(text)
             while len(self._cache) > self._cache_size:
                 self._cache.popitem(last=False)
-        return computed.copy()
+            return computed.copy()
 
     # -- startup checks ----------------------------------------------------
 

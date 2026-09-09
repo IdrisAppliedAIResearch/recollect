@@ -12,18 +12,23 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
-from .config import RecollectConfig
-
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv:
+        from .launch import standalone_main
+
+        return standalone_main([])
     parser = argparse.ArgumentParser(
         prog="recollect",
         description=(
             "A harness for episodic conversational memory, instrumented so "
-            "every retrieval decision is visible."
+            "every retrieval decision is visible. On Windows, recollect with "
+            "no arguments launches the complete standalone application."
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -32,6 +37,17 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--host", default=None)
     serve.add_argument("--port", type=int, default=None)
     serve.add_argument("--reload", action="store_true")
+    serve.add_argument("--mode", choices=("standalone", "host", "client"))
+    serve.add_argument("--desktop-url", help="desktop Recollect origin for client mode")
+    serve.add_argument("--token-file", type=Path,
+                       help="private host/client pairing bundle or legacy token file")
+    serve.add_argument("--ssl-certfile", type=Path, help="host TLS certificate file")
+    serve.add_argument("--ssl-keyfile", type=Path, help="host TLS private key file")
+    serve.add_argument(
+        "--allow-http-loopback", action="store_true", default=None,
+        help="allow a legacy token over an explicitly configured loopback tunnel",
+    )
+    serve.add_argument("--env-file", type=Path, default=Path(".env"))
 
     subparsers.add_parser("doctor", help="check the embedder, store and generator")
 
@@ -58,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "voice-setup":
         from .voice_setup import setup_voice, setup_whisper
 
-        config = RecollectConfig.from_env()
+        config = _load_config()
         try:
             for path in setup_voice(args.model_dir or config.voice_model_dir):
                 print(f"  ready: {path}")
@@ -74,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "voice-doctor":
         from .engine.voice import VoiceService
 
-        config = RecollectConfig.from_env()
+        config = _load_config()
         try:
             voice = VoiceService(config)
             voice.warm_up()
@@ -90,21 +106,82 @@ def main(argv: list[str] | None = None) -> int:
 
 def _serve(args) -> int:
     import uvicorn
+    from dotenv import load_dotenv
 
-    config = RecollectConfig.from_env()
-    host = args.host or config.host
-    port = args.port or config.port
-    print(f"recollect serving on http://{host}:{port}")
-    print(f"  inspector : http://{host}:{port}/")
-    print(f"  openai api: http://{host}:{port}/v1")
+    from .deployment import DeploymentConfig
+
+    os.environ["RECOLLECT_ENV_FILE"] = str(args.env_file.resolve())
+    if args.env_file.is_file():
+        load_dotenv(args.env_file)
+    # Uvicorn's factory and reload child must see the same explicit choices.
+    for field, variable in (
+        ("mode", "RECOLLECT_DEPLOYMENT_MODE"),
+        ("host", "RECOLLECT_HOST"),
+        ("port", "RECOLLECT_PORT"),
+        ("desktop_url", "RECOLLECT_DESKTOP_URL"),
+        ("ssl_certfile", "RECOLLECT_SSL_CERTFILE"),
+        ("ssl_keyfile", "RECOLLECT_SSL_KEYFILE"),
+        ("allow_http_loopback", "RECOLLECT_ALLOW_HTTP_LOOPBACK"),
+    ):
+        value = getattr(args, field)
+        if value is not None:
+            os.environ[variable] = str(value.absolute() if isinstance(value, Path)
+                                       else value)
+    try:
+        if args.token_file is not None:
+            from .pairing import load_pairing
+
+            credential = load_pairing(args.token_file)
+            os.environ["RECOLLECT_DEPLOYMENT_TOKEN"] = credential.token
+            if credential.certificate_pem:
+                os.environ["RECOLLECT_TRUSTED_CERTIFICATE_PEM"] = (
+                    credential.certificate_pem
+                )
+                if os.environ.get("RECOLLECT_DEPLOYMENT_MODE") == "host":
+                    for variable, suffix in (
+                        ("RECOLLECT_SSL_CERTFILE", ".tls.crt"),
+                        ("RECOLLECT_SSL_KEYFILE", ".tls.key"),
+                    ):
+                        os.environ.setdefault(variable, str(args.token_file.with_name(
+                            args.token_file.name + suffix,
+                        ).absolute()))
+            else:
+                os.environ.pop("RECOLLECT_TRUSTED_CERTIFICATE_PEM", None)
+        config = DeploymentConfig.from_env(env_file=None)
+    except (ValueError, OSError) as error:
+        print(f"Deployment configuration failed: {error}", file=sys.stderr)
+        return 1
+    scheme = "https" if config.ssl_certfile else "http"
+    print(f"recollect {config.mode} serving on {scheme}://{config.host}:{config.port}")
+    if config.mode != "host":
+        print(f"  inspector : {scheme}://{config.host}:{config.port}/")
+    if config.mode == "client":
+        print(f"  desktop   : {config.desktop_url}")
+    tls_options = {}
+    if config.ssl_certfile:
+        tls_options = {
+            "ssl_certfile": str(config.ssl_certfile),
+            "ssl_keyfile": str(config.ssl_keyfile),
+        }
     uvicorn.run(
-        "recollect.api:create_app",
+        "recollect.deployment:create_app",
         factory=True,
-        host=host,
-        port=port,
+        host=config.host,
+        port=config.port,
         reload=args.reload,
+        proxy_headers=False,
+        ws_max_size=65_536,
+        ws_max_queue=1,
+        ws_per_message_deflate=False,
+        **tls_options,
     )
     return 0
+
+
+def _load_config():
+    from .config import RecollectConfig
+
+    return RecollectConfig.from_env()
 
 
 async def _doctor() -> int:
@@ -112,7 +189,7 @@ async def _doctor() -> int:
     from .engine.embedder import EXPECTED_SENTINEL_SHA256, HarnessEmbedder
     from .engine.generator import Generator, GeneratorSettings
 
-    config = RecollectConfig.from_env()
+    config = _load_config()
     ok = True
 
     print("recollect doctor\n")
@@ -194,7 +271,7 @@ async def _chat(session_id: str | None) -> int:
     """A minimal terminal client, so the harness is usable with no UI."""
     import httpx
 
-    config = RecollectConfig.from_env()
+    config = _load_config()
     base = f"http://{config.host}:{config.port}"
 
     async with httpx.AsyncClient(base_url=base, timeout=300.0) as client:

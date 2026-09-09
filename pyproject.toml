@@ -55,6 +55,7 @@ dev = [
 
 [project.scripts]
 recollect = "recollect.cli:main"
+recollect-host = "recollect.launch:host_main"
 recollect-research-mcp = "recollect.engine.mcp_research:main"
 
 [build-system]

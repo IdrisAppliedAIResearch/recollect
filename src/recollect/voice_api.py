@@ -11,14 +11,20 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .engine.voice import VoiceCancelled, VoiceUnavailable
+from .limits import validate_identifier
 
 
 class SpeechRequest(BaseModel):
     turn_id: str
     stream: bool = False
+
+    @field_validator("turn_id")
+    @classmethod
+    def valid_turn(cls, value: str) -> str:
+        return validate_identifier(value)
 
 
 class _SpeechResponse(StreamingResponse):
@@ -31,7 +37,24 @@ class _SpeechResponse(StreamingResponse):
             await self.body_iterator.aclose()
 
 
-async def _speech_stream(voice, text: str) -> AsyncIterator[bytes]:
+async def _speech_worker(gate, function, *args, **kwargs) -> asyncio.Task:
+    if gate is not None:
+        await gate.acquire()
+    worker = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+
+    def finished(task):
+        # Cancellation of the request must not release admission while native
+        # inference still owns a worker. Waiters stay on the event loop.
+        if gate is not None:
+            gate.release()
+        if not task.cancelled():
+            task.exception()
+
+    worker.add_done_callback(finished)
+    return worker
+
+
+async def _speech_stream(voice, text: str, *, gate=None) -> AsyncIterator[bytes]:
     cancelled = threading.Event()
     chunks = voice.synthesize_chunks(text, cancelled=cancelled)
     worker = None
@@ -45,7 +68,7 @@ async def _speech_stream(voice, text: str) -> AsyncIterator[bytes]:
         while True:
             # Advance only when the response consumer is ready for another
             # chunk; synthesis and queued WAV data cannot grow ahead of it.
-            worker = asyncio.create_task(asyncio.to_thread(next, chunks, None))
+            worker = await _speech_worker(gate, next, chunks, None)
             audio = await asyncio.shield(worker)
             if audio is None:
                 yield b'{"type":"done"}\n'
@@ -85,6 +108,8 @@ def _allowed_origin(origin: str | None, host: str | None) -> bool:
 
 
 def install_voice_routes(app: FastAPI, state: Callable) -> None:
+    speech_gate = asyncio.Semaphore(1)
+
     @app.get("/api/voice/status")
     async def status() -> dict:
         return await asyncio.to_thread(state().voice.status)
@@ -95,7 +120,11 @@ def install_voice_routes(app: FastAPI, state: Callable) -> None:
                                request.headers.get("host")):
             raise HTTPException(403, "Voice requests must come from Recollect.")
         current = state()
-        trace = await asyncio.to_thread(current.sessions.find_trace, body.turn_id)
+        try:
+            trace = await asyncio.to_thread(current.sessions.find_trace, body.turn_id)
+        except ValueError as error:
+            raise HTTPException(400, "Invalid turn identifier or storage path.") \
+                from error
         if trace is None:
             raise HTTPException(404, "No such completed turn.")
         generation = trace.generation
@@ -105,33 +134,47 @@ def install_voice_routes(app: FastAPI, state: Callable) -> None:
             raise HTTPException(409, "This turn has no reply to speak.")
         if body.stream:
             return _SpeechResponse(
-                _speech_stream(current.voice, generation.response_text),
+                _speech_stream(
+                    current.voice, generation.response_text, gate=speech_gate,
+                ),
                 media_type="application/x-ndjson",
                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
             )
         cancelled = threading.Event()
-        worker = asyncio.create_task(asyncio.to_thread(
-            current.voice.synthesize, generation.response_text, cancelled=cancelled,
+        worker = None
+        admission = asyncio.create_task(_speech_worker(
+            speech_gate, current.voice.synthesize, generation.response_text,
+            cancelled=cancelled,
         ))
 
         async def watch_disconnect() -> None:
-            while not worker.done():
+            while worker is None or not worker.done():
                 if await request.is_disconnected():
                     cancelled.set()
+                    # A queued full-WAV request has no native worker yet.
+                    # Remove its waiter instead of synthesizing abandoned audio.
+                    admission.cancel()
                     return
                 await asyncio.sleep(0.1)
 
         watcher = asyncio.create_task(watch_disconnect())
         try:
-            audio = await worker
+            try:
+                worker = await admission
+            except asyncio.CancelledError:
+                if cancelled.is_set():
+                    raise VoiceCancelled("Speech was interrupted.") from None
+                raise
+            audio = await asyncio.shield(worker)
         except VoiceCancelled as error:
             raise HTTPException(499, str(error)) from error
         except (VoiceUnavailable, ValueError, RuntimeError) as error:
             raise HTTPException(503, str(error)) from error
         finally:
             cancelled.set()
+            admission.cancel()
             watcher.cancel()
-            await asyncio.gather(watcher, return_exceptions=True)
+            await asyncio.gather(admission, watcher, return_exceptions=True)
         return Response(audio, media_type="audio/wav", headers={
             "Cache-Control": "no-store",
         })

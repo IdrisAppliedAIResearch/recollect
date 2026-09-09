@@ -28,12 +28,12 @@ import asyncio
 import json
 import time
 import uuid
-from collections import defaultdict
 from collections.abc import AsyncIterator, Callable
 from contextlib import aclosing, asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+from weakref import WeakValueDictionary
 
 import httpx
 from anyio import CancelScope
@@ -41,7 +41,7 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from . import __version__
 from .config import RecollectConfig
@@ -67,6 +67,12 @@ from .engine.subagent import (
     transfer_task,
 )
 from .engine.voice import VoiceService
+from .engine.webtools import PublicWebTransport
+from .limits import (
+    MAX_MESSAGE_CHARS,
+    MAX_TITLE_CHARS,
+    validate_identifier,
+)
 from .session import ChatTurn, SessionInfo, SessionManager
 from .trace import SubagentTrace, ToolCallTrace, TurnSummary, TurnTrace
 from .voice_api import install_voice_routes
@@ -96,12 +102,17 @@ def _turn_system_prompt(
 
 class ChatRequest(BaseModel):
     session_id: str
-    message: str
+    message: str = Field(max_length=MAX_MESSAGE_CHARS)
     input_mode: Literal["text", "voice"] = "text"
+
+    @field_validator("session_id")
+    @classmethod
+    def valid_session(cls, value: str) -> str:
+        return validate_identifier(value)
 
 
 class CreateSession(BaseModel):
-    title: str | None = None
+    title: str | None = Field(default=None, max_length=MAX_TITLE_CHARS)
 
 
 class _ChatResponse(StreamingResponse):
@@ -177,6 +188,7 @@ class AppState:
         self.web_client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=10.0),
             follow_redirects=True,
+            transport=PublicWebTransport(), trust_env=False,
             headers={
                 "User-Agent": "recollect-research/1.0 (local research agent)"
             },
@@ -188,13 +200,20 @@ class AppState:
         # A session is an append-only log with a turn counter; two turns
         # racing on one session would interleave episodes and corrupt the
         # ordering the recency window depends on.
-        self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
     def lock(self, session_id: str) -> asyncio.Lock:
-        return self._locks[session_id]
+        validate_identifier(session_id)
+        lock = self._locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[session_id] = lock
+        return lock
 
 
-def create_app(config: RecollectConfig | None = None) -> FastAPI:
+def create_app(
+    config: RecollectConfig | None = None, *, serve_ui: bool = True,
+) -> FastAPI:
     config = config or RecollectConfig.from_env()
 
     @asynccontextmanager
@@ -224,7 +243,7 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -254,15 +273,19 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
 
     @app.get("/api/sessions")
     async def list_sessions() -> list[SessionInfo]:
-        return state().sessions.list_sessions()
+        return await asyncio.to_thread(state().sessions.list_sessions)
 
     @app.post("/api/sessions")
     async def create_session(body: CreateSession = Body(default=CreateSession())):
-        return state().sessions.create_session(body.title)
+        return await asyncio.to_thread(state().sessions.create_session, body.title)
 
     @app.get("/api/sessions/{session_id}/turns")
     async def list_turns(session_id: str) -> list[TurnSummary]:
-        return state().sessions.list_turns(session_id)
+        try:
+            return await asyncio.to_thread(state().sessions.list_turns, session_id)
+        except ValueError as error:
+            raise HTTPException(400, "Invalid session identifier or storage path.") \
+                from error
 
     @app.get("/api/sessions/{session_id}/history")
     async def chat_history(session_id: str) -> list[ChatTurn]:
@@ -270,19 +293,32 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
             return await asyncio.to_thread(state().sessions.chat_history, session_id)
         except KeyError as error:
             raise HTTPException(404, f"No such session: {session_id}") from error
+        except ValueError as error:
+            raise HTTPException(400, "Invalid session identifier or storage path.") \
+                from error
 
     @app.get("/api/turns/{turn_id}")
     async def get_turn(turn_id: str) -> TurnTrace:
-        trace = state().sessions.find_trace(turn_id)
+        try:
+            trace = await asyncio.to_thread(state().sessions.find_trace, turn_id)
+        except ValueError as error:
+            raise HTTPException(400, "Invalid turn identifier or storage path.") \
+                from error
         if trace is None:
             raise HTTPException(404, f"No such turn: {turn_id}")
         return trace
 
     @app.get("/api/sessions/{session_id}/episodes/{episode_id}")
     async def get_episode(session_id: str, episode_id: str) -> dict:
-        episode = await asyncio.to_thread(
-            state().sessions.episode, session_id, episode_id
-        )
+        try:
+            episode = await asyncio.to_thread(
+                state().sessions.episode, session_id, episode_id
+            )
+        except KeyError as error:
+            raise HTTPException(404, "No such session.") from error
+        except ValueError as error:
+            raise HTTPException(400, "Invalid session identifier or storage path.") \
+                from error
         if episode is None:
             raise HTTPException(404, f"No such episode: {episode_id}")
         return episode
@@ -323,8 +359,15 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
         message = _last_user_message(body)
         if message is None:
             raise HTTPException(400, "No user message in the request")
+        if len(message) > MAX_MESSAGE_CHARS:
+            raise HTTPException(413, "The user message exceeds the size limit.")
+        user = body.get("user")
+        if user is not None and (
+            not isinstance(user, str) or len(user) > MAX_TITLE_CHARS - len("openai:")
+        ):
+            raise HTTPException(400, "Invalid OpenAI user field.")
         session_id = await asyncio.to_thread(
-            _resolve_session, current, body.get("user")
+            _resolve_session, current, user
         )
 
         if body.get("stream"):
@@ -363,7 +406,7 @@ def create_app(config: RecollectConfig | None = None) -> FastAPI:
     # -- static UI ----------------------------------------------------------
 
     dist = Path(__file__).resolve().parent.parent.parent / "ui" / "dist"
-    if dist.is_dir():
+    if serve_ui and dist.is_dir():
         app.mount(
             "/assets", StaticFiles(directory=dist / "assets"), name="assets"
         )
@@ -914,7 +957,12 @@ async def _stream_openai(
 
 
 def _last_user_message(body: dict) -> str | None:
-    for message in reversed(body.get("messages") or []):
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return None
+    for message in reversed(messages):
+        if not isinstance(message, dict):
+            continue
         if message.get("role") == "user":
             content = message.get("content")
             if isinstance(content, str):
@@ -925,6 +973,7 @@ def _last_user_message(body: dict) -> str | None:
                     part.get("text", "")
                     for part in content
                     if isinstance(part, dict) and part.get("type") == "text"
+                    and isinstance(part.get("text", ""), str)
                 )
     return None
 

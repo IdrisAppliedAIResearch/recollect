@@ -66,6 +66,122 @@ _PROVIDER_INTERVALS = {
 _ATOM = "{http://www.w3.org/2005/Atom}"
 
 
+class _WebPolicyError(httpx.RequestError):
+    def __init__(self, message: str, kind: str) -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
+def _public_addresses(hostname: str) -> list[str]:
+    if "%" in hostname:
+        raise _WebPolicyError("scoped or escaped hostnames are refused", "invalid_url")
+    try:
+        literal = ipaddress.ip_address(hostname)
+    except ValueError:
+        try:
+            addresses = [info[4][0] for info in socket.getaddrinfo(hostname, None)]
+        except socket.gaierror as error:
+            raise _WebPolicyError(
+                f"host {hostname!r} does not resolve: {error}", "blocked_address"
+            ) from error
+    else:
+        addresses = [str(literal)]
+    vetted: list[str] = []
+    for address in addresses:
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError as error:
+            raise _WebPolicyError("invalid DNS address", "blocked_address") from error
+        if not ip.is_global or ip.is_multicast or "%" in address:
+            raise _WebPolicyError(
+                f"refused: {hostname!r} resolves to a nonpublic address ({ip}); "
+                "only public http/https pages may be fetched",
+                "blocked_address",
+            )
+        if str(ip) not in vetted:
+            vetted.append(str(ip))
+    if not vetted:
+        raise _WebPolicyError("host has no usable addresses", "blocked_address")
+    return vetted
+
+
+class _LimitedResponseStream(httpx.AsyncByteStream):
+    def __init__(self, stream: httpx.AsyncByteStream) -> None:
+        self._stream = stream
+
+    async def __aiter__(self):
+        size = 0
+        async for chunk in self._stream:
+            size += len(chunk)
+            if size > _MAX_RESPONSE_BYTES:
+                raise _WebPolicyError(
+                    "response exceeded the 2 MB limit", "response_too_large"
+                )
+            yield chunk
+
+    async def aclose(self) -> None:
+        await self._stream.aclose()
+
+
+class PublicWebTransport(httpx.AsyncBaseTransport):
+    """Connect only to vetted public IPs, keeping the original HTTP/TLS identity."""
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        # The pool is keyed by the vetted IP. Do not reuse a TLS connection
+        # for a different hostname that happens to share that IP.
+        self._transport = (
+            transport if transport is not None else httpx.AsyncHTTPTransport(
+                trust_env=False,
+                limits=httpx.Limits(max_connections=10, max_keepalive_connections=0),
+            )
+        )
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        url = request.url
+        if url.scheme not in {"http", "https"} or not url.host or url.userinfo:
+            raise _WebPolicyError("only public http/https URLs", "invalid_url")
+        hostname = url.raw_host.decode("ascii")
+        timeout = request.extensions.get("timeout", {}).get("connect") or 5.0
+        try:
+            addresses = await asyncio.wait_for(
+                asyncio.to_thread(_public_addresses, hostname), timeout=timeout
+            )
+        except TimeoutError as error:
+            raise httpx.ConnectTimeout("public DNS lookup timed out") from error
+        headers = request.headers.copy()
+        headers["Host"] = url.netloc.decode("ascii")
+        headers["Connection"] = "close"
+        # Refuse compressed responses before HTTPX can allocate a decoded
+        # chunk. Servers may supply an ordinary identity representation.
+        headers["Accept-Encoding"] = "identity"
+        pinned = httpx.Request(
+            request.method,
+            url.copy_with(host=addresses[0]),
+            headers=headers,
+            stream=request.stream,
+            # HTTPCore's documented extension preserves certificate hostname
+            # validation even though the connection target is a literal IP.
+            extensions={**request.extensions, "sni_hostname": hostname},
+        )
+        response = await self._transport.handle_async_request(pinned)
+        if response.headers.get("Content-Encoding", "identity").strip().lower() not in {
+            "", "identity"
+        }:
+            await response.aclose()
+            raise _WebPolicyError(
+                "server ignored the identity encoding request", "unsupported_encoding"
+            )
+        return httpx.Response(
+            response.status_code,
+            headers=response.headers,
+            stream=_LimitedResponseStream(response.stream),
+            extensions=response.extensions,
+        )
+
+    async def aclose(self) -> None:
+        await self._transport.aclose()
+
+
 class _RateLimited(RuntimeError):
     def __init__(self, provider: str, retry_after: float | None) -> None:
         self.provider = provider
@@ -669,25 +785,9 @@ def _blocked_host(hostname: str) -> str:
     link-local, reserved and unspecified ranges are all refused.
     """
     try:
-        infos = socket.getaddrinfo(hostname, None)
-    except socket.gaierror as error:
-        return f"host {hostname!r} does not resolve: {error}"
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            continue
-        if (
-            ip.is_loopback
-            or ip.is_private
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
-            return (
-                f"refused: {hostname!r} resolves to a local or private "
-                f"address ({ip}); only public http/https pages may be fetched"
-            )
+        _public_addresses(hostname)
+    except _WebPolicyError as error:
+        return str(error)
     return ""
 
 
@@ -732,8 +832,15 @@ async def web_fetch(
     status = 0
     final_url = current_url
     for _ in range(6):
-        parts = urlsplit(current_url)
-        if parts.scheme not in ("http", "https") or not parts.hostname:
+        try:
+            # HTTPX percent-escapes a stray '[' instead of rejecting it.
+            # Validate the caller's original authority before normalization.
+            _ = urlsplit(current_url).port
+            parsed = httpx.URL(current_url)
+            valid = parsed.scheme in {"http", "https"} and parsed.host
+        except (httpx.InvalidURL, ValueError):
+            valid = False
+        if not valid or parsed.userinfo:
             return _fetch_document(
                 requested_url,
                 current_url,
@@ -741,7 +848,9 @@ async def web_fetch(
                 error_kind="invalid_url",
                 retryable=False,
             )
-        blocked = await asyncio.to_thread(_blocked_host, parts.hostname)
+        blocked = await asyncio.to_thread(
+            _blocked_host, parsed.raw_host.decode("ascii")
+        )
         if blocked:
             return _fetch_document(
                 requested_url,
@@ -762,7 +871,8 @@ async def web_fetch(
         seen.add(normalized)
         try:
             async with client.stream(
-                "GET", current_url, follow_redirects=False
+                "GET", current_url, follow_redirects=False,
+                headers={"Accept-Encoding": "identity"},
             ) as response:
                 status = response.status_code
                 final_url = str(response.url)
@@ -781,10 +891,15 @@ async def web_fetch(
                     continue
                 if not response.is_success:
                     return _http_failure(requested_url, final_url, response)
+                encoding = response.headers.get("Content-Encoding", "identity")
+                if encoding.strip().lower() not in {"", "identity"}:
+                    raise _WebPolicyError(
+                        "server ignored the identity encoding request",
+                        "unsupported_encoding",
+                    )
                 chunks = bytearray()
                 async for chunk in response.aiter_bytes():
-                    chunks.extend(chunk)
-                    if len(chunks) > _MAX_RESPONSE_BYTES:
+                    if len(chunks) + len(chunk) > _MAX_RESPONSE_BYTES:
                         return _fetch_document(
                             requested_url,
                             final_url,
@@ -793,8 +908,17 @@ async def web_fetch(
                             error_kind="response_too_large",
                             retryable=False,
                         )
+                    chunks.extend(chunk)
                 content = bytes(chunks)
                 break
+        except _WebPolicyError as error:
+            return _fetch_document(
+                requested_url,
+                current_url,
+                error=str(error),
+                error_kind=error.kind,
+                retryable=False,
+            )
         except httpx.HTTPError as error:
             return _fetch_document(
                 requested_url,

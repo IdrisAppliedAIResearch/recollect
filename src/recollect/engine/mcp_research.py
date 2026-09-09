@@ -20,6 +20,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 from .webtools import (
+    PublicWebTransport,
     SearchProviderState,
     SearchRunState,
 )
@@ -50,6 +51,8 @@ async def web_search(query: str, max_results: int = 8) -> str:
             {"tool": "web_search", "error": "missing 'query'"}, ensure_ascii=False
         )
     async with httpx.AsyncClient(
+        transport=PublicWebTransport(),
+        trust_env=False,
         timeout=httpx.Timeout(_SERVER_TIMEOUT_S, connect=10.0),
         follow_redirects=True,
         headers={"User-Agent": _UA},
@@ -74,6 +77,8 @@ async def web_fetch(url: str, max_chars: int = 4_000) -> str:
             {"tool": "web_fetch", "error": "missing 'url'"}, ensure_ascii=False
         )
     async with httpx.AsyncClient(
+        transport=PublicWebTransport(),
+        trust_env=False,
         timeout=httpx.Timeout(_SERVER_TIMEOUT_S, connect=10.0),
         follow_redirects=True,
         headers={"User-Agent": _UA},

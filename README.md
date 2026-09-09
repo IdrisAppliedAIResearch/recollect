@@ -74,6 +74,13 @@ than plausible, and it is why the library is never forked to add logging.
 
 ## Local quickstart
 
+For the full standalone launcher or the Windows desktop host + Ubuntu Surface
+client setup, see [Deployment configurations](docs/DEPLOYMENT.md).
+After one-time setup, use `recollect` for standalone Windows,
+`recollect-host` for the Windows host, or `recollect-deploy` on Ubuntu.
+Split deployment uses a copied pairing bundle for verified HTTPS/WSS. See
+[security hardening and remaining deployment checks](docs/SECURITY_HARDENING_2026-09-08.md).
+
 The default setup uses Docker for the isolated OpenCode research subagent.
 Three components remain running locally: Docker Engine (or Docker Desktop),
 the chat model server, and Recollect. Recollect starts and attests the OpenCode

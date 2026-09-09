@@ -1,0 +1,11 @@
+# Only these source inputs are needed by the sandbox image.
+**
+!deploy/
+!deploy/opencode-sandbox/
+!deploy/opencode-sandbox/Dockerfile
+!deploy/opencode-sandbox/requirements.lock
+!src/
+!src/recollect/
+!src/recollect/engine/
+!src/recollect/engine/mcp_research.py
+!src/recollect/engine/webtools.py

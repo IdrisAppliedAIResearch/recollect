@@ -23,6 +23,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from episodic import EpisodicConfig
 
+from .limits import validate_identifier
+
 #: The deployed context budget, in characters. This is the value the studies
 #: ran at; the library enforces it as a hard ceiling with no tolerance.
 DEFAULT_BUDGET_CHARS = 32_000
@@ -249,13 +251,30 @@ class RecollectConfig:
         return self.data_dir / "sessions"
 
     def session_dir(self, session_id: str) -> Path:
-        return self.sessions_dir / session_id
+        return self._contained_path(validate_identifier(session_id))
+
+    def _contained_path(self, *parts: str) -> Path:
+        path = self.sessions_dir.joinpath(*parts)
+        if not path.resolve().is_relative_to(self.sessions_dir.resolve()):
+            raise ValueError("Session storage path leaves the configured directory.")
+        return path
+
+    def session_file(self, session_id: str, filename: str) -> Path:
+        if filename not in {"session.json", "turns.jsonl", "episodes.sqlite"}:
+            raise ValueError("Unsupported session file.")
+        return self._contained_path(validate_identifier(session_id), filename)
 
     def store_path(self, session_id: str) -> Path:
-        return self.session_dir(session_id) / "episodes.sqlite"
+        return self.session_file(session_id, "episodes.sqlite")
 
     def traces_dir(self, session_id: str) -> Path:
-        return self.session_dir(session_id) / "traces"
+        return self._contained_path(validate_identifier(session_id), "traces")
+
+    def trace_path(self, session_id: str, turn_id: str) -> Path:
+        return self._contained_path(
+            validate_identifier(session_id), "traces",
+            f"{validate_identifier(turn_id)}.json",
+        )
 
     @classmethod
     def from_env(cls, *, env_file: str | Path | None = ".env") -> RecollectConfig:
