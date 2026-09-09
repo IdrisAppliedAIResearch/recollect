@@ -43,6 +43,7 @@ from dataclasses import dataclass
 import httpx
 
 from ..trace import GenerationTrace, ToolCallTrace
+from .context_window import check_context
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,8 @@ class GeneratorSettings:
     thinking: bool = False
     max_tokens: int = 1_024
     temperature: float = 0.7
+    context_tokens: int | None = None
+    require_tools: bool = False
 
 
 @dataclass
@@ -203,6 +206,7 @@ class Generator:
         max_tokens: int | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Wait for the single local-model slot, then stream a completion."""
+        queued = time.perf_counter()
         async with (
             self._model_slot,
             aclosing(self._stream_unlocked(
@@ -212,6 +216,7 @@ class Generator:
                 max_tokens=max_tokens,
             )) as stream,
         ):
+            trace.model_queue_ms = (time.perf_counter() - queued) * 1_000
             async for chunk in stream:
                 yield chunk
 
@@ -255,9 +260,12 @@ class Generator:
             # Native tool calling: the carried GGUF's chat template has a live
             # tools/function branch (probed against the target server), so the
             # model is asked to select a tool rather than emit JSON in prose.
-            # `auto` lets it answer normally when no tool fits.
+            # Continuous chat requires an explicit operation or task_reply so
+            # status-only replies cannot silently become memory episodes.
             payload["tools"] = tools
-            payload["tool_choice"] = "auto"
+            payload["tool_choice"] = (
+                "required" if self.settings.require_tools else "auto"
+            )
         trace.thinking_enabled = self.settings.thinking
 
         started = time.perf_counter()
@@ -273,6 +281,14 @@ class Generator:
         tool_parts: dict[int, dict[str, str]] = {}
 
         try:
+            if self.settings.context_tokens is not None:
+                try:
+                    await check_context(
+                        self._client, payload, self.settings.context_tokens,
+                    )
+                except ValueError as error:
+                    trace.error = str(error)
+                    raise GenerationError(trace.error) from error
             async with self._client.stream(
                 "POST", "/chat/completions", json=payload
             ) as response:

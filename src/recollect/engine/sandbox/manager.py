@@ -54,6 +54,7 @@ class SandboxHandle:
     isolation: str = "test"
     oc_session_id: str | None = None
     busy: bool = False
+    quarantined: bool = False
     last_used: float = field(default_factory=time.monotonic)
 
     def alive(self) -> bool:
@@ -68,6 +69,7 @@ class SandboxInvocation:
     invocation_id: str
     oc_session_id: str
     process_reused: bool
+    model_acquired: bool = True
 
 
 _START_TIMEOUT_S = 60.0
@@ -95,6 +97,8 @@ class SandboxManager:
         *,
         command_factory: CommandFactory | None = None,
         model_slot: asyncio.Lock | None = None,
+        model_base_url: str | None = None,
+        model_api_key: str | None = None,
     ) -> None:
         self._config = config
         # Absolute on purpose: a relative workdir lands the opencode
@@ -109,6 +113,15 @@ class SandboxManager:
         self._model_slot = model_slot or asyncio.Lock()
         self._reaper: asyncio.Task | None = None
         self._commands = command_factory
+        self._model_base_url = model_base_url
+        self._model_api_key = model_api_key
+
+    def configure_model(self, base_url: str, api_key: str) -> None:
+        """Set the admitted inference endpoint before the sandbox starts."""
+        if self._handle is not None or self._active is not None:
+            raise RuntimeError("cannot change the model endpoint of a live sandbox")
+        self._model_base_url = base_url
+        self._model_api_key = api_key
 
     # -- lifecycle -------------------------------------------------------
 
@@ -118,6 +131,11 @@ class SandboxManager:
             return await self._ensure_locked()
 
     async def _ensure_locked(self) -> SandboxHandle:
+        if (self._root / "execution-quarantine.json").exists():
+            raise SandboxStartError(
+                "Sandbox execution could not be confirmed stopped. Verify the "
+                "recorded owned container is stopped before clearing quarantine."
+            )
         handle = self._handle
         if handle is not None and handle.alive():
             return handle
@@ -126,15 +144,18 @@ class SandboxManager:
         self._handle = await self._spawn()
         return self._handle
 
-    async def begin_invocation(self, session_id: str) -> SandboxInvocation:
+    async def begin_invocation(
+        self, session_id: str, *, continuous: bool = False
+    ) -> SandboxInvocation:
         """Create fresh conversation and scratch state on the warm server."""
         await self._invocation_lock.acquire()
         model_acquired = False
         try:
             # OpenCode may use several model calls, including native child
             # agents. Hold the single hardware slot for the whole run.
-            await self._model_slot.acquire()
-            model_acquired = True
+            if not continuous:
+                await self._model_slot.acquire()
+                model_acquired = True
             async with self._lifecycle_lock:
                 current = self._handle
                 process_reused = current is not None and current.alive()
@@ -171,6 +192,7 @@ class SandboxManager:
                     invocation_id=invocation_id,
                     oc_session_id=oc_session_id,
                     process_reused=process_reused,
+                    model_acquired=model_acquired,
                 )
                 self._active = invocation
                 return invocation
@@ -199,20 +221,84 @@ class SandboxManager:
                     # The next call creates a distinct session, so an orphaned
                     # conversation is not a reason to take down warm shared
                     # infrastructure. Idle teardown remains eventual cleanup.
-                    pass
+                    if not invocation.model_acquired:
+                        self._handle = None
+                        await self._shutdown(handle)
                 finally:
                     handle.oc_session_id = None
                     handle.busy = False
                     handle.last_used = time.monotonic()
                     self._active = None
-                    with contextlib.suppress(OSError):
-                        await asyncio.to_thread(
-                            self._scrub_workspace, handle.workdir
-                        )
+                    if not handle.quarantined:
+                        with contextlib.suppress(OSError):
+                            await asyncio.to_thread(
+                                self._scrub_workspace, handle.workdir
+                            )
         finally:
             if release_slots:
-                self._model_slot.release()
+                if invocation.model_acquired:
+                    self._model_slot.release()
                 self._invocation_lock.release()
+
+    async def quiesce_invocation(self, invocation: SandboxInvocation) -> None:
+        """Revoke native execution rights before copying workspace files."""
+        async with self._lifecycle_lock:
+            if self._active is not invocation or self._handle is not invocation.handle:
+                return
+            handle = invocation.handle
+            try:
+                async with asyncio.timeout(20):
+                    response = await handle.client.post(
+                        f"/session/{invocation.oc_session_id}/abort", timeout=10
+                    )
+                    response.raise_for_status()
+                    response = await handle.client.get(
+                        f"/session/{invocation.oc_session_id}/children", timeout=10
+                    )
+                    response.raise_for_status()
+                    for child in response.json():
+                        if child.get("parentID") == invocation.oc_session_id:
+                            response = await handle.client.post(
+                                f"/session/{child['id']}/abort", timeout=10
+                            )
+                            response.raise_for_status()
+            except (httpx.HTTPError, ValueError, TypeError, KeyError, TimeoutError):
+                # Unknown native execution state cannot keep access to scratch.
+                self._handle = None
+                try:
+                    await self._shutdown(handle, strict=True)
+                except SandboxStartError:
+                    await self._quarantine(handle)
+                    raise
+
+    async def _quarantine(self, handle: SandboxHandle) -> None:
+        handle.quarantined = True
+        marker = self._root / "execution-quarantine.json"
+        await asyncio.to_thread(marker.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(
+            marker.write_text,
+            json.dumps({
+                "container": handle.container.name if handle.container else None,
+                "reason": "native execution stop is unconfirmed",
+            }), encoding="utf-8",
+        )
+
+    async def force_stop_active(self) -> None:
+        """Shutdown recovery when an owned worker will not release its lease."""
+        invocation = self._active
+        handle = invocation.handle if invocation is not None else self._handle
+        if handle is None:
+            return
+        try:
+            await self._shutdown(handle, strict=True)
+        except SandboxStartError:
+            await self._quarantine(handle)
+            raise
+        finally:
+            if self._handle is handle:
+                self._handle = None
+            if invocation is not None:
+                await self.finish_invocation(invocation)
 
     @staticmethod
     def _scrub_workspace(workdir: Path) -> None:
@@ -239,22 +325,29 @@ class SandboxManager:
         password = uuid.uuid4().hex
         container: ContainerLaunch | None = None
         if self._commands is None:
-            base_url = container_model_url(cfg.generator_base_url)
+            base_url = container_model_url(
+                self._model_base_url or cfg.generator_base_url
+            )
             runtime_workdir = "/workspace"
             prompt_dir = "/config"
         else:
-            base_url = cfg.generator_base_url
+            base_url = self._model_base_url or cfg.generator_base_url
             runtime_workdir = str(workdir)
             prompt_dir = str(config_dir)
         config_path = configgen.write_config(
             config_dir,
             base_url=base_url,
             model=cfg.generator_model,
-            api_key=cfg.generator_api_key,
+            api_key=self._model_api_key or cfg.generator_api_key,
             steps=cfg.sandbox_steps,
             runtime_workdir=runtime_workdir,
             runtime_python="/usr/local/bin/python" if self._commands is None else None,
             prompt_dir=prompt_dir,
+            **({
+                "context_limit": cfg.generator_context_tokens,
+                "output_limit": cfg.subagent_inference_tokens,
+                "continuous": True,
+            } if getattr(cfg, "subagent_continuous_enabled", False) else {}),
         )
         if self._commands is not None:
             argv = self._commands(port, workdir, password)
@@ -432,9 +525,13 @@ class SandboxManager:
             if handle is not None:
                 await self._shutdown(handle)
 
-    async def _shutdown(self, handle: SandboxHandle) -> None:
+    async def _shutdown(
+        self, handle: SandboxHandle, *, strict: bool = False
+    ) -> None:
         handle.busy = False
+        stopped = True
         if handle.container is not None:
+            stopped = False
             with contextlib.suppress(OSError):
                 cleanup = await asyncio.create_subprocess_exec(
                     handle.container.runtime,
@@ -446,13 +543,24 @@ class SandboxManager:
                 )
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(cleanup.wait(), timeout=_KILL_GRACE_S)
+                stopped = cleanup.returncode == 0
+                if cleanup.returncode is None:
+                    with contextlib.suppress(ProcessLookupError):
+                        cleanup.kill()
+                    await cleanup.wait()
         process = handle.process
         if process is not None and process.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(process.wait(), timeout=_KILL_GRACE_S)
+            stopped = stopped and process.returncode is not None
         await handle.client.aclose()
+        if strict and not stopped:
+            raise SandboxStartError(
+                "Sandbox stop could not be verified; workspace export and reuse "
+                "were refused. Saved reports remain available."
+            )
 
     async def close_all(self) -> None:
         """Server shutdown: stop the sandbox and the reaper."""

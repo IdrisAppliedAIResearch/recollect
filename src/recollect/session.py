@@ -61,6 +61,7 @@ class ChatTurn(BaseModel):
     assistant_message: str
     reasoning_text: str = ""
     error: str | None = None
+    started_at: datetime | None = None
 
 
 @dataclass
@@ -387,6 +388,7 @@ class SessionManager:
                     assistant_message=generation.get("response_text", ""),
                     reasoning_text=generation.get("reasoning_text", ""),
                     error=generation.get("error"),
+                    started_at=document.get("started_at"),
                 )
             except (OSError, ValueError, KeyError):
                 turn = ChatTurn(

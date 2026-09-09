@@ -18,6 +18,7 @@ export interface VoiceState {
   pendingTranscript: string | null
   limitSeconds: number | null
   recoveredDraft: string | null
+  playbackKind: 'reply' | 'notification' | null
 }
 
 export const initialVoiceState: VoiceState = {
@@ -31,6 +32,7 @@ export const initialVoiceState: VoiceState = {
   pendingTranscript: null,
   limitSeconds: null,
   recoveredDraft: null,
+  playbackKind: null,
 }
 
 interface Options {
@@ -78,6 +80,7 @@ export class VoiceClient {
   private microphoneControl = 0
   private pendingControl: 'pause' | 'unpause' | null = null
   private lastReplyTurnId: string | null = null
+  private notificationIds = new Set<string>()
   private pendingSendText: string | null = null
   private sendSettled: Promise<void> = Promise.resolve()
   private context: AudioContext | null = null
@@ -250,6 +253,21 @@ export class VoiceClient {
     this.update({ phase: this.idlePhase(), error: null })
   }
 
+  speakNotification(sessionId: string, notificationId: string): boolean {
+    if (!this.started || this.stopped || !this.context || this.replyAbort ||
+        !['listening', 'paused'].includes(this.state.phase) ||
+        this.dictationState !== 'idle' || this.state.pendingTranscript !== null ||
+        this.notificationIds.has(notificationId)) return false
+    this.notificationIds.add(notificationId)
+    if (this.notificationIds.size > 128) this.notificationIds.delete(this.notificationIds.values().next().value!)
+    void this.reply(this.state.partial, null, { session_id: sessionId, notification_id: notificationId })
+    return true
+  }
+
+  stopNotification(): void {
+    if (this.state.playbackKind === 'notification') this.stopReply()
+  }
+
   replayLast(): void {
     if (!this.started || this.stopped || this.state.pendingTranscript !== null ||
         this.dictationState !== 'idle') return
@@ -416,6 +434,7 @@ export class VoiceClient {
     this.replyAbort?.abort()
     this.replyAbort = null
     this.pendingSendText = null
+    this.state.playbackKind = null
     this.playbackState(false)
   }
 
@@ -427,17 +446,21 @@ export class VoiceClient {
     }
   }
 
-  private async reply(text: string, replayTurnId: string | null = null): Promise<void> {
+  private async reply(
+    text: string, replayTurnId: string | null = null,
+    notification: { session_id: string; notification_id: string } | null = null,
+  ): Promise<void> {
     const abort = new AbortController()
     this.replyAbort = abort
     const epoch = ++this.replyEpoch
     const current = () => !this.stopped && !abort.signal.aborted && epoch === this.replyEpoch
-    this.update({ phase: 'thinking', partial: text, error: null })
+    this.update({ phase: 'thinking', partial: text, error: null,
+      playbackKind: notification ? 'notification' : 'reply' })
     try {
       // App.send owns a single in-flight chat. Abort must finish releasing its
       // lock before the next utterance enters it, even if speech ends quickly.
       let turnId = replayTurnId
-      if (!turnId) {
+      if (!turnId && !notification) {
         this.pendingSendText = text
         const sending = this.sendSettled.then(() => {
           if (!current()) return null
@@ -451,10 +474,10 @@ export class VoiceClient {
         this.lastReplyTurnId = turnId
         this.update({ canReplay: true })
       }
-      const response = await fetch('/api/voice/speech', {
+      const response = await fetch(notification ? '/api/voice/notification' : '/api/voice/speech', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ turn_id: turnId, stream: true }),
+        body: JSON.stringify(notification ? { ...notification, stream: true } : { turn_id: turnId, stream: true }),
         signal: abort.signal,
       })
       if (!current()) return
@@ -483,7 +506,7 @@ export class VoiceClient {
       if (!playing) throw new Error('Kokoro returned no spoken audio.')
       this.playbackState(false)
       this.replyAbort = null
-      this.update({ phase: this.idlePhase() })
+      this.update({ phase: this.idlePhase(), playbackKind: null })
     } catch (error) {
       if (current()) this.replyFailed(error)
     }

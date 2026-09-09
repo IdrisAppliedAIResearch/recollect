@@ -31,6 +31,7 @@ export interface ChatTurn {
   assistant_message: string
   reasoning_text: string
   error: string | null
+  started_at?: string
 }
 
 /** One subagent step, as streamed mid-turn. Ephemeral: never persisted. */
@@ -91,5 +92,6 @@ export interface DataSource {
     onEvent: (event: ChatEvent) => void,
     signal?: AbortSignal,
     inputMode?: 'text' | 'voice',
+    requestId?: string,
   ): Promise<void>
 }

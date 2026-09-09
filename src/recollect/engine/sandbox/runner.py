@@ -19,10 +19,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import time
-from collections.abc import AsyncIterator
-from typing import Any
+from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Literal
 
 import httpx
 
@@ -42,6 +45,31 @@ from .manager import (
 #: kept are on establishing and sending, not on reading.
 _REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=None, pool=None)
 _EVENT_QUEUE_SIZE = 32
+_RECONCILE_SECONDS = 2.0
+
+
+@dataclass(frozen=True)
+class TaskCommand:
+    message_id: str
+    kind: Literal["steer", "cancel"]
+    text: str = ""
+    revision: int = 1
+
+
+@dataclass(frozen=True)
+class TaskReport:
+    kind: str
+    text: str
+    revision: int
+    related_message_id: str = ""
+    sources: list[str] = field(default_factory=list)
+    artifacts: list[str] = field(default_factory=list)
+    native_session_id: str = ""
+    call_id: str = ""
+
+
+ReportCallback = Callable[[TaskReport], Awaitable[None]]
+WorkspaceCallback = Callable[[Path], Awaitable[None]]
 
 
 def _display_tool(name: str) -> str:
@@ -152,6 +180,443 @@ class OpenCodeRunner:
                 response.raise_for_status()
         await self._manager.finish_invocation(invocation)
 
+    async def run_continuous(
+        self,
+        session_id: str,
+        task: str,
+        *,
+        commands: asyncio.Queue[TaskCommand],
+        report: ReportCallback,
+        revision: int = 1,
+        effort: SubagentEffort = "focused",
+        restore_workspace: WorkspaceCallback | None = None,
+        save_workspace: WorkspaceCallback | None = None,
+    ) -> AsyncIterator[SubagentStep | SubagentResult]:
+        """Run owned work independently of a foreground response's lifetime.
+
+        Per-request admission belongs to the manager's configured model ingress.
+        Native sessions live for this invocation; later invocations restore only
+        validated workspace files and the caller's structured checkpoint.
+        """
+        started = time.perf_counter()
+        try:
+            invocation = await self._manager.begin_invocation(
+                session_id, continuous=True
+            )
+        except (SandboxStartError, httpx.HTTPError, OSError, ValueError) as error:
+            yield self._error_result(task, str(error), [], [], started)
+            return
+        final: SubagentResult | None = None
+        try:
+            if restore_workspace is not None:
+                await restore_workspace(invocation.handle.workdir)
+            async for item in self._continuous_invocation(
+                invocation, task, commands, report, revision, effort, started,
+                save_workspace,
+            ):
+                if isinstance(item, SubagentResult):
+                    final = item
+                else:
+                    yield item
+        finally:
+            # Abort native children too, including background task tools, before
+            # reading files or allowing a different conversation to own scratch.
+            async def finish() -> None:
+                try:
+                    await self._manager.quiesce_invocation(invocation)
+                    if save_workspace is not None:
+                        await save_workspace(invocation.handle.workdir)
+                finally:
+                    await self._manager.finish_invocation(invocation)
+
+            cleanup = asyncio.create_task(finish())
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                await cleanup
+                raise
+        if final is not None:
+            final.effort = effort
+            final.backend = "opencode"
+            final.isolation = invocation.handle.isolation
+            final.fresh_context = True
+            final.server_reused = invocation.process_reused
+            yield final
+
+    async def _continuous_invocation(
+        self,
+        invocation: SandboxInvocation,
+        task: str,
+        commands: asyncio.Queue[TaskCommand],
+        report: ReportCallback,
+        revision: int,
+        effort: SubagentEffort,
+        started: float,
+        save_workspace: WorkspaceCallback | None,
+    ) -> AsyncIterator[SubagentStep | SubagentResult]:
+        handle, oc_id = invocation.handle, invocation.oc_session_id
+        steps: list[SubagentStep] = []
+        sources: list[str] = []
+        children: set[str] = set()
+        seen_calls: set[str] = set()
+        seen_reports: set[tuple[str, str]] = set()
+        revisions = {revision: ""}
+        issued: set[str] = set()
+        accepted: set[int] = set()
+        result_revisions: set[int] = set()
+        assistant_ids: set[str] = set()
+        events: asyncio.Queue[dict] = asyncio.Queue(maxsize=_EVENT_QUEUE_SIZE)
+        pump = asyncio.create_task(self._pump_events(handle, events))
+        messages: list[asyncio.Task[dict]] = []
+        cancelled = False
+        failures = 0
+        next_reconcile = 0.0
+        pending_commands: list[TaskCommand] = []
+        waiting_for_input = False
+        checkpoint_assistants = 0
+        checkpoint_evidence: set[str] = set()
+        evidence_signatures: set[str] = set()
+        empty_checkpoints = 0
+
+        async def apply(event: dict) -> SubagentStep | None:
+            nonlocal waiting_for_input
+            entry = self._report_from_event(event, oc_id, children)
+            if entry is not None:
+                key = (entry.native_session_id, entry.call_id)
+                if key not in seen_reports and entry.revision in revisions:
+                    valid = entry.kind != "accepted" or (
+                        entry.native_session_id == oc_id
+                        and entry.related_message_id == revisions[entry.revision]
+                    )
+                    if valid:
+                        await report(entry)
+                        seen_reports.add(key)
+                        sources.extend(entry.sources)
+                        if entry.kind == "accepted":
+                            accepted.add(entry.revision)
+                            if entry.revision == max(revisions):
+                                waiting_for_input = False
+                        elif (
+                            entry.kind in {"question", "blocked"}
+                            and entry.native_session_id == oc_id
+                            and entry.revision == max(revisions)
+                        ):
+                            waiting_for_input = True
+                        elif (
+                            entry.kind == "result"
+                            and entry.native_session_id == oc_id
+                            and entry.revision == max(revisions)
+                        ):
+                            waiting_for_input = False
+                            result_revisions.add(entry.revision)
+            step = self._apply_event(
+                event, oc_id, children, seen_calls, steps, sources,
+                scope_calls=True,
+            )
+            if step is not None and step.tool not in {"report_message", "todowrite"}:
+                state = ((event.get("properties") or {}).get("part") or {}).get(
+                    "state", {}
+                )
+                if state.get("status") == "completed":
+                    evidence_signatures.add(hashlib.sha256(json.dumps(
+                        [step.tool, step.args, state.get("output", "")],
+                        sort_keys=True, ensure_ascii=False,
+                    ).encode()).hexdigest())
+            return step
+
+        def submit(text: str) -> None:
+            messages.append(asyncio.create_task(
+                self._post_message(handle, oc_id, text)
+            ))
+
+        submit(self._continuous_prompt(
+            subagent.transfer_task(task, effort), revision, ""
+        ))
+        try:
+            while True:
+                # Drain control before deciding that the last native response
+                # finishes the task. Late commands become another native turn.
+                while pending_commands or not commands.empty():
+                    command = (
+                        pending_commands.pop(0)
+                        if pending_commands else commands.get_nowait()
+                    )
+                    if command.message_id in issued:
+                        continue
+                    issued.add(command.message_id)
+                    if command.kind == "cancel":
+                        cancelled = True
+                        await self._manager.quiesce_invocation(invocation)
+                        await report(TaskReport(
+                            "canceled", "Delegated work was canceled.",
+                            max(revisions), command.message_id,
+                            native_session_id=oc_id,
+                        ))
+                        break
+                    if command.revision <= max(revisions):
+                        continue
+                    revisions[command.revision] = command.message_id
+                    submit(self._continuous_prompt(
+                        command.text, command.revision, command.message_id
+                    ))
+                if cancelled:
+                    break
+                while not events.empty():
+                    step = await apply(events.get_nowait())
+                    if step is not None:
+                        yield step
+                messages_done = all(message.done() for message in messages)
+                if time.monotonic() >= next_reconcile or (
+                    messages_done and not waiting_for_input
+                ):
+                    try:
+                        async for event in self._history_events(
+                            handle, oc_id, children, assistant_ids
+                        ):
+                            step = await apply(event)
+                            if step is not None:
+                                yield step
+                        failures = 0
+                    except (httpx.HTTPError, ValueError):
+                        failures += 1
+                        if failures >= 3:
+                            raise RuntimeError(
+                                "OpenCode history reconciliation failed three times; "
+                                "saved work is preserved for continuation."
+                            ) from None
+                    next_reconcile = time.monotonic() + _RECONCILE_SECONDS
+                    if pump.done():
+                        pump = asyncio.create_task(self._pump_events(handle, events))
+                if (
+                    all(message.done() for message in messages)
+                    and not waiting_for_input
+                ):
+                    # Give a command accepted in the same loop turn precedence
+                    # over publishing a result from an earlier instruction.
+                    if pending_commands or not commands.empty():
+                        continue
+                    payload = messages[-1].result()
+                    final_text = _last_text(payload.get("parts"))
+                    native_error = (payload.get("info") or {}).get("error")
+                    capped = _looks_like_cap_banner(final_text) or (
+                        len(assistant_ids) - checkpoint_assistants
+                        >= self._config.sandbox_steps
+                    )
+                    if (
+                        capped and not native_error
+                        and max(revisions) not in result_revisions
+                    ):
+                        evidence = set(evidence_signatures)
+                        if evidence - checkpoint_evidence:
+                            empty_checkpoints = 0
+                        else:
+                            empty_checkpoints += 1
+                        checkpoint_evidence = evidence
+                        if empty_checkpoints < 2:
+                            await self._manager.quiesce_invocation(invocation)
+                            if save_workspace is not None:
+                                await save_workspace(handle.workdir)
+                            await report(TaskReport(
+                                "progress", "Saved a native execution checkpoint; "
+                                "continuing the same task.", max(revisions),
+                                native_session_id=oc_id,
+                            ))
+                            checkpoint_assistants = len(assistant_ids)
+                            await asyncio.gather(*messages, return_exceptions=True)
+                            messages.clear()
+                            submit(self._continuous_prompt(
+                                "Continue the current objective from the saved "
+                                "work and native conversation. The previous "
+                                "response reached an execution checkpoint. "
+                                "Do not repeat unchanged unsuccessful actions.",
+                                max(revisions), revisions[max(revisions)],
+                            ))
+                            continue
+                    break
+                event_wait = asyncio.create_task(events.get())
+                command_wait = asyncio.create_task(commands.get())
+                try:
+                    await asyncio.wait(
+                        {event_wait, command_wait, *(
+                            message for message in messages if not message.done()
+                        )},
+                        timeout=max(0.01, next_reconcile - time.monotonic()),
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if event_wait.done():
+                        step = await apply(event_wait.result())
+                        if step is not None:
+                            yield step
+                    if command_wait.done():
+                        pending_commands.append(command_wait.result())
+                finally:
+                    for pending in (event_wait, command_wait):
+                        if not pending.done():
+                            pending.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await pending
+
+            if cancelled:
+                result = self._error_result(
+                    task, "canceled", steps, sources, started
+                )
+                result.status = "partial"
+            else:
+                payload = messages[-1].result()
+                final_text = _last_text(payload.get("parts"))
+                result = self._finished(
+                    task, final_text, steps, sources,
+                    (time.perf_counter() - started) * 1000,
+                )
+                native_error = (payload.get("info") or {}).get("error")
+                if native_error:
+                    result = self._error_result(
+                        task, f"OpenCode execution failed: {native_error}",
+                        steps, sources, started,
+                    )
+                elif max(revisions) not in accepted:
+                    result.status = "partial"
+                    result.error = "latest instruction revision was not acknowledged"
+                elif max(revisions) not in result_revisions and (
+                    _looks_like_cap_banner(final_text) or (
+                        len(assistant_ids) - checkpoint_assistants
+                        >= self._config.sandbox_steps
+                    )
+                ):
+                    result.status = "partial"
+                    result.error = (
+                        "native checkpoints repeated without new evidence; "
+                        "saved work requires a new direction"
+                    )
+                if result.status != "ok":
+                    await report(TaskReport(
+                        "blocked", result.error or "Work requires continuation.",
+                        max(revisions), native_session_id=oc_id,
+                    ))
+            yield result
+        except (httpx.HTTPError, ValueError, RuntimeError) as error:
+            await report(TaskReport(
+                "blocked", str(error)[:4000], max(revisions),
+                native_session_id=oc_id,
+            ))
+            yield self._error_result(task, str(error), steps, sources, started)
+        finally:
+            pump.cancel()
+            for message in messages:
+                if not message.done():
+                    message.cancel()
+            await asyncio.gather(pump, *messages, return_exceptions=True)
+
+    @staticmethod
+    def _continuous_prompt(text: str, revision: int, message_id: str) -> str:
+        return (
+            f"Instruction revision: {revision}\n"
+            f"Related message ID: {message_id}\n"
+            "Use recollect_research_report_message to acknowledge this revision "
+            "with kind=accepted before working. Copy the revision and related "
+            "message ID exactly. Preserve earlier requirements unless this "
+            "instruction replaces them. Relay changes to any native child task. "
+            "Report concise findings with sources, blockers, and the final result "
+            "using that tool. Only report completed observations, never invented "
+            "progress. Write requested TXT, Markdown, CSV, or JSON artifacts "
+            "under /workspace and report their relative paths.\n\n" + text
+        )
+
+    @staticmethod
+    def _report_from_event(
+        event: dict, oc_id: str, children: set[str]
+    ) -> TaskReport | None:
+        if event.get("type") != "message.part.updated":
+            return None
+        part = (event.get("properties") or {}).get("part") or {}
+        state = part.get("state") or {}
+        session_id = part.get("sessionID")
+        call_id = part.get("callID")
+        if (
+            part.get("type") != "tool"
+            or _display_tool(str(part.get("tool"))) != "report_message"
+            or state.get("status") != "completed"
+            or session_id not in {oc_id, *children}
+            or not isinstance(call_id, str) or not call_id
+        ):
+            return None
+        try:
+            data = json.loads(state.get("output", ""))
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(data, dict) or not isinstance(state.get("input"), dict):
+            return None
+        args = state["input"]
+        if any(data.get(key) != args.get(key) for key in ("kind", "revision")):
+            return None
+        if data.get("text") != str(args.get("text", "")).strip():
+            return None
+        if data.get("kind") not in {
+            "accepted", "progress", "finding", "question", "blocked", "result"
+        }:
+            return None
+        if (
+            type(data.get("revision")) is not int or data["revision"] < 1
+            or not isinstance(data.get("text"), str)
+            or not 1 <= len(data["text"]) <= 4000
+            or not isinstance(data.get("related_message_id", ""), str)
+            or len(data.get("related_message_id", "")) > 128
+        ):
+            return None
+        for key in ("sources", "artifacts"):
+            values = data.get(key, [])
+            if (not isinstance(values, list) or len(values) > 32
+                    or any(not isinstance(v, str) or len(v) > 2048 for v in values)):
+                return None
+        return TaskReport(
+            kind=data["kind"], text=data["text"], revision=data["revision"],
+            related_message_id=data.get("related_message_id", ""),
+            sources=data.get("sources", []), artifacts=data.get("artifacts", []),
+            native_session_id=session_id, call_id=call_id,
+        )
+
+    async def _history_events(
+        self,
+        handle: SandboxHandle,
+        oc_id: str,
+        children: set[str],
+        assistant_ids: set[str],
+    ) -> AsyncIterator[dict]:
+        response = await handle.client.get(f"/session/{oc_id}/children", timeout=10)
+        response.raise_for_status()
+        for child in response.json():
+            if isinstance(child, dict) and child.get("parentID") == oc_id:
+                children.add(str(child["id"]))
+        for native_id in (oc_id, *sorted(children)):
+            before = ""
+            while True:
+                params: dict[str, str | int] = {"limit": 100}
+                if before:
+                    params["before"] = before
+                response = await handle.client.get(
+                    f"/session/{native_id}/message", params=params, timeout=10
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, list):
+                    raise ValueError("invalid OpenCode message history")
+                for message in payload:
+                    info = message.get("info") or {}
+                    if native_id == oc_id and info.get("role") == "assistant":
+                        assistant_ids.add(str(info.get("id")))
+                    for part in message.get("parts", []):
+                        # The authenticated history endpoint, not tool input,
+                        # establishes ownership when repairing a missed event.
+                        if part.get("sessionID") == native_id:
+                            yield {
+                                "type": "message.part.updated",
+                                "properties": {"part": part},
+                            }
+                cursor = response.headers.get("X-Next-Cursor", "")
+                if not cursor or cursor == before:
+                    break
+                before = cursor
+
     async def _run_invocation(
         self,
         invocation: SandboxInvocation,
@@ -251,6 +716,8 @@ class OpenCodeRunner:
         seen_calls: set[str],
         steps: list[SubagentStep],
         sources: list[str],
+        *,
+        scope_calls: bool = False,
     ) -> SubagentStep | None:
         """One event from the stream. Returns a step when a tool call in
         this delegation's session tree finished."""
@@ -282,6 +749,8 @@ class OpenCodeRunner:
         if status not in ("completed", "error"):
             return None
         key = part.get("callID") or part.get("id") or ""
+        if key and scope_calls:
+            key = f"{session}:{key}"
         if not key or key in seen_calls:
             return None
         seen_calls.add(key)

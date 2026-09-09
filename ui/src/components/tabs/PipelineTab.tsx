@@ -146,6 +146,33 @@ export function PipelineTab({ trace }: { trace: TurnTrace }) {
         </div>
       </section>
 
+      {trace.generation && ((trace.generation.task_context_chars ?? 0) > 0 ||
+        trace.generation.model_queue_ms != null) && (
+        <section className="card">
+          <div className="card__head"><span className="card__title">Generation input</span></div>
+          <div className="card__body">
+            <p className="section-note">
+              Task context is supplied separately from verified memory. It does not
+              consume the retrieval allowance or create memory episodes.
+            </p>
+            <div className="statgrid">
+              <Stat label="memory input" value={chars(trace.generation.context_block_chars)}
+                sub="verified retrieval payload" />
+              <Stat label="task context" value={chars(trace.generation.task_context_chars ?? 0)}
+                sub="separate generation input" />
+              <Stat label="total prompt" value={chars(trace.generation.total_prompt_chars)}
+                sub="includes task handoff input" />
+              <Stat label="model queue wait" value={ms(trace.generation.model_queue_ms ?? null)}
+                sub="before this model request" />
+            </div>
+            {(trace.generation.task_ids?.length ?? 0) > 0 && <details>
+              <summary>Referenced tasks</summary>
+              <ul className="mono">{trace.generation.task_ids!.map((id) => <li key={id}>{id}</li>)}</ul>
+            </details>}
+          </div>
+        </section>
+      )}
+
       {trace.subagent && (
         <ResearchCard
           sub={trace.subagent}

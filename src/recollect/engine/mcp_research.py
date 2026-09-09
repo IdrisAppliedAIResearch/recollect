@@ -15,6 +15,8 @@ same keyless service or immediately repeat a known rate-limited request.
 from __future__ import annotations
 
 import json
+import os
+from typing import Literal
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -84,6 +86,45 @@ async def web_fetch(url: str, max_chars: int = 4_000) -> str:
         headers={"User-Agent": _UA},
     ) as client:
         return await _web_fetch(client, url, max_chars=max_chars)
+
+
+async def report_message(
+    kind: Literal["accepted", "progress", "finding", "question", "blocked", "result"],
+    text: str,
+    revision: int,
+    related_message_id: str = "",
+    sources: list[str] | None = None,
+    artifacts: list[str] | None = None,
+) -> str:
+    """Send a concise message to the main conversation's task mailbox.
+
+    Acknowledge each instruction revision with accepted before acting on it,
+    copying its related_message_id exactly. Report useful findings and blockers
+    as work proceeds. Cite public source URLs and relative workspace artifact
+    paths. Tool execution history stays private. This receipt records a local
+    report; the host separately persists it before delivering an update.
+    """
+    if kind not in {"accepted", "progress", "finding", "question", "blocked", "result"}:
+        raise ValueError("unsupported report kind")
+    if not text.strip() or len(text) > 4000 or not 1 <= revision <= 1_000_000:
+        raise ValueError("report requires bounded text and a positive revision")
+    if len(related_message_id) > 128:
+        raise ValueError("related message ID is too long")
+    for values in (sources or [], artifacts or []):
+        if len(values) > 32 or any(len(value) > 2048 for value in values):
+            raise ValueError("report references exceed the allowed size")
+    return json.dumps({
+        "kind": kind,
+        "text": text.strip(),
+        "revision": revision,
+        "related_message_id": related_message_id,
+        "sources": sources or [],
+        "artifacts": artifacts or [],
+    }, ensure_ascii=False)
+
+
+if os.environ.get("RECOLLECT_TASK_REPORTING") == "1":
+    mcp.tool()(report_message)
 
 
 def main() -> None:

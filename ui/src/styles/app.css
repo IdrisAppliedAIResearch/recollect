@@ -1969,3 +1969,39 @@ table,
 .storeconfig__pair {
   color: var(--text-muted);
 }
+
+/* Durable research lives beside the conversation, outside memory traces. */
+.tasks {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+}
+.tasks > summary {
+  padding: 10px 14px;
+  cursor: pointer;
+}
+.tasks > summary > span { margin-left: 12px; }
+.tasks__body { max-height: 38vh; overflow: auto; padding: 0 14px 12px; }
+.tasks__body > p { margin: 8px 0; }
+.task { border-top: 1px solid var(--border); padding: 12px 0; overflow-wrap: anywhere; }
+.task__head { display: flex; flex-wrap: wrap; gap: 8px; align-items: start; }
+.task__head > strong { flex: 1 1 180px; }
+.task details { margin-top: 8px; }
+.task details > summary { cursor: pointer; color: var(--text-muted); }
+.task__controls { display: grid; gap: 8px; margin-top: 12px; }
+.task__controls textarea { width: 100%; resize: vertical; font-size: var(--fs-sm); }
+.task__quiet { display: flex; align-items: center; gap: 6px; }
+.task__files, .task__sources ul { padding-left: 20px; }
+.task__files li { margin: 6px 0; }
+.task__notification { padding: 8px 0; border-top: 1px solid var(--border); }
+.task__notification:first-of-type { margin-top: 8px; }
+.task__user { padding-left: 8px; border-left: 2px solid var(--border); }
+.task-update__label { color: var(--text-muted); font-size: var(--fs-xs); margin-bottom: 6px; }
+.task-update .msg__meta { overflow-wrap: anywhere; }
+.task__management { margin-top: 12px; }
+.task__management > summary { cursor: pointer; color: var(--text-muted); }
+.task__deletion { margin-top: 8px; }
+.task__deletion p { margin: 0 0 8px; }
+.task__deletion > p { margin-top: 8px; }
+.task__deletion > .callout { display: block; }

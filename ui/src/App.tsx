@@ -16,7 +16,10 @@ import { restoreHistory } from './lib/chat-history.ts'
 import { chars, int, ms, pct } from './lib/format.ts'
 import { initialSendOutcome, updateSendOutcome } from './lib/send-outcome.ts'
 import { finishWorkspace, recordResearchResult } from './lib/workspace.ts'
+import { pendingNotifications } from './lib/task-notifications.ts'
+import { useTasks } from './lib/useTasks.ts'
 import type { ChatEvent, DataSource, HealthResponse, SessionInfo } from './types/api.ts'
+import type { TaskNotification } from './types/tasks.ts'
 import type { TurnTrace } from './types/trace.ts'
 import { useVoice } from './voice/useVoice.ts'
 
@@ -47,6 +50,7 @@ export interface Workspace {
 
 export interface Exchange {
   id: string
+  startedAt?: string
   user: string
   assistant: string
   reasoning: string
@@ -135,7 +139,8 @@ export function App() {
       if (!session || loading || sending.current || source.kind === 'mock' || signal?.aborted) {
         return null
       }
-      const localId = `pending-${Date.now()}`
+      const requestId = crypto.randomUUID()
+      const localId = `pending-${requestId}`
       sending.current = true
       setBusy(true)
       setBanner(null)
@@ -143,6 +148,7 @@ export function App() {
         ...current,
         {
           id: localId,
+          startedAt: new Date().toISOString(),
           user: message,
           assistant: '',
           reasoning: '',
@@ -290,7 +296,7 @@ export function App() {
               setBanner(event.message)
               break
           }
-        }, signal, inputMode)
+        }, signal, inputMode, requestId)
         if (!outcome.completedId && !outcome.failed && !signal?.aborted) {
           const message = 'The connection ended before the reply completed.'
           outcome = updateSendOutcome(outcome, { type: 'error', message })
@@ -332,6 +338,45 @@ export function App() {
     !useMock && source.kind === 'live' && !loading,
     send,
   )
+
+  const [announcements, setAnnouncements] = useState<TaskNotification[]>([])
+  const speakingTask = useRef<string | null>(null)
+  const tasks = useTasks(session?.session_id ?? null, !useMock && !loading, (fresh, snapshot) => {
+    setAnnouncements((current) => pendingNotifications(current,
+      voice.active ? fresh : [], snapshot.tasks))
+  })
+
+  useEffect(() => {
+    setAnnouncements([])
+  }, [session?.session_id, useMock, voice.active])
+
+  useEffect(() => {
+    if (document.hidden || busy || !voice.active || announcements.length === 0) return
+    const pending = pendingNotifications(announcements, [], tasks.snapshot.tasks)
+    const next = pending[0]
+    if (next?.session_id === session?.session_id && voice.speakNotification(next.notification_id)) {
+      speakingTask.current = next.task_id
+      setAnnouncements(pending.slice(1))
+    }
+  }, [announcements, busy, voice, tasks.snapshot.tasks, session?.session_id])
+
+  useEffect(() => {
+    if (voice.playbackKind === 'notification' &&
+        tasks.snapshot.tasks.find((task) => task.task_id === speakingTask.current)?.quiet) {
+      voice.stopNotification()
+    }
+  }, [tasks.snapshot.tasks, voice.playbackKind, voice.stopNotification])
+
+  useEffect(() => {
+    const visibility = () => {
+      if (document.hidden) {
+        setAnnouncements([])
+        voice.stopNotification()
+      }
+    }
+    document.addEventListener('visibilitychange', visibility)
+    return () => document.removeEventListener('visibilitychange', visibility)
+  }, [voice.stopNotification])
 
   // -- details pane ------------------------------------------------------
 
@@ -464,6 +509,8 @@ export function App() {
             readOnly={source.kind === 'mock'}
             loading={loading}
             voice={voice}
+            tasks={tasks.snapshot}
+            taskError={tasks.error}
           />
         </div>
 

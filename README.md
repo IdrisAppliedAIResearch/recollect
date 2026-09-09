@@ -128,7 +128,7 @@ At minimum, set the embedding artifact path and confirm the generator URL in
 
 ```dotenv
 RECOLLECT_EMBEDDING_MODEL_PATH=/absolute/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf
-RECOLLECT_GENERATOR_BASE_URL=http://127.0.0.1:8000/v1
+RECOLLECT_GENERATOR_BASE_URL=http://127.0.0.1:8001/v1
 RECOLLECT_SUBAGENT_BACKEND=opencode
 RECOLLECT_SANDBOX_CONTAINER_RUNTIME=docker
 RECOLLECT_SANDBOX_CONTAINER_IMAGE=recollect-opencode-sandbox:1.18.18
@@ -159,7 +159,7 @@ main chat, OpenCode, and any native OpenCode subagents take turns using one
 model slot.
 
 ```bash
-llama-server -m <chat-model.gguf> --host 127.0.0.1 --port 8000 -ngl 999 -c 32768 --parallel 1 -fa on --no-webui
+llama-server -m <chat-model.gguf> --host 127.0.0.1 --port 8001 -ngl 999 -c 32768 --parallel 1 -fa on --no-webui
 ```
 
 ### 6. Verify dependencies and start Recollect
