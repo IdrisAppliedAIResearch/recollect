@@ -77,6 +77,11 @@ export const liveSource: DataSource = {
   listTurns: (sessionId) =>
     json<TurnSummary[]>(`/api/sessions/${encodeURIComponent(sessionId)}/turns`),
 
+  resetSession: (sessionId) =>
+    json<SessionInfo>(`/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
+      method: 'POST',
+    }),
+
   chatHistory: (sessionId) =>
     json<ChatTurn[]>(`/api/sessions/${encodeURIComponent(sessionId)}/history`),
 
@@ -87,13 +92,14 @@ export const liveSource: DataSource = {
       `/api/sessions/${encodeURIComponent(sessionId)}/episodes/${encodeURIComponent(episodeId)}`,
     ),
 
-  async chat(sessionId, message, onEvent, signal, inputMode = 'text') {
+  async chat(sessionId, message, onEvent, signal, inputMode = 'text', requestId) {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify({
         session_id: sessionId,
         message,
+        ...(requestId ? { request_id: requestId } : {}),
         ...(inputMode === 'voice' ? { input_mode: inputMode } : {}),
       }),
       signal,

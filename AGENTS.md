@@ -278,7 +278,7 @@ Machine-specific paths below are relative to `%USERPROFILE%` unless noted.
 
 | Component | Where/how it runs | Ready condition |
 |---|---|---|
-| Qwen3.8-27B-UD-Q4_K_XL.gguf | Separate `llama-server`, GPU, loopback port 8000 | `/health` says `ok`, `/v1/models` identifies the expected model, startup log confirms GPU offload |
+| Qwen3.8-27B-UD-Q4_K_XL.gguf | Separate `llama-server`, GPU, loopback port 8001 | `/health` says `ok`, `/v1/models` identifies the expected model, startup log confirms GPU offload |
 | Whisper large-v3-turbo | In Recollect, faster-whisper/CTranslate2, CUDA float16 | Voice status: `asr_backend=whisper`, `asr_device=cuda`, `asr_compute_type=float16`, `asr_ready=true` |
 | Kokoro 82M | In Recollect, ONNX Runtime GPU | Voice status: `provider=CUDAExecutionProvider` |
 | Qwen3-Embedding-0.6B-Q8_0.gguf | In Recollect, **CPU**, pinned native build, 8 threads, `n_ctx=512`, `n_gpu_layers=0` | Research sentinel matches; never move this model to GPU or HTTP |
@@ -295,7 +295,7 @@ is expected; do not bypass the manager by manually running its container.
 #### A. Preflight and reuse
 
 1. Work from the repository root. Read `.env` selectively without dumping
-   credentials. Check ports 8000/8080 and their owning process command lines.
+   credentials. Check ports 8001/8080 and their owning process command lines.
    Reuse an already healthy matching service; do not duplicate it or kill
    an unrelated process merely because it occupies a port.
 2. Verify the sibling `../contextDecayWindow/episodic`, existing `.venv`,
@@ -311,7 +311,7 @@ is expected; do not bypass the manager by manually running its container.
    never replace the user's `.env` with `.env.example` during a restart.
 
    ```dotenv
-   RECOLLECT_GENERATOR_BASE_URL=http://127.0.0.1:8000/v1
+   RECOLLECT_GENERATOR_BASE_URL=http://127.0.0.1:8001/v1
    RECOLLECT_GENERATOR_MODEL=Qwen3.8-27B-UD-Q4_K_XL.gguf
    RECOLLECT_EMBEDDING_THREADS=8
    RECOLLECT_SUBAGENT_ENABLED=true
@@ -388,7 +388,7 @@ The following PowerShell arguments reproduce the tested single-slot setup:
 $modelServerExe = Join-Path $env:USERPROFILE '.unsloth\llama.cpp\build\bin\Release\llama-server.exe'
 $chatModel = Join-Path $env:USERPROFILE '.cache\huggingface\hub\models--unsloth--Qwen3.8-27B-GGUF\snapshots\f1bfb127c64f7072bdd2cad55f258b9c8b2910fe\Qwen3.8-27B-UD-Q4_K_XL.gguf'
 $modelArgs = @(
-  '--model', ('"{0}"' -f $chatModel), '--host', '127.0.0.1', '--port', '8000',
+  '--model', ('"{0}"' -f $chatModel), '--host', '127.0.0.1', '--port', '8001',
   '--ctx-size', '32768', '--parallel', '1', '--n-gpu-layers', '999',
   '--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0',
   '--flash-attn', 'on', '--jinja', '--metrics', '--no-webui'
@@ -401,8 +401,8 @@ $chatProcess = Start-Process -FilePath $modelServerExe -ArgumentList $modelArgs 
 
 Verify both paths before executing. Capture startup output in the managed
 terminal or intentional logs under `var/`; inspect it for GPU offload.
-Poll `http://127.0.0.1:8000/health` with bounded request timeouts and verify
-`http://127.0.0.1:8000/v1/models`. Do not treat process creation as readiness.
+Poll `http://127.0.0.1:8001/health` with bounded request timeouts and verify
+`http://127.0.0.1:8001/v1/models`. Do not treat process creation as readiness.
 Preserve the context size, one-slot serialization, and quantized KV cache;
 they leave room for Whisper and Kokoro on the 32 GB GPU.
 
@@ -504,7 +504,7 @@ Check for an orphaned `recollect-subagent-*` container using `docker ps -a`;
 verify its image and mounts belong to this app before stopping/removing it.
 Do not shut down shared Docker Desktop/Engine unless requested or known to
 have been started exclusively for this launch with no other workloads.
-Verify ports 8080/8000 are closed and GPU model processes are gone. Preserve
+Verify ports 8080/8001 are closed and GPU model processes are gone. Preserve
 model downloads, saved conversations, `.env`, and the pinned environment.
 Record the stopped state in `.agent/TODO.md` so the next agent respects it.
 

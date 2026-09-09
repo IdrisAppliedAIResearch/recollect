@@ -71,6 +71,12 @@ export function ContextTab({ trace }: { trace: TurnTrace }) {
 
       <Ruler trace={trace} />
 
+      {(trace.generation?.task_context_chars ?? 0) > 0 && <p className="section-note">
+        This view contains the verified memory payload. The model also received{' '}
+        {chars(trace.generation!.task_context_chars!)} characters of separate task context;
+        its accounting and task references appear under Pipeline → Generation input.
+      </p>}
+
       {raw ? (
         <pre className="payload">{payload || '(empty)'}</pre>
       ) : (

@@ -27,6 +27,17 @@ class SpeechRequest(BaseModel):
         return validate_identifier(value)
 
 
+class NotificationSpeechRequest(BaseModel):
+    session_id: str
+    notification_id: str
+    stream: bool = False
+
+    @field_validator("session_id", "notification_id")
+    @classmethod
+    def valid_identifier(cls, value: str) -> str:
+        return validate_identifier(value)
+
+
 class _SpeechResponse(StreamingResponse):
     async def stream_response(self, send) -> None:
         try:
@@ -110,41 +121,17 @@ def _allowed_origin(origin: str | None, host: str | None) -> bool:
 def install_voice_routes(app: FastAPI, state: Callable) -> None:
     speech_gate = asyncio.Semaphore(1)
 
-    @app.get("/api/voice/status")
-    async def status() -> dict:
-        return await asyncio.to_thread(state().voice.status)
-
-    @app.post("/api/voice/speech")
-    async def speech(body: SpeechRequest, request: Request) -> Response:
-        if not _allowed_origin(request.headers.get("origin"),
-                               request.headers.get("host")):
-            raise HTTPException(403, "Voice requests must come from Recollect.")
-        current = state()
-        try:
-            trace = await asyncio.to_thread(current.sessions.find_trace, body.turn_id)
-        except ValueError as error:
-            raise HTTPException(400, "Invalid turn identifier or storage path.") \
-                from error
-        if trace is None:
-            raise HTTPException(404, "No such completed turn.")
-        generation = trace.generation
-        if not trace.verification.trustworthy or generation is None or generation.error:
-            raise HTTPException(409, "Only a verified, completed reply can be spoken.")
-        if not generation.response_text.strip():
-            raise HTTPException(409, "This turn has no reply to speak.")
-        if body.stream:
+    async def speak_saved_text(current, text, stream, request):
+        if stream:
             return _SpeechResponse(
-                _speech_stream(
-                    current.voice, generation.response_text, gate=speech_gate,
-                ),
+                _speech_stream(current.voice, text, gate=speech_gate),
                 media_type="application/x-ndjson",
                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
             )
         cancelled = threading.Event()
         worker = None
         admission = asyncio.create_task(_speech_worker(
-            speech_gate, current.voice.synthesize, generation.response_text,
-            cancelled=cancelled,
+            speech_gate, current.voice.synthesize, text, cancelled=cancelled,
         ))
 
         async def watch_disconnect() -> None:
@@ -178,6 +165,60 @@ def install_voice_routes(app: FastAPI, state: Callable) -> None:
         return Response(audio, media_type="audio/wav", headers={
             "Cache-Control": "no-store",
         })
+
+    @app.get("/api/voice/status")
+    async def status() -> dict:
+        return await asyncio.to_thread(state().voice.status)
+
+    @app.post("/api/voice/speech")
+    async def speech(body: SpeechRequest, request: Request) -> Response:
+        if not _allowed_origin(request.headers.get("origin"),
+                               request.headers.get("host")):
+            raise HTTPException(403, "Voice requests must come from Recollect.")
+        current = state()
+        try:
+            trace = await asyncio.to_thread(current.sessions.find_trace, body.turn_id)
+        except ValueError as error:
+            raise HTTPException(400, "Invalid turn identifier or storage path.") \
+                from error
+        if trace is None:
+            raise HTTPException(404, "No such completed turn.")
+        generation = trace.generation
+        if not trace.verification.trustworthy or generation is None or generation.error:
+            raise HTTPException(409, "Only a verified, completed reply can be spoken.")
+        if not generation.response_text.strip():
+            raise HTTPException(409, "This turn has no reply to speak.")
+        return await speak_saved_text(
+            current, generation.response_text, body.stream, request,
+        )
+
+    @app.post("/api/voice/notification")
+    async def notification_speech(
+        body: NotificationSpeechRequest, request: Request,
+    ) -> Response:
+        if not _allowed_origin(request.headers.get("origin"),
+                               request.headers.get("host")):
+            raise HTTPException(403, "Voice requests must come from Recollect.")
+        current = state()
+        try:
+            notification = await asyncio.to_thread(
+                current.task_store.get_notification,
+                body.session_id, body.notification_id,
+            )
+        except KeyError as error:
+            raise HTTPException(
+                404, "No such saved notification in this conversation.",
+            ) from error
+        except ValueError as error:
+            raise HTTPException(
+                400, "Invalid notification identifier or storage path.",
+            ) from error
+        if notification is None or notification["session_id"] != body.session_id:
+            raise HTTPException(404, "No such saved notification in this conversation.")
+        text = notification["text"]
+        if not text.strip():
+            raise HTTPException(409, "This notification has no text to speak.")
+        return await speak_saved_text(current, text, body.stream, request)
 
     @app.websocket("/api/voice/listen")
     async def listen(socket: WebSocket) -> None:

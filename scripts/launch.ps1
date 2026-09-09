@@ -13,9 +13,14 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-function Get-PortProcess([int]$ListenPort) {
+function Get-PortProcess([int]$ListenPort, [string]$BindAddress = '127.0.0.1') {
     $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $ListenPort `
-        -ErrorAction SilentlyContinue)
+        -ErrorAction SilentlyContinue | Where-Object {
+            # A listener on a separate interface does not own our loopback port.
+            # Wildcard listeners can overlap the requested IPv4 binding.
+            $BindAddress -eq '0.0.0.0' -or
+            $_.LocalAddress -in @($BindAddress, '0.0.0.0', '::')
+        })
     $owners = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)
     if ($owners.Count -gt 1) {
         throw "Port $ListenPort has multiple owners; resolve the conflict before launching."
@@ -28,7 +33,8 @@ function Get-PortProcess([int]$ListenPort) {
     return $process
 }
 
-function Test-QwenProcess($Process, [string]$Executable, [string]$ModelPath) {
+function Test-QwenProcess($Process, [string]$Executable, [string]$ModelPath,
+                          [int]$Slots = 1, [int]$ContextTokens = 32768, [int]$ModelPort = 8000) {
     if ($Process.ExecutablePath -ine $Executable) { return $false }
     $command = $Process.CommandLine
     $escapedModel = [regex]::Escape($ModelPath)
@@ -36,8 +42,9 @@ function Test-QwenProcess($Process, [string]$Executable, [string]$ModelPath) {
         return $false
     }
     foreach ($setting in @(
-        '--host\s+127\.0\.0\.1', '--port\s+8000', '--ctx-size\s+32768',
-        '--parallel\s+1', '--n-gpu-layers\s+999', '--cache-type-k\s+q8_0',
+        '--host\s+127\.0\.0\.1', ('--port\s+' + $ModelPort),
+        ('--ctx-size\s+' + ($ContextTokens * $Slots)),
+        ('--parallel\s+' + $Slots), '--n-gpu-layers\s+999', '--cache-type-k\s+q8_0',
         '--cache-type-v\s+q8_0', '--flash-attn\s+on', '--jinja', '--no-webui'
     )) {
         if ($command -notmatch "(?:^|\s)$setting(?:\s|$)") { return $false }
@@ -169,7 +176,7 @@ function Invoke-RecollectLaunch {
     if ($Mode -eq 'standalone' -and -not [Net.IPAddress]::IsLoopback($address)) {
         throw 'Standalone mode binds to loopback. Use -Mode host for another device.'
     }
-    if ($Port -eq 8000) { throw 'Port 8000 is reserved for the loopback Qwen server.' }
+    if ($Port -eq 8001) { throw 'Port 8001 is reserved for the loopback Qwen server.' }
     if ($Mode -eq 'standalone' -and $TokenFile) {
         throw '-TokenFile is used only with -Mode host.'
     }
@@ -213,7 +220,7 @@ if sys.version_info[:2] != (3, 13):
     raise SystemExit("Use the existing Python 3.13 .venv.")
 config = RecollectConfig.from_env()
 expected = {
-    "generator_base_url": "http://127.0.0.1:8000/v1",
+    "generator_base_url": "http://127.0.0.1:8001/v1",
     "generator_model": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
     "embedding_threads": 8,
     "subagent_enabled": True,
@@ -255,6 +262,8 @@ if config.voice_asr_cuda_dll_dir is not None and not config.voice_asr_cuda_dll_d
     raise SystemExit("Configured Whisper CUDA DLL directory is missing.")
 print(json.dumps({"image": config.sandbox_container_image,
                   "qwen_cuda_dll_dir": str(config.voice_cuda_dll_dir),
+                  "model_slots": config.generator_parallel_slots,
+                  "context_tokens": config.generator_context_tokens,
                   "base_python_executable": sys._base_executable}))
 '@
         $settingsJson = $preflight | & uv run --no-sync python -
@@ -273,10 +282,10 @@ print(json.dumps({"image": config.sandbox_container_image,
             $journal.token_file = $TokenFile
             $journal.certificate_file = $pairingMetadata.certificate_path
         }
-        $qwenOwner = Get-PortProcess 8000
-        $appOwner = Get-PortProcess $Port
-        if ($qwenOwner -and -not (Test-QwenProcess $qwenOwner $modelServerExe $chatModel)) {
-            throw 'Port 8000 belongs to an incompatible process. Stop or reconfigure it explicitly.'
+        $qwenOwner = Get-PortProcess 8001
+        $appOwner = Get-PortProcess $Port $BindHost
+        if ($qwenOwner -and -not (Test-QwenProcess $qwenOwner $modelServerExe $chatModel $settings.model_slots $settings.context_tokens 8001)) {
+            throw 'Port 8001 belongs to an incompatible process. Stop or reconfigure it explicitly.'
         }
         if ($appOwner) {
             if (-not (Test-RecollectProcess $appOwner $recollectRoot $settings.base_python_executable)) {
@@ -295,8 +304,8 @@ print(json.dumps({"image": config.sandbox_container_image,
             }
         }
         if ($qwenOwner) {
-            $qwenHealth = Get-Json 'http://127.0.0.1:8000/health'
-            $qwenModels = Get-Json 'http://127.0.0.1:8000/v1/models'
+            $qwenHealth = Get-Json 'http://127.0.0.1:8001/health'
+            $qwenModels = Get-Json 'http://127.0.0.1:8001/v1/models'
             Assert-QwenHealth $qwenHealth $qwenModels $modelName $chatModel
         }
 
@@ -361,8 +370,9 @@ print(json.dumps({"image": config.sandbox_container_image,
         } else {
             Write-Host 'Starting Qwen on the desktop GPU ...'
             $modelArgs = @(
-                '--model', ('"{0}"' -f $chatModel), '--host', '127.0.0.1', '--port', '8000',
-                '--ctx-size', '32768', '--parallel', '1', '--n-gpu-layers', '999',
+                '--model', ('"{0}"' -f $chatModel), '--host', '127.0.0.1', '--port', '8001',
+                '--ctx-size', [string]($settings.context_tokens * $settings.model_slots),
+                '--parallel', [string]$settings.model_slots, '--n-gpu-layers', '999',
                 '--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0',
                 '--flash-attn', 'on', '--jinja', '--metrics', '--no-webui',
                 # This build maps native GPU-offload information to trace level.
@@ -382,8 +392,8 @@ print(json.dumps({"image": config.sandbox_container_image,
             $journal.qwen = @{
                 pid = $qwenProcess.Id; reused = $false; stdout = $qwenStdout; stderr = $qwenStderr
             }
-            $qwenHealth = Wait-Json 'http://127.0.0.1:8000/health' '' 180
-            $qwenModels = Get-Json 'http://127.0.0.1:8000/v1/models'
+            $qwenHealth = Wait-Json 'http://127.0.0.1:8001/health' '' 180
+            $qwenModels = Get-Json 'http://127.0.0.1:8001/v1/models'
             Assert-QwenHealth $qwenHealth $qwenModels $modelName $chatModel
             $startup = (Get-Content -LiteralPath $qwenStderr -Raw) + (Get-Content -LiteralPath $qwenStdout -Raw)
             if ($startup -notmatch 'offloaded\s+[1-9][0-9]*/[0-9]+\s+layers to GPU') {
@@ -569,18 +579,22 @@ function Invoke-RecollectStop {
     Push-Location $recollectRoot
     try {
         $python = Join-Path $recollectRoot '.venv\Scripts\python.exe'
-        $settingsJson = & $python -I -c 'import json,sys; from recollect.config import RecollectConfig; c=RecollectConfig.from_env(); print(json.dumps(dict(base_python=sys._base_executable,image=c.sandbox_container_image,root=str(c.sandbox_root.resolve()))))'
+        $settingsJson = & $python -I -c 'import json,sys; from recollect.config import RecollectConfig; c=RecollectConfig.from_env(); print(json.dumps(dict(base_python=sys._base_executable,image=c.sandbox_container_image,root=str(c.sandbox_root.resolve()),context_tokens=c.generator_context_tokens)))'
         if ($LASTEXITCODE -ne 0) { throw 'Could not read shutdown configuration.' }
         $settings = $settingsJson | ConvertFrom-Json
         $modelExe = Join-Path $env:USERPROFILE '.unsloth\llama.cpp\build\bin\Release\llama-server.exe'
         $model = Join-Path $env:USERPROFILE '.cache\huggingface\hub\models--unsloth--Qwen3.8-27B-GGUF\snapshots\f1bfb127c64f7072bdd2cad55f258b9c8b2910fe\Qwen3.8-27B-UD-Q4_K_XL.gguf'
         $processes = @(Get-CimInstance Win32_Process)
         $apps = @($processes | Where-Object { Test-RecollectProcess $_ $recollectRoot $settings.base_python })
-        $models = @($processes | Where-Object { Test-QwenProcess $_ $modelExe $model })
+        $models = @($processes | Where-Object {
+            (Test-QwenProcess $_ $modelExe $model 1 $settings.context_tokens 8001) -or
+            (Test-QwenProcess $_ $modelExe $model 2 $settings.context_tokens 8001)
+        })
         $targetIds = @(@($apps) + @($models) | ForEach-Object { $_.ProcessId })
         # Inspect all targets before stopping anything, including an occupied API port.
-        foreach ($listenPort in @($Port, 8000)) {
-            $owner = Get-PortProcess $listenPort
+        foreach ($listenPort in @($Port, 8001)) {
+            $targetAddress = if ($listenPort -eq 8001) { '127.0.0.1' } else { '0.0.0.0' }
+            $owner = Get-PortProcess $listenPort $targetAddress
             if ($owner -and $owner.ProcessId -notin $targetIds) {
                 throw "Port $listenPort belongs to another process; no services stopped."
             }
@@ -619,8 +633,9 @@ function Invoke-RecollectStop {
             }
         }
         foreach ($modelProcess in $models) { Stop-VerifiedProcess $modelProcess }
-        foreach ($listenPort in @($Port, 8000)) {
-            if (Get-PortProcess $listenPort) { throw "Port $listenPort remains occupied." }
+        foreach ($listenPort in @($Port, 8001)) {
+            $targetAddress = if ($listenPort -eq 8001) { '127.0.0.1' } else { '0.0.0.0' }
+            if (Get-PortProcess $listenPort $targetAddress) { throw "Port $listenPort remains occupied." }
         }
         Write-Host 'Recollect and its models stopped. Docker Desktop remains running. Saved history and model files are preserved.'
     } finally { Pop-Location }

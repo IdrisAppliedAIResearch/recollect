@@ -59,11 +59,16 @@ def build_config(
     runtime_workdir: str | None = None,
     runtime_python: str | None = None,
     prompt_dir: str | None = None,
+    context_limit: int = _CONTEXT_LIMIT,
+    output_limit: int = _OUTPUT_LIMIT,
+    continuous: bool = False,
 ) -> dict:
     """Return a local-provider-only config using native OpenCode agents."""
     del prompt_dir  # retained for call-site compatibility; no prompt files exist
     model_ref = f"{PROVIDER_ID}/{model}"
     runtime_workdir = runtime_workdir or str(workdir)
+    if context_limit <= output_limit or output_limit < 1:
+        raise ValueError("OpenCode context must leave room beyond the output reserve")
     return {
         "$schema": "https://opencode.ai/config.json",
         "model": model_ref,
@@ -92,8 +97,8 @@ def build_config(
                     model: {
                         "name": "Recollect local model",
                         "limit": {
-                            "context": _CONTEXT_LIMIT,
-                            "output": _OUTPUT_LIMIT,
+                            "context": context_limit,
+                            "output": output_limit,
                         },
                     }
                 },
@@ -126,6 +131,8 @@ def build_config(
                 "cwd": runtime_workdir,
                 "timeout": 120_000,
                 "enabled": True,
+                **({"environment": {"RECOLLECT_TASK_REPORTING": "1"}}
+                   if continuous else {}),
             }
         },
     }
@@ -141,6 +148,9 @@ def write_config(
     runtime_workdir: str | None = None,
     runtime_python: str | None = None,
     prompt_dir: str | None = None,
+    context_limit: int = _CONTEXT_LIMIT,
+    output_limit: int = _OUTPUT_LIMIT,
+    continuous: bool = False,
 ) -> Path:
     """Write the only host file mounted read-only into the container."""
     workdir.mkdir(parents=True, exist_ok=True)
@@ -153,6 +163,9 @@ def write_config(
         runtime_workdir=runtime_workdir,
         runtime_python=runtime_python,
         prompt_dir=prompt_dir,
+        context_limit=context_limit,
+        output_limit=output_limit,
+        continuous=continuous,
     )
     config_path = workdir / "opencode.json"
     config_path.write_text(

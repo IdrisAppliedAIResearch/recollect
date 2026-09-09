@@ -6,11 +6,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { chars, clock, int, stamp } from '../lib/format.ts'
 import { appendVoiceDraft } from '../lib/voice-draft.ts'
+import { conversationEvents } from '../lib/conversation-events.ts'
 import type { SessionInfo } from '../types/api.ts'
+import type { TaskSnapshot } from '../types/tasks.ts'
 import type { Exchange } from '../App.tsx'
 import type { VoiceControl } from '../voice/useVoice.ts'
 import { Markdown } from './Markdown.tsx'
 import { Workspace } from './Workspace.tsx'
+import { Sources, Tasks } from './Tasks.tsx'
 
 interface Props {
   exchanges: Exchange[]
@@ -22,6 +25,8 @@ interface Props {
   readOnly: boolean
   loading: boolean
   voice: VoiceControl
+  tasks: TaskSnapshot
+  taskError: string | null
 }
 
 export function Chat({
@@ -34,6 +39,8 @@ export function Chat({
   readOnly,
   loading,
   voice,
+  tasks,
+  taskError,
 }: Props) {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const sessionId = session?.session_id ?? null
@@ -62,7 +69,7 @@ export function Chat({
   useEffect(() => {
     const log = logRef.current
     if (log) log.scrollTop = log.scrollHeight
-  }, [exchanges])
+  }, [exchanges, tasks.notifications.at(-1)?.seq])
 
   // Going `disabled` while busy throws focus away, and it never comes back on
   // its own — so re-focus as soon as the composer is usable again, which is
@@ -96,7 +103,7 @@ export function Chat({
       </div>
 
       <div className="chat__log" ref={logRef}>
-        {exchanges.length === 0 && (
+        {exchanges.length === 0 && tasks.notifications.length === 0 && (
           <div className="empty">
             <div className="empty__title">Nothing remembered yet</div>
             <p>
@@ -107,7 +114,25 @@ export function Chat({
           </div>
         )}
 
-        {exchanges.map((exchange) => (
+        {conversationEvents(exchanges, tasks.notifications).map((event) => {
+          if (event.kind === 'notification') {
+            const update = event.notification
+            return <div key={event.id} className="turn task-update">
+              {update.user_message && <div className="msg msg--user"><div className="msg__bubble">
+                <Markdown text={update.user_message} />
+              </div></div>}
+              <div className="msg msg--assistant"><div className="msg__bubble">
+                <div className="task-update__label">Research update · {update.kind}</div>
+                <Markdown text={update.text} />
+                {update.source_refs.length > 0 && <Sources sources={update.source_refs} />}
+              </div><div className="msg__meta">
+                <time dateTime={update.created_at} title={stamp(update.created_at)}>{clock(update.created_at)}</time>
+                <span>{tasks.tasks.find((task) => task.task_id === update.task_id)?.objective ?? 'Saved task'}</span>
+              </div></div>
+            </div>
+          }
+          const exchange = event.exchange
+          return (
           <div key={exchange.id} className="turn">
             <div className="msg msg--user">
               <div className="msg__bubble">
@@ -168,10 +193,12 @@ export function Chat({
               )}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
 
       {workspace && <Workspace workspace={workspace} />}
+      <Tasks snapshot={tasks} error={taskError} />
 
       <div className="composer">
         <div className="voice" data-active={voice.active}>
@@ -186,9 +213,9 @@ export function Chat({
                     : voice.phase === 'listening'
                       ? 'Listening — continue speaking'
                       : voice.phase === 'thinking'
-                        ? 'Thinking…'
+                        ? voice.playbackKind === 'notification' ? 'Preparing research update…' : 'Thinking…'
                         : voice.phase === 'speaking'
-                          ? 'Speaking…'
+                          ? voice.playbackKind === 'notification' ? 'Sharing research update…' : 'Speaking…'
                           : 'Microphone muted'}
             </span>
             <span className="voice__detail">

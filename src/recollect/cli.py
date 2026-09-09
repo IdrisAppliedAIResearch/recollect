@@ -258,7 +258,7 @@ async def _doctor() -> int:
             print(f"        {health.get('error')}")
             print(
                 "        Start a server, e.g. llama-server --host 127.0.0.1 "
-                "--port 8000"
+                "--port 8001"
             )
     finally:
         await generator.aclose()

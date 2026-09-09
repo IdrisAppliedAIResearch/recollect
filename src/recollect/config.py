@@ -81,7 +81,7 @@ class RecollectConfig:
     embedding_threads: int = DEFAULT_EMBEDDING_THREADS
 
     # -- generation (HTTP, OpenAI-compatible) ------------------------------
-    generator_base_url: str = "http://127.0.0.1:8000/v1"
+    generator_base_url: str = "http://127.0.0.1:8001/v1"
     generator_model: str = "local"
     generator_api_key: str = "not-needed"
     generator_timeout_s: float = 300.0
@@ -142,6 +142,10 @@ class RecollectConfig:
     # SubagentResult shapes, so the turn pipeline and the one-line trace
     # are identical either way.
     subagent_backend: str = "legacy"
+    subagent_continuous_enabled: bool = False
+    generator_context_tokens: int = 32_768
+    generator_parallel_slots: int = 1
+    subagent_inference_tokens: int = 2_048
     # Limits for the opencode backend. The step cap is handed to opencode
     # (it forces a text-only final pass at the cap) and is the run's only
     # bound: there is no client-side wallclock, so a long research pass is
@@ -170,10 +174,13 @@ class RecollectConfig:
 
     # -- storage / server ---------------------------------------------------
     data_dir: Path = Path("var")
+    downloads_dir: Path | None = None
     host: str = "127.0.0.1"
     port: int = 8080
 
     def __post_init__(self) -> None:
+        if self.downloads_dir is not None and not self.downloads_dir.is_absolute():
+            raise ValueError("downloads_dir must be an absolute path")
         if not self.voice_wake_phrase.strip():
             raise ValueError("voice_wake_phrase must be non-empty")
         if not self.voice_name.strip():
@@ -222,6 +229,13 @@ class RecollectConfig:
             raise ValueError("subagent_max_tokens must be positive")
         if self.subagent_backend not in ("legacy", "opencode"):
             raise ValueError("subagent_backend must be 'legacy' or 'opencode'")
+        if not 4_096 <= self.generator_context_tokens <= 131_072:
+            raise ValueError("generator_context_tokens must be 4096..131072")
+        if (type(self.generator_parallel_slots) is not int
+                or self.generator_parallel_slots not in {1, 2}):
+            raise ValueError("generator_parallel_slots must be 1 or 2")
+        if not 128 <= self.subagent_inference_tokens < self.generator_context_tokens:
+            raise ValueError("subagent inference output must fit the model context")
         if self.sandbox_steps < 1:
             raise ValueError("sandbox_steps must be positive")
         if self.sandbox_idle_ttl_s <= 0:
@@ -347,7 +361,7 @@ class RecollectConfig:
                 )
             ),
             generator_base_url=os.environ.get(
-                "RECOLLECT_GENERATOR_BASE_URL", "http://127.0.0.1:8000/v1"
+                "RECOLLECT_GENERATOR_BASE_URL", "http://127.0.0.1:8001/v1"
             ),
             generator_model=os.environ.get("RECOLLECT_GENERATOR_MODEL", "local"),
             generator_api_key=os.environ.get(
@@ -362,6 +376,8 @@ class RecollectConfig:
             ),
             aspect_enabled=_flag(os.environ.get("RECOLLECT_ASPECT_ENABLED", "1")),
             data_dir=Path(os.environ.get("RECOLLECT_DATA_DIR", "var")),
+            downloads_dir=(Path(os.environ["RECOLLECT_DOWNLOADS_DIR"])
+                           if os.environ.get("RECOLLECT_DOWNLOADS_DIR") else None),
             host=os.environ.get("RECOLLECT_HOST", "127.0.0.1"),
             port=int(os.environ.get("RECOLLECT_PORT", 8080)),
             subagent_enabled=_flag(
@@ -380,6 +396,18 @@ class RecollectConfig:
                 os.environ.get("RECOLLECT_SUBAGENT_MAX_TOKENS", 1_024)
             ),
             subagent_backend=os.environ.get("RECOLLECT_SUBAGENT_BACKEND", "legacy"),
+            subagent_continuous_enabled=_flag(
+                os.environ.get("RECOLLECT_SUBAGENT_CONTINUOUS_ENABLED", "0")
+            ),
+            generator_context_tokens=int(
+                os.environ.get("RECOLLECT_GENERATOR_CONTEXT_TOKENS", 32_768)
+            ),
+            generator_parallel_slots=int(
+                os.environ.get("RECOLLECT_GENERATOR_PARALLEL_SLOTS", 1)
+            ),
+            subagent_inference_tokens=int(
+                os.environ.get("RECOLLECT_SUBAGENT_INFERENCE_TOKENS", 2_048)
+            ),
             sandbox_steps=int(os.environ.get("RECOLLECT_SANDBOX_STEPS", 24)),
             sandbox_idle_ttl_s=float(
                 os.environ.get("RECOLLECT_SANDBOX_IDLE_TTL_S", 1_800.0)

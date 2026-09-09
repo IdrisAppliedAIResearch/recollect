@@ -30,7 +30,7 @@ flowchart LR
         Memory[Stores + retrieval + strict shadow verification]
         Embed[In-process pinned CPU embedder]
         Voice[Whisper + Kokoro GPU; Vosk + Silero CPU]
-        Qwen[Qwen GPU: 127.0.0.1:8000]
+        Qwen[Qwen GPU: 127.0.0.1:8001]
         Research[Docker / OpenCode]
         API --- Memory
         Memory --- Embed
@@ -49,6 +49,11 @@ the same desktop process, preserving [the research identity](EMBEDDER.md).
 The sibling `episodic` repository is required only on the desktop and is
 consumed unchanged. Qwen keeps its existing single slot and loopback address;
 clients do not contact it or the research container directly.
+
+Both desktop commands use a dedicated Qwen endpoint at `127.0.0.1:8001`,
+leaving port 8000 available for other local Qwen use. `recollect-stop` checks
+only the dedicated model port. `recollect-deploy` continues to connect to the
+desktop application on port 8080; its saved pairing does not change.
 
 ## Network and first-time pairing
 
@@ -83,7 +88,7 @@ desktop addresses automatically use HTTPS when loaded with the secure bundle.
 If pairing material is replaced, update both machines and restart Recollect.
 
 Permit inbound TCP on the chosen Recollect port on the desktop's private
-network, preferably scoped to the Surface address. Do not expose Qwen's 8000
+network, preferably scoped to the Surface address. Do not expose Qwen's 8001
 port. The launchers do not change firewall rules or router port forwarding.
 Plain HTTP to a LAN desktop is rejected. A legacy token remains usable with
 conventionally trusted HTTPS, or with an explicitly configured loopback tunnel

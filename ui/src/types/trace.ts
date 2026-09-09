@@ -290,6 +290,10 @@ export interface GenerationTrace {
   system_prompt_chars: number
   context_block_chars: number
   total_prompt_chars: number
+  /** Supplemental task input is outside the verified retrieval payload. */
+  task_context_chars?: number
+  task_ids?: string[]
+  model_queue_ms?: number | null
 
   response_text: string
   response_chars: number

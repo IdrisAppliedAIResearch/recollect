@@ -44,6 +44,11 @@ export function useVoice(
   const replayLast = useCallback(() => client.current?.replayLast(), [])
   const sendCaptured = useCallback(() => client.current?.sendCaptured(), [])
   const discardCaptured = useCallback(() => client.current?.discardCaptured(), [])
+  const speakNotification = useCallback((notificationId: string) => {
+    return sessionId !== null && currentSession.current === sessionId &&
+      (client.current?.speakNotification(sessionId, notificationId) ?? false)
+  }, [sessionId])
+  const stopNotification = useCallback(() => client.current?.stopNotification(), [])
 
   useEffect(() => stop, [sessionId, enabled, stop])
 
@@ -71,6 +76,7 @@ export function useVoice(
     ...state, active: state.phase !== 'off', start, stop,
     pauseMicrophone, resumeMicrophone, stopReply, replayLast, sendCaptured, discardCaptured,
     takeRecoveredDraft,
+    speakNotification, stopNotification,
   }
 }
 

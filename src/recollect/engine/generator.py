@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 from dataclasses import dataclass
@@ -43,6 +44,7 @@ from dataclasses import dataclass
 import httpx
 
 from ..trace import GenerationTrace, ToolCallTrace
+from .context_window import check_context
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,8 @@ class GeneratorSettings:
     thinking: bool = False
     max_tokens: int = 1_024
     temperature: float = 0.7
+    context_tokens: int | None = None
+    require_tools: bool = False
 
 
 @dataclass
@@ -203,6 +207,7 @@ class Generator:
         max_tokens: int | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Wait for the single local-model slot, then stream a completion."""
+        queued = time.perf_counter()
         async with (
             self._model_slot,
             aclosing(self._stream_unlocked(
@@ -212,6 +217,7 @@ class Generator:
                 max_tokens=max_tokens,
             )) as stream,
         ):
+            trace.model_queue_ms = (time.perf_counter() - queued) * 1_000
             async for chunk in stream:
                 yield chunk
 
@@ -251,11 +257,47 @@ class Generator:
             # leaves `content` empty. See the module docstring.
             "chat_template_kwargs": {"enable_thinking": self.settings.thinking},
         }
-        if tools:
+        structured_tools = bool(tools and self.settings.require_tools)
+        if structured_tools:
+            # The deployed Qwen template allows prose before a required native
+            # call, and can repeat it until the token limit. A JSON grammar
+            # constrains the whole routing reply, including its first token.
+            instruction = (
+                "\n\nReturn exactly one JSON object with name and arguments for "
+                "one of these operations. This JSON is internal routing, not "
+                "visible prose. Operation definitions:\n"
+                + json.dumps(tools, ensure_ascii=False)
+            )
+            routed_messages = [dict(message) for message in messages]
+            if routed_messages and routed_messages[0].get("role") == "system":
+                routed_messages[0]["content"] += instruction
+            else:
+                routed_messages.insert(0, {"role": "system", "content": instruction})
+            payload["messages"] = routed_messages
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "operation",
+                    "schema": {"oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "name": {"const": tool["function"]["name"]},
+                                "arguments": tool["function"]["parameters"],
+                            },
+                            "required": ["name", "arguments"],
+                            "additionalProperties": False,
+                        }
+                        for tool in tools
+                    ]},
+                },
+            }
+            trace.system_prompt_chars += len(instruction)
+            trace.total_prompt_chars += len(instruction)
+        elif tools:
             # Native tool calling: the carried GGUF's chat template has a live
             # tools/function branch (probed against the target server), so the
             # model is asked to select a tool rather than emit JSON in prose.
-            # `auto` lets it answer normally when no tool fits.
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
         trace.thinking_enabled = self.settings.thinking
@@ -273,6 +315,14 @@ class Generator:
         tool_parts: dict[int, dict[str, str]] = {}
 
         try:
+            if self.settings.context_tokens is not None:
+                try:
+                    await check_context(
+                        self._client, payload, self.settings.context_tokens,
+                    )
+                except ValueError as error:
+                    trace.error = str(error)
+                    raise GenerationError(trace.error) from error
             async with self._client.stream(
                 "POST", "/chat/completions", json=payload
             ) as response:
@@ -306,26 +356,52 @@ class Generator:
                             yield StreamChunk("reasoning", reasoning)
 
                         content = delta.get("content")
-                        if content:
+                        if content and not structured_tools:
                             content = content_filter.feed(content)
                         if content:
                             if first_token_at is None:
                                 first_token_at = time.perf_counter()
                                 trace.ttft_ms = (first_token_at - started) * 1_000.0
                             content_parts.append(content)
-                            yield StreamChunk("token", content)
+                            if not structured_tools:
+                                yield StreamChunk("token", content)
 
                         tool_calls = delta.get("tool_calls")
                         if isinstance(tool_calls, list):
                             _absorb_tool_calls(tool_calls, tool_parts)
 
-                tail = content_filter.finish()
+                tail = content_filter.finish() if not structured_tools else ""
                 if tail:
                     if first_token_at is None:
                         first_token_at = time.perf_counter()
                         trace.ttft_ms = (first_token_at - started) * 1_000.0
                     content_parts.append(tail)
                     yield StreamChunk("token", tail)
+            if structured_tools:
+                try:
+                    operation = json.loads("".join(content_parts))
+                except ValueError as error:
+                    raise GenerationError(
+                        "The model did not return a complete routed reply."
+                    ) from error
+                names = {tool["function"]["name"] for tool in tools}
+                if (
+                    trace.finish_reason == "length"
+                    or not isinstance(operation, dict)
+                    or set(operation) != {"name", "arguments"}
+                    or not isinstance(operation["name"], str)
+                    or operation["name"] not in names
+                    or not isinstance(operation["arguments"], dict)
+                ):
+                    raise GenerationError("The model returned an invalid operation.")
+                tool_parts = {0: {
+                    "id": uuid.uuid4().hex,
+                    "name": operation["name"],
+                    "arguments": json.dumps(operation["arguments"], ensure_ascii=False),
+                }}
+        except GenerationError as error:
+            trace.error = str(error)
+            raise
         except httpx.HTTPError as error:
             trace.error = (
                 f"Could not reach the generator at {self.settings.base_url}: "
@@ -335,7 +411,7 @@ class Generator:
         finally:
             total_ms = (time.perf_counter() - started) * 1_000.0
             trace.total_ms = total_ms
-            trace.response_text = "".join(content_parts)
+            trace.response_text = "" if structured_tools else "".join(content_parts)
             trace.response_chars = len(trace.response_text)
             trace.reasoning_text = "".join(reasoning_parts)
             trace.tool_calls = [

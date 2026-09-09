@@ -56,6 +56,7 @@ from .engine.generator import (
     StreamChunk,
     new_generation_trace,
 )
+from .engine.model_admission import ModelAdmission, ModelIngress
 from .engine.sandbox import OpenCodeRunner, SandboxManager
 from .engine.subagent import (
     SubagentConfig,
@@ -74,6 +75,8 @@ from .limits import (
     validate_identifier,
 )
 from .session import ChatTurn, SessionInfo, SessionManager
+from .task_store import TaskStore
+from .tasks import TaskCoordinator
 from .trace import SubagentTrace, ToolCallTrace, TurnSummary, TurnTrace
 from .voice_api import install_voice_routes
 
@@ -104,11 +107,12 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str = Field(max_length=MAX_MESSAGE_CHARS)
     input_mode: Literal["text", "voice"] = "text"
+    request_id: str | None = Field(default=None, max_length=128)
 
-    @field_validator("session_id")
+    @field_validator("session_id", "request_id")
     @classmethod
     def valid_session(cls, value: str) -> str:
-        return validate_identifier(value)
+        return validate_identifier(value) if value is not None else value
 
 
 class CreateSession(BaseModel):
@@ -165,10 +169,17 @@ class AppState:
         )
         self.sessions = SessionManager(config, self.embedder)
         self.voice = VoiceService(config)
-        # llama.cpp is configured with one model slot. Main turns and the
-        # complete OpenCode workflow, including native child agents, queue
-        # on this lock rather than competing for the same server context.
-        self.model_slot = asyncio.Lock()
+        # Continuous work yields the shared model between native requests so
+        # conversation can run while the task waits on research tools.
+        continuous = (config.subagent_continuous_enabled and config.subagent_enabled
+                      and config.subagent_backend == "opencode")
+        self.model_slot = (
+            ModelAdmission(slots=config.generator_parallel_slots)
+            if continuous else asyncio.Lock()
+        )
+        self.model_ingress = (
+            ModelIngress(config, self.model_slot) if continuous else None
+        )
         self.generator = Generator(
             GeneratorSettings(
                 base_url=config.generator_base_url,
@@ -178,6 +189,8 @@ class AppState:
                 thinking=config.generator_thinking,
                 max_tokens=config.generator_max_tokens,
                 temperature=config.generator_temperature,
+                context_tokens=config.generator_context_tokens if continuous else None,
+                require_tools=continuous,
             ),
             model_slot=self.model_slot,
         )
@@ -196,6 +209,10 @@ class AppState:
         # One globally shared sandbox, spawned lazily. Every call gets a
         # fresh OpenCode conversation and scrubbed scratch directory.
         self.sandboxes = SandboxManager(config, model_slot=self.model_slot)
+        self.task_store = TaskStore(config)
+        self.tasks = TaskCoordinator(
+            config, self.sessions, self.task_store, self.generator, self.sandboxes,
+        )
         self.embedder_health: dict = {}
         # A session is an append-only log with a turn counter; two turns
         # racing on one session would interleave episodes and corrupt the
@@ -220,15 +237,27 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         state = AppState(config)
         app.state.recollect = state
-        # Pay the ~750ms model load and prove the embedder's identity now,
-        # rather than making the first user wait and then fail.
-        state.embedder_health = await asyncio.to_thread(state.embedder.warm_up)
-        if config.subagent_enabled and config.subagent_backend == "opencode":
-            await state.sandboxes.start_reaper()
+        continuous = (config.subagent_continuous_enabled and config.subagent_enabled
+                      and config.subagent_backend == "opencode")
         try:
+            # Prove the embedder identity before accepting the first request.
+            state.embedder_health = await asyncio.to_thread(state.embedder.warm_up)
+            if continuous:
+                await state.model_ingress.start()
+                state.sandboxes.configure_model(
+                    state.model_ingress.base_url, state.model_ingress.token,
+                )
+                await state.tasks.start()
+            if config.subagent_enabled and config.subagent_backend == "opencode":
+                await state.sandboxes.start_reaper()
             yield
         finally:
+            if continuous:
+                state.model_slot.close()
+                await state.tasks.close()
             await state.sandboxes.close_all()
+            if continuous:
+                await state.model_ingress.close()
             await state.generator.aclose()
             await state.web_client.aclose()
 
@@ -252,6 +281,9 @@ def create_app(
         return app.state.recollect
 
     install_voice_routes(app, state)
+    from .task_api import install_task_routes
+
+    install_task_routes(app, state)
 
     # -- inspector API -----------------------------------------------------
 
@@ -278,6 +310,29 @@ def create_app(
     @app.post("/api/sessions")
     async def create_session(body: CreateSession = Body(default=CreateSession())):
         return await asyncio.to_thread(state().sessions.create_session, body.title)
+
+    @app.post("/api/sessions/{session_id}/reset")
+    async def reset_session(session_id: str) -> SessionInfo:
+        current = state()
+        try:
+            async with current.lock(session_id):
+                reset = asyncio.create_task(
+                    current.tasks.reset_conversation(session_id),
+                )
+                try:
+                    return await asyncio.shield(reset)
+                except asyncio.CancelledError:
+                    # Keep the turn lock through reset even if its HTTP caller
+                    # disconnects, just as we do for a committed chat turn.
+                    await _finish_task(reset)
+                    raise
+        except KeyError as error:
+            raise HTTPException(404, "No such session.") from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        except OSError as error:
+            raise HTTPException(500, "Chat reset could not finish. Please retry.") \
+                from error
 
     @app.get("/api/sessions/{session_id}/turns")
     async def list_turns(session_id: str) -> list[TurnSummary]:
@@ -329,6 +384,7 @@ def create_app(
             _stream_turn(
                 state(), request.session_id, request.message,
                 input_mode=request.input_mode,
+                request_id=request.request_id,
             ),
             media_type="text/event-stream",
             headers={
@@ -513,6 +569,7 @@ def _subagent_fallback(result_json: str) -> str:
 async def _stream_turn(
     state: AppState, session_id: str, message: str,
     *, input_mode: Literal["text", "voice"] = "text",
+    request_id: str | None = None,
 ) -> AsyncIterator[str]:
     """Retrieval first, then tokens. The inspector fills in before the model.
 
@@ -527,6 +584,16 @@ async def _stream_turn(
     the final answer. A delegated turn commits only that final answer; the
     phase-one preamble and the subagent's arc reach no database.
     """
+    if (state.config.subagent_continuous_enabled and state.config.subagent_enabled
+            and state.config.subagent_backend == "opencode"):
+        from .task_chat import stream_task_turn
+
+        async with aclosing(stream_task_turn(
+            state, session_id, message, input_mode=input_mode, request_id=request_id,
+        )) as stream:
+            async for event in stream:
+                yield event
+        return
     async with state.lock(session_id):
         started = time.perf_counter()
         try:

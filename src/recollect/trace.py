@@ -586,8 +586,12 @@ class GenerationTrace(BaseModel):
     system_prompt_chars: int
     context_block_chars: int
     total_prompt_chars: int
+    task_context_chars: int = 0
+    task_ids: list[str] = Field(default_factory=list)
+    model_queue_ms: float | None = None
 
     response_text: str = ""
+    memory_response_text: str | None = None
     response_chars: int = 0
     reasoning_text: str = Field(
         default="",

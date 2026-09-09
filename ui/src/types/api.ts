@@ -31,6 +31,7 @@ export interface ChatTurn {
   assistant_message: string
   reasoning_text: string
   error: string | null
+  started_at?: string
 }
 
 /** One subagent step, as streamed mid-turn. Ephemeral: never persisted. */
@@ -81,6 +82,7 @@ export interface DataSource {
   health(): Promise<HealthResponse>
   listSessions(): Promise<SessionInfo[]>
   createSession(title?: string): Promise<SessionInfo>
+  resetSession(sessionId: string): Promise<SessionInfo>
   listTurns(sessionId: string): Promise<TurnSummary[]>
   chatHistory(sessionId: string): Promise<ChatTurn[]>
   getTurn(turnId: string): Promise<TurnTrace>
@@ -91,5 +93,6 @@ export interface DataSource {
     onEvent: (event: ChatEvent) => void,
     signal?: AbortSignal,
     inputMode?: 'text' | 'voice',
+    requestId?: string,
   ): Promise<void>
 }

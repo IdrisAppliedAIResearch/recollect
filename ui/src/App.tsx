@@ -16,7 +16,10 @@ import { restoreHistory } from './lib/chat-history.ts'
 import { chars, int, ms, pct } from './lib/format.ts'
 import { initialSendOutcome, updateSendOutcome } from './lib/send-outcome.ts'
 import { finishWorkspace, recordResearchResult } from './lib/workspace.ts'
+import { pendingNotifications } from './lib/task-notifications.ts'
+import { useTasks } from './lib/useTasks.ts'
 import type { ChatEvent, DataSource, HealthResponse, SessionInfo } from './types/api.ts'
+import type { TaskNotification } from './types/tasks.ts'
 import type { TurnTrace } from './types/trace.ts'
 import { useVoice } from './voice/useVoice.ts'
 
@@ -47,6 +50,7 @@ export interface Workspace {
 
 export interface Exchange {
   id: string
+  startedAt?: string
   user: string
   assistant: string
   reasoning: string
@@ -70,6 +74,9 @@ export function App() {
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const sending = useRef(false)
+  const activeSend = useRef<AbortController | null>(null)
+  const resetInFlight = useRef(false)
+  const [resetting, setResetting] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
   const [chatWidth, setChatWidth] = useState(480)
   const [detailsOpen, setDetailsOpen] = useState(
@@ -132,10 +139,14 @@ export function App() {
       signal?: AbortSignal,
       inputMode: 'text' | 'voice' = 'text',
     ): Promise<string | null> => {
-      if (!session || loading || sending.current || source.kind === 'mock' || signal?.aborted) {
+      if (!session || loading || resetInFlight.current || sending.current || source.kind === 'mock' || signal?.aborted) {
         return null
       }
-      const localId = `pending-${Date.now()}`
+      const abort = new AbortController()
+      activeSend.current = abort
+      signal = signal ? AbortSignal.any([signal, abort.signal]) : abort.signal
+      const requestId = crypto.randomUUID()
+      const localId = `pending-${requestId}`
       sending.current = true
       setBusy(true)
       setBanner(null)
@@ -143,6 +154,7 @@ export function App() {
         ...current,
         {
           id: localId,
+          startedAt: new Date().toISOString(),
           user: message,
           assistant: '',
           reasoning: '',
@@ -280,7 +292,7 @@ export function App() {
                     ),
                   )
                 } catch (error) {
-                  setBanner((error as Error).message)
+                  if (!signal?.aborted) setBanner((error as Error).message)
                 }
               })()
               break
@@ -290,7 +302,7 @@ export function App() {
               setBanner(event.message)
               break
           }
-        }, signal, inputMode)
+        }, signal, inputMode, requestId)
         if (!outcome.completedId && !outcome.failed && !signal?.aborted) {
           const message = 'The connection ended before the reply completed.'
           outcome = updateSendOutcome(outcome, { type: 'error', message })
@@ -302,23 +314,27 @@ export function App() {
         patch(activeId, { error: signal?.aborted ? 'Reply stopped.' : (error as Error).message })
         if (!signal?.aborted) setBanner((error as Error).message)
       } finally {
-        sending.current = false
-        setBusy(false)
-        setExchanges((current) =>
-          current.map((item) => {
-            if (!item.streaming) return item
-            return {
-              ...item,
-              streaming: false,
-              workspace: item.workspace
-                ? finishWorkspace(item.workspace, item.assistant, item.error)
-                : null,
-            }
-          }),
-        )
+        if (activeSend.current === abort) {
+          activeSend.current = null
+          sending.current = false
+          setBusy(false)
+          setExchanges((current) =>
+            current.map((item) => {
+              if (!item.streaming) return item
+              return {
+                ...item,
+                streaming: false,
+                workspace: item.workspace
+                  ? finishWorkspace(item.workspace, item.assistant, item.error)
+                  : null,
+              }
+            }),
+          )
+        }
         if (outcome.committed) {
           setSession((current) =>
-            current ? { ...current, turn_count: current.turn_count + 1 } : current,
+            current?.session_id === session.session_id
+              ? { ...current, turn_count: current.turn_count + 1 } : current,
           )
         }
       }
@@ -329,11 +345,74 @@ export function App() {
 
   const voice = useVoice(
     session?.session_id ?? null,
-    !useMock && source.kind === 'live' && !loading,
+    !useMock && source.kind === 'live' && !loading && !resetting,
     send,
   )
 
+  const [announcements, setAnnouncements] = useState<TaskNotification[]>([])
+  const speakingTask = useRef<string | null>(null)
+  const tasks = useTasks(session?.session_id ?? null, !useMock && !loading && !resetting, (fresh, snapshot) => {
+    setAnnouncements((current) => pendingNotifications(current,
+      voice.active ? fresh : [], snapshot.tasks))
+  })
+
+  useEffect(() => {
+    setAnnouncements([])
+  }, [session?.session_id, useMock, voice.active])
+
+  useEffect(() => {
+    if (document.hidden || busy || !voice.active || announcements.length === 0) return
+    const pending = pendingNotifications(announcements, [], tasks.snapshot.tasks)
+    const next = pending[0]
+    if (next?.session_id === session?.session_id && voice.speakNotification(next.notification_id)) {
+      speakingTask.current = next.task_id
+      setAnnouncements(pending.slice(1))
+    }
+  }, [announcements, busy, voice, tasks.snapshot.tasks, session?.session_id])
+
+  useEffect(() => {
+    if (voice.playbackKind === 'notification' &&
+        tasks.snapshot.tasks.find((task) => task.task_id === speakingTask.current)?.quiet) {
+      voice.stopNotification()
+    }
+  }, [tasks.snapshot.tasks, voice.playbackKind, voice.stopNotification])
+
+  useEffect(() => {
+    const visibility = () => {
+      if (document.hidden) {
+        setAnnouncements([])
+        voice.stopNotification()
+      }
+    }
+    document.addEventListener('visibilitychange', visibility)
+    return () => document.removeEventListener('visibilitychange', visibility)
+  }, [voice.stopNotification])
+
   // -- details pane ------------------------------------------------------
+
+  const resetChat = async () => {
+    if (!session || loading || source.kind === 'mock' || resetInFlight.current) return
+    resetInFlight.current = true
+    setResetting(true)
+    setBanner(null)
+    setAnnouncements([])
+    activeSend.current?.abort()
+    voice.stop()
+    try {
+      const fresh = await source.resetSession(session.session_id)
+      activeSend.current = null
+      sending.current = false
+      setBusy(false)
+      setExchanges([])
+      setSelectedId(null)
+      setSession(fresh)
+    } catch (error) {
+      setBanner(`Could not reset chat: ${(error as Error).message}`)
+    } finally {
+      resetInFlight.current = false
+      setResetting(false)
+    }
+  }
 
   const toggleDetails = useCallback(() => {
     setDetailsOpen((open) => !open)
@@ -442,10 +521,16 @@ export function App() {
             type="button"
             className={useMock ? 'ctl ctl--on' : 'ctl'}
             onClick={() => setUseMock((value) => !value)}
-            disabled={busy || voice.active || loading}
+            disabled={busy || voice.active || loading || resetting}
             title="Explore the whole UI with a realistic generated trace and no server"
           >
             Mock data
+          </button>
+          <button type="button" className="ctl"
+            disabled={!session || loading || resetting || useMock}
+            onClick={() => void resetChat()}
+            title="Clear this chat's history and memory and stop its tasks. Files in Downloads are kept.">
+            {resetting ? 'Resetting…' : 'Reset chat'}
           </button>
         </div>
       </header>
@@ -455,6 +540,7 @@ export function App() {
       <div className={'workspace' + (detailsOpen ? '' : ' workspace--collapsed')}>
         <div className="pane pane--chat" style={{ width: chatWidth }}>
           <Chat
+            key={session?.session_id}
             exchanges={exchanges}
             selectedId={selectedId}
             onSelect={setSelectedId}
@@ -462,8 +548,10 @@ export function App() {
             busy={busy}
             session={session}
             readOnly={source.kind === 'mock'}
-            loading={loading}
+            loading={loading || resetting}
             voice={voice}
+            tasks={tasks.snapshot}
+            taskError={tasks.error}
           />
         </div>
 
