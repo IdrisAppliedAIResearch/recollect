@@ -340,6 +340,7 @@ async def test_start_accepts_verified_two_slot_profile(gateway):
 def test_parallel_slot_configuration_is_explicit(monkeypatch, tmp_path):
     model = tmp_path / "embedding.gguf"
     assert RecollectConfig(embedding_model_path=model).generator_parallel_slots == 1
+    monkeypatch.setenv("RECOLLECT_EMBEDDING_MODEL_PATH", str(model))
     monkeypatch.setenv("RECOLLECT_GENERATOR_PARALLEL_SLOTS", "2")
     assert RecollectConfig.from_env().generator_parallel_slots == 2
     with pytest.raises(ValueError, match="generator_parallel_slots"):
