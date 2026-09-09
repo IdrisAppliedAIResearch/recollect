@@ -216,3 +216,43 @@ Regression cases cover fragmented structured replies, invalid/truncated
 operations, no internal JSON emitted as user prose, release of the model slot
 after errors, unchanged optional/no-tool generation, and matching context-guard
 and inference payloads. Existing task-memory and shadow checks also pass.
+
+## Findings questions during ongoing work
+
+A saved voice-mode turn asking "What have you found so far?" exposed a second
+routing gap: the status lookup succeeded, but its unconstrained synthesis emitted
+`task_reply` XML instead of prose. The reply was rejected, yet the XML remained in
+visible history. A targeted lookup could instead hide the failure behind a generic
+completion announcement.
+
+The post-operation step now uses the existing JSON operation schema with only
+`task_reply` available. It cannot execute another task operation or override the
+first operation's memory selection. Handoffs use quoted JSON evidence instead of
+native tool-call history, and phase instructions stay in the initial system
+preamble as required by the deployed Qwen template. Prompt character accounting
+includes every message's content. Rejected protocol text is cleared from the
+visible reply. Narrow findings-so-far questions are display-only, including when
+the model selects a substantive reply after completion; mixed questions still
+retain their explicit substantive content.
+
+An isolated full voice-mode chat-path probe used the real Qwen server and pinned
+in-process embedder with seeded running/partial/completed task states. All six
+natural routes and three explicitly selected status handoffs returned readable
+answers, without new episodes or duplicate tasks. Natural-route times were
+2.574/3.032 seconds with no findings, 1.889/2.845 with partial findings, and
+5.032/3.447 after completion. Explicit status handoffs took 1.368/2.184/3.496
+seconds respectively. The probe exercised saved task evidence, not a live research
+worker, microphone capture, or audio playback. Existing user history and Downloads
+were preserved; all diagnostic storage was separate and removed afterward.
+
+Validation:
+
+```text
+All checks passed!
+994 passed, 3 skipped, 2 warnings in 73.07s (0:01:13)
+```
+
+Seventeen added regression cases cover named and general status lookups, empty
+and partial findings, completed work, mixed-memory handling, template-compatible
+message ordering, and rejection of protocol text without leaking it into history.
+No UI files changed in this repair.

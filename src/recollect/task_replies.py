@@ -18,6 +18,7 @@ def task_question(message: str) -> str | None:
     if re.fullmatch(
         r"(?:any updates|(?:what(?:'s| is) the )?(?:status|progress)|"
         r"how(?:'s| is) (?:it|the (?:task|research|work)) (?:going|progressing)|"
+        r"what have you (?:found|learned) so far|"
         r"(?:is it|are you) (?:done|finished|still working)|"
         r"what access restrictions are you hitting)", text,
     ):

@@ -34,6 +34,9 @@ async def make_task_state(tmp_path):
             subagent_continuous_enabled=True,
         )
         state = _make_state({"main": main, "final": list(final)}, config)
+        state.generator.key_fn = lambda tools: (
+            "main" if tools and len(tools) > 1 else "final"
+        )
         state.sandboxes = SimpleNamespace()
         state.task_store = TaskStore(config)
         state.tasks = TaskCoordinator(
@@ -157,7 +160,7 @@ async def test_disconnect_during_acknowledgment_preserves_task_and_retry_identit
     async def paused_acknowledgment(messages, *, trace, tools=None, **kwargs):
         async for chunk in original(messages, trace=trace, tools=tools, **kwargs):
             yield chunk
-        if not tools:
+        if tools and len(tools) == 1:
             acknowledgment_started.set()
             await asyncio.Event().wait()
 
@@ -277,9 +280,8 @@ async def test_supplemental_task_context_is_counted_without_changing_retrieval(
     generation = saved.generation
     assert generation.task_context_chars == len(snapshot["content"])
     assert generation.context_block_chars == len(saved.context_block.payload)
-    assert generation.total_prompt_chars == (
-        len(messages[0]["content"]) + len(saved.context_block.payload)
-        + len(message) + len(snapshot["content"])
+    assert generation.total_prompt_chars == sum(
+        len(item["content"]) for item in messages
     )
     assert generation.task_ids == [task["task_id"]]
 
@@ -334,7 +336,7 @@ async def test_generator_failure_is_visible_without_losing_an_accepted_task(
     async def fail(messages, *, trace, tools=None, **kwargs):
         async for event in original(messages, trace=trace, tools=tools, **kwargs):
             yield event
-        if bool(tools) == (phase == "initial"):
+        if (len(tools or ()) > 1) == (phase == "initial"):
             raise GenerationError("The model connection failed.")
 
     monkeypatch.setattr(state.generator, "stream", fail)
