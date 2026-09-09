@@ -1,12 +1,13 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param(
-    [ValidateSet('standalone', 'host')]
+    [ValidateSet('standalone', 'host', 'stop')]
     [string]$Mode = 'standalone',
     [string]$BindHost = '',
     [ValidateRange(1, 65535)]
     [int]$Port = 8080,
-    [string]$TokenFile = ''
+    [string]$TokenFile = '',
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
@@ -520,4 +521,111 @@ asyncio.run(warm())
     }
 }
 
-if ($MyInvocation.InvocationName -ne '.') { Invoke-RecollectLaunch }
+function Test-RecollectContainer($Container, [string]$Image, [string]$SandboxRoot) {
+    if ($Container.Name -notmatch '^/recollect-subagent-[a-f0-9]+$' -or
+        $Container.Config.Image -cne $Image) { return $false }
+    $mounts = @($Container.Mounts)
+    if ($mounts.Count -ne 2) { return $false }
+    $root = [IO.Path]::GetFullPath($SandboxRoot).TrimEnd('\', '/') + '\'
+    $parents = @()
+    foreach ($mount in $mounts) {
+        if ($mount.Type -ne 'bind' -or $mount.Destination -notin @('/workspace', '/config')) {
+            return $false
+        }
+        $source = [IO.Path]::GetFullPath($mount.Source)
+        if (-not $source.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        $leaf = Split-Path $source -Leaf
+        if (($mount.Destination -eq '/workspace' -and ($leaf -ne 'workspace' -or -not $mount.RW)) -or
+            ($mount.Destination -eq '/config' -and ($leaf -ne 'config' -or $mount.RW))) { return $false }
+        $parents += Split-Path $source -Parent
+    }
+    return ($parents[0] -ieq $parents[1] -and
+        @($mounts.Destination | Select-Object -Unique).Count -eq 2)
+}
+
+function Stop-VerifiedProcess($Expected) {
+    $current = Get-CimInstance Win32_Process -Filter "ProcessId = $($Expected.ProcessId)"
+    if (-not $current) { return }
+    # A recycled PID must never become a shutdown target.
+    if ($current.CreationDate -ne $Expected.CreationDate -or
+        $current.ExecutablePath -cne $Expected.ExecutablePath -or
+        $current.CommandLine -cne $Expected.CommandLine) {
+        throw "Process $($Expected.ProcessId) changed identity; shutdown refused."
+    }
+    $handle = Get-Process -Id $current.ProcessId -ErrorAction SilentlyContinue
+    if (-not $handle) { return }
+    try {
+        if ($handle.HasExited) { return }
+        Stop-Process -InputObject $handle -ErrorAction Stop
+        # Windows may retain an exited process in enumeration until handles close.
+        if (-not $handle.WaitForExit(15000)) {
+            throw "Process $($current.ProcessId) did not stop."
+        }
+    } finally { $handle.Dispose() }
+}
+
+function Invoke-RecollectStop {
+    $recollectRoot = Split-Path -Parent $PSScriptRoot
+    Push-Location $recollectRoot
+    try {
+        $python = Join-Path $recollectRoot '.venv\Scripts\python.exe'
+        $settingsJson = & $python -I -c 'import json,sys; from recollect.config import RecollectConfig; c=RecollectConfig.from_env(); print(json.dumps(dict(base_python=sys._base_executable,image=c.sandbox_container_image,root=str(c.sandbox_root.resolve()))))'
+        if ($LASTEXITCODE -ne 0) { throw 'Could not read shutdown configuration.' }
+        $settings = $settingsJson | ConvertFrom-Json
+        $modelExe = Join-Path $env:USERPROFILE '.unsloth\llama.cpp\build\bin\Release\llama-server.exe'
+        $model = Join-Path $env:USERPROFILE '.cache\huggingface\hub\models--unsloth--Qwen3.8-27B-GGUF\snapshots\f1bfb127c64f7072bdd2cad55f258b9c8b2910fe\Qwen3.8-27B-UD-Q4_K_XL.gguf'
+        $processes = @(Get-CimInstance Win32_Process)
+        $apps = @($processes | Where-Object { Test-RecollectProcess $_ $recollectRoot $settings.base_python })
+        $models = @($processes | Where-Object { Test-QwenProcess $_ $modelExe $model })
+        $targetIds = @(@($apps) + @($models) | ForEach-Object { $_.ProcessId })
+        # Inspect all targets before stopping anything, including an occupied API port.
+        foreach ($listenPort in @($Port, 8000)) {
+            $owner = Get-PortProcess $listenPort
+            if ($owner -and $owner.ProcessId -notin $targetIds) {
+                throw "Port $listenPort belongs to another process; no services stopped."
+            }
+        }
+        $containers = @()
+        if (Get-Command docker -ErrorAction SilentlyContinue) {
+            $ids = @(& docker ps -aq --filter 'name=recollect-subagent-' 2>$null)
+            if ($LASTEXITCODE -ne 0) {
+                throw 'Docker is unavailable; cannot verify research container cleanup. No services stopped.'
+            }
+            foreach ($containerId in $ids) {
+                $inspection = & docker inspect $containerId
+                if ($LASTEXITCODE -ne 0) { throw "Cannot inspect container $containerId." }
+                $container = @($inspection | ConvertFrom-Json)[0]
+                if (-not (Test-RecollectContainer $container $settings.image $settings.root)) {
+                    throw "Container $containerId has unexpected ownership; no services stopped."
+                }
+                $containers += $container
+            }
+        }
+        Write-Host "Verified targets: $($apps.Count) Recollect processes, $($models.Count) Qwen processes, $($containers.Count) research containers."
+        if ($DryRun) { Write-Host 'Preview only; nothing stopped.'; return }
+        # Stop the serving child before its venv redirectors/console launcher.
+        foreach ($app in @($apps | Sort-Object CreationDate -Descending)) { Stop-VerifiedProcess $app }
+        foreach ($container in $containers) {
+            $remaining = @(& docker ps -aq --filter "id=$($container.Id)")
+            if ($LASTEXITCODE -ne 0) { throw 'Could not check research container cleanup.' }
+            if ($remaining.Count) {
+                & docker stop --time 5 $container.Id | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw 'Could not stop research container.' }
+                $remaining = @(& docker ps -aq --filter "id=$($container.Id)")
+                if ($remaining.Count) {
+                    & docker rm $container.Id | Out-Null
+                    if ($LASTEXITCODE -ne 0) { throw 'Could not remove stopped research container.' }
+                }
+            }
+        }
+        foreach ($modelProcess in $models) { Stop-VerifiedProcess $modelProcess }
+        foreach ($listenPort in @($Port, 8000)) {
+            if (Get-PortProcess $listenPort) { throw "Port $listenPort remains occupied." }
+        }
+        Write-Host 'Recollect and its models stopped. Docker Desktop remains running. Saved history and model files are preserved.'
+    } finally { Pop-Location }
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+    if ($Mode -eq 'stop') { Invoke-RecollectStop } else { Invoke-RecollectLaunch }
+}

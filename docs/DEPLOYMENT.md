@@ -144,6 +144,25 @@ Qwen, the pinned embedder, Whisper CUDA float16, and Kokoro's CUDA provider.
 It prints process IDs and runtime log locations, never the pairing token.
 Host mode serves the backend without the inspector UI.
 
+### Stop the Windows desktop stack
+
+```powershell
+recollect-stop
+```
+
+Run the Windows command installer once again to add this command to an existing
+installation. It works from any directory for both standalone and host mode.
+Use `recollect-stop --dry-run` to preview the verified process/container counts,
+or `--port 8090` if you launched on a different API port.
+
+Shutdown ends the serving process (including any active reply), unloads its
+speech and embedding models, stops/removes verified Recollect research containers,
+and stops Qwen. It verifies executable paths and command lines again before
+stopping each process, and rejects unexpected container images or mounts. Saved
+conversations, models, pairing files and `.env` are preserved. Shared Docker
+Desktop remains running. Repeating the command when the stack is stopped is safe;
+Docker must be reachable to verify container cleanup.
+
 ### Surface client on Ubuntu
 
 Clone or copy this Recollect repository to the Surface. It needs `uv` and a

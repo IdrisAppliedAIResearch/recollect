@@ -187,3 +187,58 @@ catch { $message = $_.Exception.Message }
 """.replace("DIRECTORY", escaped))
     assert result["started"] is False
     assert "Qwen CUDA dependency is missing" in result["message"]
+
+
+def test_stop_refuses_recycled_process_id():
+    result = run_script(r"""
+$expected = [pscustomobject]@{ProcessId=42; CreationDate='old';
+    ExecutablePath='app'; CommandLine='serve'}
+function Get-CimInstance { [pscustomobject]@{ProcessId=42; CreationDate='new';
+    ExecutablePath='app'; CommandLine='serve'} }
+$script:stopped = $false
+function Stop-Process { $script:stopped = $true }
+try { Stop-VerifiedProcess $expected; $refused = $false } catch { $refused = $true }
+@{refused=$refused; stopped=$script:stopped} | ConvertTo-Json -Compress
+""")
+    assert result == {"refused": True, "stopped": False}
+
+
+def test_stop_container_requires_image_and_matching_private_mounts():
+    result = run_script(r"""
+$c = [pscustomobject]@{Name='/recollect-subagent-abc123';
+ Config=[pscustomobject]@{Image='expected'}; Mounts=@(
+ [pscustomobject]@{Type='bind'; Destination='/workspace';
+     Source='C:\sandboxes\shared\workspace'; RW=$true},
+ [pscustomobject]@{Type='bind'; Destination='/config';
+     Source='C:\sandboxes\shared\config'; RW=$false}
+)}
+$results = @(Test-RecollectContainer $c 'expected' 'C:\sandboxes')
+$c.Config.Image='other'
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes'
+$c.Config.Image='expected'
+$c.Mounts[0].Source='C:\sandboxes-other\shared\workspace'
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes'
+$c.Mounts[0].Source='C:\sandboxes\shared\workspace'
+$c.Mounts[1].RW=$true
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes'
+ConvertTo-Json -Compress -InputObject $results
+""")
+    assert result == [True, False, False, False]
+
+
+def test_stop_verified_process_terminates_only_owned_child():
+    result = run_script(r"""
+$exe = (Get-Process -Id $PID).Path
+$child = Start-Process -FilePath $exe -WindowStyle Hidden -PassThru `
+    -ArgumentList '-NoProfile -NonInteractive -Command Start-Sleep -Seconds 30'
+try {
+    $expected = Get-CimInstance Win32_Process -Filter "ProcessId = $($child.Id)"
+    Stop-VerifiedProcess $expected
+    Stop-VerifiedProcess $expected
+    $child.HasExited | ConvertTo-Json
+} finally {
+    if (-not $child.HasExited) { $child.Kill() }
+    $child.Dispose()
+}
+""")
+    assert result is True

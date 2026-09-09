@@ -211,3 +211,23 @@ def test_isolated_host_bootstrap_ignores_caller_python_packages():
         assert result.returncode == 0, result.stderr
         assert "complete Windows Recollect host stack" in result.stdout
         assert "UNTRUSTED_CWD" not in result.stderr
+
+
+def test_stop_command_installed_with_isolated_bootstrap(installation):
+    installer, _, destination, caller = installation
+    result = install(installer, destination, caller)
+    assert result.returncode == 0, result.stderr
+    wrapper = (destination / "recollect-stop.cmd").read_text()
+    assert '-I -m recollect.launch stop %*' in wrapper
+    assert 'DisableDelayedExpansion' in wrapper
+
+
+def test_unowned_stop_command_prevents_installation(installation):
+    installer, _, destination, caller = installation
+    destination.mkdir()
+    conflict = destination / 'recollect-stop.cmd'
+    conflict.write_text('echo User command')
+    result = install(installer, destination, caller)
+    assert result.returncode != 0
+    assert list(destination.iterdir()) == [conflict]
+    assert conflict.read_text() == 'echo User command'

@@ -85,3 +85,15 @@ def test_desktop_command_on_ubuntu_points_to_client(monkeypatch, capsys):
     monkeypatch.setattr(launch.sys, "platform", "linux")
     assert launch.host_main([]) == 1
     assert "recollect-deploy" in capsys.readouterr().err
+
+
+def test_stop_command_uses_trusted_launcher_and_preview(monkeypatch, tmp_path):
+    powershell = tmp_path / 'powershell.exe'
+    powershell.touch()
+    calls = []
+    monkeypatch.setattr(launch.sys, 'platform', 'win32')
+    monkeypatch.setattr(launch, '_powershell_path', lambda: powershell)
+    monkeypatch.setattr(launch.subprocess, 'run', lambda args, **kw:
+                        calls.append(args) or subprocess.CompletedProcess(args, 0))
+    assert launch.stop_main(['--dry-run']) == 0
+    assert calls[0][-3:] == ['-Mode', 'stop', '-DryRun']

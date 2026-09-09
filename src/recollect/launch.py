@@ -16,6 +16,10 @@ def host_main(argv: list[str] | None = None) -> int:
     return _desktop("host", argv)
 
 
+def stop_main(argv: list[str] | None = None) -> int:
+    return _desktop("stop", argv)
+
+
 def _powershell_path() -> Path:
     import ctypes
     from ctypes import wintypes
@@ -32,13 +36,20 @@ def _powershell_path() -> Path:
 
 
 def _desktop(mode: str, argv: list[str] | None) -> int:
-    command = "recollect-host" if mode == "host" else "recollect"
+    command = {"host": "recollect-host", "stop": "recollect-stop"}.get(
+        mode, "recollect",
+    )
     parser = argparse.ArgumentParser(
         prog=command,
-        description=f"Launch the complete Windows Recollect {mode} stack.",
+        description=("Stop Recollect and its models; leave Docker Desktop running."
+                     if mode == "stop" else
+                     f"Launch the complete Windows Recollect {mode} stack."),
     )
     parser.add_argument("--host", help="local IPv4 interface to bind")
     parser.add_argument("--port", type=int, help="Recollect API port (default: 8080)")
+    if mode == "stop":
+        parser.add_argument("--dry-run", action="store_true",
+                            help="show verified shutdown targets without stopping them")
     if mode == "host":
         parser.add_argument(
             "--token-file", type=Path,
@@ -68,6 +79,8 @@ def _desktop(mode: str, argv: list[str] | None) -> int:
         arguments.extend(["-Port", str(args.port)])
     if mode == "host" and args.token_file is not None:
         arguments.extend(["-TokenFile", str(args.token_file.expanduser().absolute())])
+    if mode == "stop" and args.dry_run:
+        arguments.append("-DryRun")
     try:
         return subprocess.run(arguments, cwd=root, check=False).returncode
     except OSError as error:
@@ -77,10 +90,10 @@ def _desktop(mode: str, argv: list[str] | None) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in {"standalone", "host"}:
+    if argv and argv[0] in {"standalone", "host", "stop"}:
         return _desktop(argv[0], argv[1:])
     parser = argparse.ArgumentParser(prog="python -m recollect.launch")
-    parser.add_argument("mode", choices=("standalone", "host"))
+    parser.add_argument("mode", choices=("standalone", "host", "stop"))
     parser.parse_args(argv)
     return 1
 

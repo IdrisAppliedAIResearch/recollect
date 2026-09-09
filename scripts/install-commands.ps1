@@ -49,8 +49,9 @@ function Install-RecollectCommands {
     $wrappers = [ordered]@{
         'recollect.cmd' = ('"{0}" %*' -f $recollectTarget)
         'recollect-host.cmd' = ('"{0}" -I -m recollect.launch host %*' -f $hostTarget)
+        'recollect-stop.cmd' = ('"{0}" -I -m recollect.launch stop %*' -f $hostTarget)
     }
-    # Check both command names before replacing either existing wrapper.
+    # Check every command name before replacing any existing wrapper.
     foreach ($name in $wrappers.Keys) {
         $path = Join-Path $destination $name
         if (Test-Path -LiteralPath $path) {
@@ -85,7 +86,7 @@ function Install-RecollectCommands {
         }
         $env:Path = Add-RecollectPathEntry $env:Path $destination
     }
-    Write-Host 'Commands installed: recollect and recollect-host. No services were started.'
+    Write-Host 'Commands installed: recollect, recollect-host, recollect-stop. No services were started.'
 }
 
 if ($MyInvocation.InvocationName -ne '.') { Install-RecollectCommands }
