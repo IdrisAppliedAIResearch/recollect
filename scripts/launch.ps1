@@ -62,6 +62,29 @@ function Test-RecollectProcess($Process, [string]$Root, [string]$BasePython = ''
         $Process.CommandLine -match '(?:recollect(?:\.exe|\.cli)?["'']?\s+|recollect\.cli\s+)serve(?:\s|$)')
 }
 
+function Assert-QwenHealth($Health, $Models, [string]$ModelName, [string]$ModelPath) {
+    $identities = @($Models.data | ForEach-Object { $_.id })
+    # llama-server may advertise the exact model path when no alias is configured.
+    if ($Health.status -ne 'ok' -or $identities.Count -ne 1 -or
+        ($identities[0] -cne $ModelName -and $identities[0] -cne $ModelPath)) {
+        throw "Qwen health/model mismatch: expected '$ModelName' or '$ModelPath'; received '$($identities -join ', ')', status '$($Health.status)'."
+    }
+}
+
+function Invoke-WithQwenCuda([string]$Directory, [scriptblock]$Action) {
+    foreach ($name in @('cublas64_13.dll', 'cublasLt64_13.dll', 'cudart64_13.dll')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Directory $name) -PathType Leaf)) {
+            throw "Qwen CUDA dependency is missing: $name in $Directory"
+        }
+    }
+    $originalPath = $env:PATH
+    try {
+        # Only Qwen inherits these libraries; Whisper uses a different CUDA runtime.
+        $env:PATH = $Directory + ';' + $originalPath
+        & $Action
+    } finally { $env:PATH = $originalPath }
+}
+
 function Get-Json([string]$Url, [string]$PairingFile = '') {
     if (-not $PairingFile) {
         return Invoke-RestMethod -Uri $Url -TimeoutSec 10
@@ -230,6 +253,7 @@ if config.voice_cuda_dll_dir is None or not config.voice_cuda_dll_dir.is_dir():
 if config.voice_asr_cuda_dll_dir is not None and not config.voice_asr_cuda_dll_dir.is_dir():
     raise SystemExit("Configured Whisper CUDA DLL directory is missing.")
 print(json.dumps({"image": config.sandbox_container_image,
+                  "qwen_cuda_dll_dir": str(config.voice_cuda_dll_dir),
                   "base_python_executable": sys._base_executable}))
 '@
         $settingsJson = $preflight | & uv run --no-sync python -
@@ -272,9 +296,7 @@ print(json.dumps({"image": config.sandbox_container_image,
         if ($qwenOwner) {
             $qwenHealth = Get-Json 'http://127.0.0.1:8000/health'
             $qwenModels = Get-Json 'http://127.0.0.1:8000/v1/models'
-            if ($qwenHealth.status -ne 'ok' -or $modelName -notin @($qwenModels.data.id)) {
-                throw 'Existing Qwen server is unhealthy or serves a different model.'
-            }
+            Assert-QwenHealth $qwenHealth $qwenModels $modelName $chatModel
         }
 
         Write-Host 'Checking Linux Docker engine ...'
@@ -341,21 +363,27 @@ print(json.dumps({"image": config.sandbox_container_image,
                 '--model', ('"{0}"' -f $chatModel), '--host', '127.0.0.1', '--port', '8000',
                 '--ctx-size', '32768', '--parallel', '1', '--n-gpu-layers', '999',
                 '--cache-type-k', 'q8_0', '--cache-type-v', 'q8_0',
-                '--flash-attn', 'on', '--jinja', '--metrics', '--no-webui'
+                '--flash-attn', 'on', '--jinja', '--metrics', '--no-webui',
+                # This build maps native GPU-offload information to trace level.
+                '--verbosity', '4'
             )
             $qwenStdout = Join-Path $runtimeLogs "qwen-$launchStamp.stdout.log"
             $qwenStderr = Join-Path $runtimeLogs "qwen-$launchStamp.stderr.log"
-            $qwenProcess = Start-Process -FilePath $modelServerExe -ArgumentList $modelArgs `
-                -WorkingDirectory $recollectRoot -WindowStyle Hidden -PassThru `
-                -RedirectStandardOutput $qwenStdout -RedirectStandardError $qwenStderr
+            $qwenProcess = Invoke-WithQwenCuda $settings.qwen_cuda_dll_dir {
+                $devices = & $modelServerExe --list-devices
+                if ($LASTEXITCODE -ne 0 -or ($devices -join "`n") -notmatch '(?m)^\s*CUDA[0-9]+:') {
+                    throw 'Qwen cannot discover a CUDA device; check its installed CUDA libraries before launching.'
+                }
+                Start-Process -FilePath $modelServerExe -ArgumentList $modelArgs `
+                    -WorkingDirectory $recollectRoot -WindowStyle Hidden -PassThru `
+                    -RedirectStandardOutput $qwenStdout -RedirectStandardError $qwenStderr
+            }
             $journal.qwen = @{
                 pid = $qwenProcess.Id; reused = $false; stdout = $qwenStdout; stderr = $qwenStderr
             }
             $qwenHealth = Wait-Json 'http://127.0.0.1:8000/health' '' 180
             $qwenModels = Get-Json 'http://127.0.0.1:8000/v1/models'
-            if ($qwenHealth.status -ne 'ok' -or $modelName -notin @($qwenModels.data.id)) {
-                throw 'Qwen health or model identity did not match the configured model.'
-            }
+            Assert-QwenHealth $qwenHealth $qwenModels $modelName $chatModel
             $startup = (Get-Content -LiteralPath $qwenStderr -Raw) + (Get-Content -LiteralPath $qwenStdout -Raw)
             if ($startup -notmatch 'offloaded\s+[1-9][0-9]*/[0-9]+\s+layers to GPU') {
                 throw "Qwen startup did not confirm GPU layer offload. Inspect $qwenStderr"

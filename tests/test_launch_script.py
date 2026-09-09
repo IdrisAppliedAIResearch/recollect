@@ -129,3 +129,61 @@ catch { $refused = $true }
 $refused | ConvertTo-Json
 """)
     assert result is True
+
+
+def test_qwen_identity_accepts_exact_name_or_path_without_accepting_other_models():
+    result = run_script(r"""
+$health = [pscustomobject]@{status = 'ok'}
+$modelPath = 'C:\models\chat.gguf'
+$ids = @('chat.gguf', $modelPath, 'C:\other\chat.gguf', 'chat.gguf.backup', '')
+$accepted = foreach ($id in $ids) {
+    $models = [pscustomobject]@{data = @([pscustomobject]@{id = $id})}
+    try { Assert-QwenHealth $health $models 'chat.gguf' $modelPath; $true }
+    catch { $false }
+}
+$models = [pscustomobject]@{data = @([pscustomobject]@{id = 'chat.gguf'})}
+$health.status = 'loading'
+try { Assert-QwenHealth $health $models 'chat.gguf' $modelPath; $accepted += $true }
+catch { $accepted += $false }
+$health.status = 'ok'
+$models.data += [pscustomobject]@{id = 'other.gguf'}
+try { Assert-QwenHealth $health $models 'chat.gguf' $modelPath; $accepted += $true }
+catch { $accepted += $false }
+ConvertTo-Json -Compress -InputObject $accepted
+""")
+    assert result == [True, True, False, False, False, False, False]
+
+
+def test_qwen_cuda_path_is_scoped_and_restored_even_when_startup_fails(tmp_path):
+    directory = tmp_path / "cuda libraries"
+    directory.mkdir()
+    for name in ("cublas64_13.dll", "cublasLt64_13.dll", "cudart64_13.dll"):
+        (directory / name).touch()
+    escaped = str(directory).replace("'", "''")
+    result = run_script(r"""
+$original = $env:PATH
+$directory = 'DIRECTORY'
+$during = Invoke-WithQwenCuda $directory { $env:PATH }
+$restored = $env:PATH -ceq $original
+try { Invoke-WithQwenCuda $directory { throw 'fixture failure' } }
+catch { $failed = $true }
+@{prefixed = $during.StartsWith($directory + ';'); restored = $restored;
+  failed = $failed; restored_after_error = ($env:PATH -ceq $original)} |
+    ConvertTo-Json -Compress
+""".replace("DIRECTORY", escaped))
+    assert result == {
+        "prefixed": True, "restored": True, "failed": True,
+        "restored_after_error": True,
+    }
+
+
+def test_missing_qwen_cuda_dependency_prevents_process_creation(tmp_path):
+    escaped = str(tmp_path).replace("'", "''")
+    result = run_script(r"""
+$script:started = $false
+try { Invoke-WithQwenCuda 'DIRECTORY' { $script:started = $true } }
+catch { $message = $_.Exception.Message }
+@{started = $script:started; message = $message} | ConvertTo-Json -Compress
+""".replace("DIRECTORY", escaped))
+    assert result["started"] is False
+    assert "Qwen CUDA dependency is missing" in result["message"]

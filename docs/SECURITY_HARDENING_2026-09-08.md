@@ -176,3 +176,36 @@ The Docker dialog was subsequently inspected and dismissed through the desktop
 UI at the user's request. It showed the same socket-access failure, with no
 sign-in or Continue option. Dismissing it closed the Docker window and did not
 establish engine readiness; live validation remains outstanding.
+
+### Subsequent successful Docker and desktop validation
+
+After Docker became available during the user's next launch, both opt-in Docker
+lifecycle/containment tests passed. This supersedes the engine blocker above.
+The sandbox image was rebuilt with the current restricted build context.
+
+That launch exposed two Windows startup assumptions: this llama-server advertises
+its exact model path rather than the filename, and a fresh terminal does not
+include its CUDA 13 libraries. The launcher now accepts only the configured name
+or exact path, scopes the existing CUDA library directory to Qwen's child process,
+and checks CUDA device discovery before starting it. Native verbosity 4 provides
+the GPU-offload evidence required by this build; the readiness check remains.
+Regression tests cover incorrect identities, PATH restoration, startup failure,
+and missing CUDA dependencies.
+
+The complete standalone launcher subsequently passed: Docker/image ready, Qwen
+GPU offload verified, the pinned CPU embedding sentinel matched, Whisper warmed
+on CUDA float16, and Kokoro used CUDAExecutionProvider. The browser displayed the
+existing saved session with 24 turns. No conversation or captured audio was added.
+Services were left running. Actual Surface installation/audio, LAN behavior and
+firewall scoping remain unverified.
+
+Final follow-up checks (`RECOLLECT_RUN_DOCKER_TESTS=1`):
+
+```text
+All checks passed!
+791 passed, 1 skipped, 1 warning in 68.58s (0:01:08)
+```
+
+Only the Windows symlink-creation privilege test was skipped; the warning remains
+the existing Starlette TestClient/httpx deprecation. The task-owned pytest directory
+was removed on exit.

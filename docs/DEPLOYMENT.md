@@ -124,6 +124,13 @@ This brings up Docker, the single GPU Qwen server, Recollect and warmed GPU
 voice. It builds a missing or stale UI and verifies readiness. The browser
 opens `http://127.0.0.1:8080`. Services remain running after the launcher exits.
 
+On Windows, the launcher supplies Qwen's CUDA 13 libraries from the configured
+`RECOLLECT_VOICE_CUDA_DLL_DIR` only to the Qwen child process, so fresh terminals
+need no extra PATH setup and Whisper retains its separate CUDA environment.
+It requires CUDA device discovery and GPU-offload log evidence. Model identity
+accepts either the configured filename or its exact configured absolute path,
+which this llama-server build advertises by default.
+
 ### Desktop host
 
 ```powershell
