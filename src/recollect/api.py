@@ -311,6 +311,29 @@ def create_app(
     async def create_session(body: CreateSession = Body(default=CreateSession())):
         return await asyncio.to_thread(state().sessions.create_session, body.title)
 
+    @app.post("/api/sessions/{session_id}/reset")
+    async def reset_session(session_id: str) -> SessionInfo:
+        current = state()
+        try:
+            async with current.lock(session_id):
+                reset = asyncio.create_task(
+                    current.tasks.reset_conversation(session_id),
+                )
+                try:
+                    return await asyncio.shield(reset)
+                except asyncio.CancelledError:
+                    # Keep the turn lock through reset even if its HTTP caller
+                    # disconnects, just as we do for a committed chat turn.
+                    await _finish_task(reset)
+                    raise
+        except KeyError as error:
+            raise HTTPException(404, "No such session.") from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        except OSError as error:
+            raise HTTPException(500, "Chat reset could not finish. Please retry.") \
+                from error
+
     @app.get("/api/sessions/{session_id}/turns")
     async def list_turns(session_id: str) -> list[TurnSummary]:
         try:

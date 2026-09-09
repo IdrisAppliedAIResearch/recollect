@@ -82,6 +82,7 @@ export interface DataSource {
   health(): Promise<HealthResponse>
   listSessions(): Promise<SessionInfo[]>
   createSession(title?: string): Promise<SessionInfo>
+  resetSession(sessionId: string): Promise<SessionInfo>
   listTurns(sessionId: string): Promise<TurnSummary[]>
   chatHistory(sessionId: string): Promise<ChatTurn[]>
   getTurn(turnId: string): Promise<TurnTrace>

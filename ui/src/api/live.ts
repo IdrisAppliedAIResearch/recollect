@@ -77,6 +77,11 @@ export const liveSource: DataSource = {
   listTurns: (sessionId) =>
     json<TurnSummary[]>(`/api/sessions/${encodeURIComponent(sessionId)}/turns`),
 
+  resetSession: (sessionId) =>
+    json<SessionInfo>(`/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
+      method: 'POST',
+    }),
+
   chatHistory: (sessionId) =>
     json<ChatTurn[]>(`/api/sessions/${encodeURIComponent(sessionId)}/history`),
 

@@ -25,6 +25,7 @@ the embedder's memo cache answers without touching the model.
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -115,6 +116,19 @@ class SessionManager:
             except (ValueError, KeyError, OSError):
                 continue
         return sorted(sessions, key=lambda s: s.created_at, reverse=True)
+
+    def reset_session(self, session_id: str) -> SessionInfo:
+        self.get_session(session_id)
+        directory = self.config.session_dir(session_id).absolute()
+        if (
+            directory.is_symlink() or directory.is_junction()
+            or directory.resolve().parent != self.config.sessions_dir.resolve()
+        ):
+            raise ValueError("Cannot reset a linked session directory.")
+        # A fresh identity prevents stale tabs or queued turns from repopulating
+        # the reset conversation. Downloads are outside this owned directory.
+        shutil.rmtree(directory)
+        return self.create_session("New conversation")
 
     def get_session(self, session_id: str) -> SessionInfo:
         path = self.config.session_file(session_id, "session.json")

@@ -65,6 +65,10 @@ export function createMockSource(scenario: MockScenario = 'deployed'): DataSourc
   return {
     kind: 'mock',
 
+    async resetSession() {
+      throw new Error('Switch off Mock data to reset your chat.')
+    },
+
     async health(): Promise<HealthResponse> {
       await delay(40)
       return {

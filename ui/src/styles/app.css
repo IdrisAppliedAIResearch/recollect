@@ -133,6 +133,11 @@ table,
   flex: 0 1 auto;
   min-width: 0;
 }
+@media (max-width: 700px) {
+  .brand__tag, .topbar__group--chip { display: none; }
+  .topbar { gap: 6px; padding: 0 8px; }
+  .topbar .ctl { padding: 0 6px; }
+}
 
 .ctl {
   display: inline-flex;

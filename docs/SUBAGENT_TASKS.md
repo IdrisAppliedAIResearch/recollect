@@ -71,6 +71,13 @@ continuation. Retrying the same request ID does not start duplicate work.
 
 ## Files, retention, and deletion
 
+**Reset chat**, in the top-right toolbar, clears the current conversation's
+history, episodic memory, saved task context, and archived task files. It stops
+the current reply and that conversation's active or queued work, waits for worker
+cleanup, and opens a new empty conversation. Other conversations and files already
+delivered to Downloads are kept. Reset acts immediately and cannot be undone.
+Voice is turned off during reset; enable it again when ready to speak.
+
 Workers can export UTF-8 `.txt`, `.md`, `.csv`, and `.json` files. Other formats
 are outside this release's artifact export capability. Downloads use opaque
 artifact IDs; the API does not accept arbitrary host paths. Export rejects links,

@@ -49,6 +49,7 @@ class TaskCoordinator:
         self._notification_worker: asyncio.Task | None = None
         self._notification_wake = asyncio.Event()
         self._last_notification: dict[tuple[str, str], float] = {}
+        self._resetting: set[str] = set()
 
     async def start(self) -> None:
         if not self.enabled or self._worker:
@@ -157,6 +158,8 @@ class TaskCoordinator:
         effort,
         parent_task_id=None,
     ) -> dict:
+        if session_id in self._resetting:
+            raise ValueError("This conversation is being reset.")
         existing = await asyncio.to_thread(self.store.request, session_id, request_id)
         if existing:
             if existing["original_message"] != original_message:
@@ -227,11 +230,58 @@ class TaskCoordinator:
                 if key[0] == session_id:
                     self._notifications.pop(key, None)
 
+    async def reset_conversation(self, session_id):
+        async with self._mutation:
+            await asyncio.to_thread(self.sessions.get_session, session_id)
+            if session_id in self._resetting:
+                raise ValueError("This conversation is being reset.")
+            self._resetting.add(session_id)
+        try:
+            async with self._mutation:
+                tasks = await asyncio.to_thread(self.store.list, session_id)
+                self._pending = deque(
+                    key for key in self._pending if key[0] != session_id
+                )
+                active = self._active if self._active and (
+                    self._active[0] == session_id
+                ) else None
+                execution = self._execution if active else None
+                for task in tasks:
+                    if task["state"] in ACTIVE_STATES:
+                        await asyncio.to_thread(
+                            self.store.update, session_id, task["task_id"],
+                            state="cancel-requested" if execution
+                            and active[1] == task["task_id"] else "canceled",
+                        )
+                for key in list(self._notifications):
+                    if key[0] == session_id:
+                        self._notifications.pop(key, None)
+                if execution and not execution.done():
+                    execution.cancel()
+            if execution:
+                # Native cleanup must finish exporting/closing its workspace
+                # before the conversation directory can be removed.
+                await asyncio.gather(execution, return_exceptions=True)
+                await self._settle_cancellation(active)
+            async with self._mutation:
+                await asyncio.to_thread(self.store.reset, session_id)
+                fresh = await asyncio.to_thread(
+                    self.sessions.reset_session, session_id,
+                )
+                for key in list(self._last_notification):
+                    if key[0] == session_id:
+                        self._last_notification.pop(key, None)
+                return fresh
+        finally:
+            self._resetting.discard(session_id)
+
     async def _command(
         self, session_id, task_id, request_id, operation, text, quiet, reply_to
     ) -> dict:
         async with self._mutation:
             self._available()
+            if session_id in self._resetting:
+                raise ValueError("This conversation is being reset.")
             task = await asyncio.to_thread(self.store.get, session_id, task_id)
             if operation in {"continue", "steer"}:
                 text = text or (
@@ -576,6 +626,10 @@ class TaskCoordinator:
                         progress="Work stopped; saved findings and files remain.",
                     )
                     self._notifications.pop(key, None)
+        except KeyError:
+            # A completed reset may remove the canceled worker's task before
+            # the queue owner's final, idempotent cancellation settlement.
+            return
         except Exception:
             _LOG.exception("Unable to persist task cancellation for %s", key)
 
@@ -936,9 +990,9 @@ class TaskCoordinator:
 
             text = text[:700] + "\n\n" + artifact_reply([task])
         async with self._mutation:
-            current = await asyncio.to_thread(self.store.get, *key)
             if self._notifications.get(key) != event:
                 return
+            current = await asyncio.to_thread(self.store.get, *key)
             self._notifications.pop(key, None)
             if (
                 current["state"] in {"canceled", "cancel-requested", "interrupted"}
