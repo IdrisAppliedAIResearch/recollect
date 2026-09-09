@@ -41,6 +41,7 @@ from .manager import (
 #: opencode's step cap, never by a client-side timer - so the only timeouts
 #: kept are on establishing and sending, not on reading.
 _REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=None, pool=None)
+_EVENT_QUEUE_SIZE = 32
 
 
 def _display_tool(name: str) -> str:
@@ -164,7 +165,7 @@ class OpenCodeRunner:
         sources: list[str] = []
         seen_calls: set[str] = set()
         children: set[str] = set()
-        events: asyncio.Queue[dict] = asyncio.Queue()
+        events: asyncio.Queue[dict] = asyncio.Queue(maxsize=_EVENT_QUEUE_SIZE)
         final_text: str | None = None
 
         pump = asyncio.create_task(self._pump_events(handle, events))
@@ -235,7 +236,8 @@ class OpenCodeRunner:
                     if not payload:
                         continue
                     with contextlib.suppress(json.JSONDecodeError):
-                        queue.put_nowait(json.loads(payload))
+                        # Pause network reads when the UI stops consuming steps.
+                        await queue.put(json.loads(payload))
         except asyncio.CancelledError:
             raise
         except httpx.HTTPError:

@@ -39,6 +39,7 @@ from .config import RecollectConfig
 from .engine._internals import read_episodes, store_meta
 from .engine.embedder import HarnessEmbedder
 from .engine.shadow import RetrievalResult, retrieve_with_trace
+from .limits import MAX_TITLE_CHARS, validate_identifier
 from .trace import (
     QueryTrace,
     StoreTrace,
@@ -88,6 +89,10 @@ class SessionManager:
     # -- session lifecycle -------------------------------------------------
 
     def create_session(self, title: str | None = None) -> SessionInfo:
+        if title is not None and len(title) > MAX_TITLE_CHARS:
+            raise ValueError(
+                f"Session titles must be at most {MAX_TITLE_CHARS} characters.",
+            )
         session_id = uuid.uuid4().hex[:12]
         created = datetime.now(UTC)
         info = SessionInfo(
@@ -105,19 +110,22 @@ class SessionManager:
         sessions = []
         for path in sorted(self.config.sessions_dir.glob("*/session.json")):
             try:
-                sessions.append(self._read_info(path))
-            except (json.JSONDecodeError, OSError):
+                sessions.append(self.get_session(path.parent.name))
+            except (ValueError, KeyError, OSError):
                 continue
         return sorted(sessions, key=lambda s: s.created_at, reverse=True)
 
     def get_session(self, session_id: str) -> SessionInfo:
-        path = self.config.session_dir(session_id) / "session.json"
+        path = self.config.session_file(session_id, "session.json")
         if not path.is_file():
             raise KeyError(f"No such session: {session_id}")
-        return self._read_info(path)
+        info = self._read_info(path)
+        if info.session_id != session_id:
+            raise ValueError("Session metadata does not match its directory.")
+        return info
 
     def _write_info(self, info: SessionInfo) -> None:
-        path = self.config.session_dir(info.session_id) / "session.json"
+        path = self.config.session_file(info.session_id, "session.json")
         path.write_text(info.model_dump_json(indent=2), encoding="utf-8")
 
     def _read_info(self, path: Path) -> SessionInfo:
@@ -126,6 +134,7 @@ class SessionManager:
     # -- stores -------------------------------------------------------------
 
     def open_store(self, session_id: str) -> EpisodeStore:
+        self.get_session(session_id)
         path = self.config.store_path(session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         return EpisodeStore(
@@ -188,6 +197,9 @@ class SessionManager:
 
     def episode(self, session_id: str, episode_id: str) -> dict | None:
         """Full body of one episode. Trace rows carry only previews."""
+        self.get_session(session_id)
+        if not self.config.store_path(session_id).is_file():
+            return None
         store = self.open_store(session_id)
         try:
             for episode in read_episodes(store):
@@ -299,16 +311,16 @@ class SessionManager:
     def save_trace(self, trace: TurnTrace) -> None:
         directory = self.config.traces_dir(trace.session_id)
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / f"{trace.turn_id}.json").write_text(
+        self.config.trace_path(trace.session_id, trace.turn_id).write_text(
             trace.model_dump_json(indent=2), encoding="utf-8"
         )
-        with (self.config.session_dir(trace.session_id) / "turns.jsonl").open(
+        with self.config.session_file(trace.session_id, "turns.jsonl").open(
             "a", encoding="utf-8"
         ) as handle:
             handle.write(summarize(trace).model_dump_json() + "\n")
 
     def get_trace(self, session_id: str, turn_id: str) -> TurnTrace | None:
-        path = self.config.traces_dir(session_id) / f"{turn_id}.json"
+        path = self.config.trace_path(session_id, turn_id)
         if not path.is_file():
             return None
         try:
@@ -321,10 +333,14 @@ class SessionManager:
 
     def find_trace(self, turn_id: str) -> TurnTrace | None:
         """Locate a turn without knowing its session."""
+        validate_identifier(turn_id)
         for candidate in self.config.sessions_dir.glob(
             f"*/traces/{turn_id}.json"
         ):
             try:
+                candidate = self.config.trace_path(
+                    candidate.parent.parent.name, turn_id,
+                )
                 return TurnTrace.model_validate_json(
                     candidate.read_text(encoding="utf-8")
                 )
@@ -333,7 +349,7 @@ class SessionManager:
         return None
 
     def list_turns(self, session_id: str) -> list[TurnSummary]:
-        path = self.config.session_dir(session_id) / "turns.jsonl"
+        path = self.config.session_file(session_id, "turns.jsonl")
         if not path.is_file():
             return []
         summaries = []
@@ -352,8 +368,8 @@ class SessionManager:
         self.get_session(session_id)
         history = []
         for summary in self.list_turns(session_id):
-            path = self.config.traces_dir(session_id) / f"{summary.turn_id}.json"
             try:
+                path = self.config.trace_path(session_id, summary.turn_id)
                 # Message fields survive trace-schema changes. This projection
                 # does not validate or serve the old trace's retrieval numbers.
                 document = json.loads(path.read_text(encoding="utf-8"))

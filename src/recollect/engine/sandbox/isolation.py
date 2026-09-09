@@ -176,11 +176,14 @@ def attest_container(
         raise IsolationError("sandbox container must not run as root")
     if host.get("Privileged") or not host.get("ReadonlyRootfs"):
         raise IsolationError("sandbox container privilege/rootfs policy mismatched")
-    if "ALL" not in (host.get("CapDrop") or []):
-        raise IsolationError("sandbox container did not drop all capabilities")
-    security = " ".join(host.get("SecurityOpt") or [])
-    if "no-new-privileges" not in security:
-        raise IsolationError("sandbox container lacks no-new-privileges")
+    if host.get("CapDrop") != ["ALL"] or host.get("CapAdd"):
+        raise IsolationError("sandbox container capability policy mismatched")
+    security = host.get("SecurityOpt") or []
+    # Docker versions may normalize the true spelling in their inspection.
+    if len(security) != 1 or security[0] not in {
+        "no-new-privileges", "no-new-privileges:true", "no-new-privileges=true"
+    }:
+        raise IsolationError("sandbox container security options mismatched")
     if host.get("NetworkMode") != "bridge" or host.get("IpcMode") != "none":
         raise IsolationError("sandbox container uses a host namespace")
     if host.get("PidMode") or host.get("UTSMode") or host.get("UsernsMode") == "host":
@@ -189,7 +192,7 @@ def attest_container(
         raise IsolationError("sandbox container uses the host cgroup namespace")
     if int(host.get("PidsLimit") or 0) != pids:
         raise IsolationError("sandbox container PID limit mismatched")
-    if int(host.get("Memory") or 0) < memory_mb * 1_000_000:
+    if int(host.get("Memory") or 0) != memory_mb * 1024 * 1024:
         raise IsolationError("sandbox container memory limit mismatched")
     if int(host.get("MemorySwap") or 0) != memory_mb * 1024 * 1024:
         raise IsolationError("sandbox container swap limit mismatched")
@@ -200,8 +203,6 @@ def attest_container(
         raise IsolationError("sandbox container file limit mismatched")
     if host.get("Devices") or host.get("DeviceRequests"):
         raise IsolationError("sandbox container has host device access")
-    if "unconfined" in security.lower():
-        raise IsolationError("sandbox container disables a security profile")
 
     expected_ports = {
         "4096/tcp": [{"HostIp": "127.0.0.1", "HostPort": str(host_port)}]
