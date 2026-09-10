@@ -81,14 +81,11 @@ from .trace import SubagentTrace, ToolCallTrace, TurnSummary, TurnTrace
 from .voice_api import install_voice_routes
 
 _VOICE_INSTRUCTIONS = (
-    "This reply will be spoken aloud in a live voice conversation. "
-    "Answer directly in one to three short sentences by default, then let "
-    "the user ask a follow-up. Expand when the user explicitly asks for "
-    "detail or when essential accuracy requires it. Use natural conversational "
-    "prose without Markdown, headings, tables, or long lists. Express amounts, "
-    "units, and symbols as spoken words, such as four hundred dollars per month. "
-    "Avoid raw links, citation markup, and code; mention source names briefly "
-    "when needed. Finish the answer naturally without cutting a sentence short."
+    "You are talking with the user out loud. Reply in one short, conversational "
+    "paragraph, usually one to three sentences. Give more detail when asked. "
+    "No headings, point labels, lists, or Markdown, even in a detailed answer. "
+    "Use contractions and varied punctuation where they sound natural. "
+    "Write numbers and symbols as you would say them aloud."
 )
 
 

@@ -546,8 +546,14 @@ def test_synthesis_pieces_preserve_prose_and_concatenate_all_generated_audio():
     assert all(0 < len(piece) <= 240 for piece in calls)
     assert " ".join(calls) == prose.strip()
     with wave.open(io.BytesIO(result), "rb") as handle:
-        assert handle.getnframes() == len(calls) * 2
+        # Sixteen sentence joins now include the selected half-second pause.
+        assert handle.getnframes() == len(calls) * 2 + 16 * 12_000
         assert handle.getframerate() == 24_000
+        pcm = np.frombuffer(handle.readframes(handle.getnframes()), dtype="<i2")
+    speech = pcm[pcm != 0]
+    expected = (np.clip(np.arange(1, 18, dtype=np.float32) / 10, -1, 1)
+                * 32767).astype("<i2")
+    np.testing.assert_array_equal(speech, expected)
 
 
 def test_cancelled_waiter_exits_while_previous_native_synthesis_is_still_running():

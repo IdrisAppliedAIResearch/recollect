@@ -179,6 +179,23 @@ more detail when needed; detailed answers retain the normal generation budget
 and are not cut off to enforce brevity. Typed requests keep their normal
 response style.
 
+Voice guidance uses a short, direct instruction: one conversational paragraph,
+usually one to three sentences, with more detail when asked. Headings, point
+labels, lists, and Markdown are excluded even in detailed replies. It encourages
+contractions and natural punctuation variety without prescribing each mark.
+The model still produces one reply for chat and speech, with the original
+memory instructions retained. These are prompting instructions, not enforced
+output constraints.
+
+Kokoro renders each detected sentence separately. The renderer appends a fixed
+500 ms of PCM silence between sentences, including in streamed playback and
+replay. It adds no silence after the final sentence or at bounded splits inside
+a long sentence. This is added silence: natural pauses in Kokoro's waveform and
+any live delivery delays can make the audible interval longer. Periods in common
+titles, initials, decimals and abbreviations are handled conservatively; English
+sentence detection remains a heuristic. Punctuation is preserved, not replaced
+with ellipses. See [the listening decision and evidence](VOICE_LISTENING.md).
+
 Speech formatting expands unambiguous amounts and ranges, including written
 magnitudes such as `$1.2 million` and explicitly Canadian or Australian dollars.
 Math delimiters do not turn numbers into dollars, and numeric multiplication

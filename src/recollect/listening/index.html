@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recollect · Listening room</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="manifest.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <a class="brand" href="index.html"><span class="brand-mark">r</span> recollect <span class="brand-note">/ listening room</span></a>
+      <span class="tag">KOKORO 82M · LOCAL AUDIO</span>
+    </header>
+    <section class="intro">
+      <div class="eyebrow" id="round-label">A VOICE YOU CAN SPEND TIME WITH</div>
+      <h1>Listen. Compare.<br><em>Find what feels natural.</em></h1>
+      <p id="intro-copy">Same words, two deliveries. Listen at a comfortable, consistent volume, then tell us what you hear. There is no right answer—and a tie is useful.</p>
+    </section>
+    <div id="notice" role="status" aria-live="polite"></div>
+    <div class="workspace">
+      <aside>
+        <div class="side-heading">YOUR LISTENING SESSION</div>
+        <label for="session">Session</label>
+        <select id="session"></select>
+        <button id="new-session" class="quiet">＋ New session</button>
+        <label for="environment">Your setup <span class="optional">optional</span></label>
+        <input id="environment" placeholder="Headphones, quiet room…" maxlength="300">
+        <div class="progress-label"><span id="progress-label"></span><span id="progress-percent"></span></div>
+        <progress id="progress" max="11" value="0"></progress>
+        <nav id="trials" aria-label="Listening comparisons"></nav>
+        <button id="export" class="export">↓ Export ratings</button>
+        <p class="storage-note" id="storage-note">Ratings stay in this browser. Export them to share your feedback or keep a backup.</p>
+        <button id="discard" class="quiet">Discard this session</button>
+        <button id="undo-discard" class="quiet" hidden>Undo discard</button>
+      </aside>
+      <main>
+        <div class="trial-top"><span id="stage" class="eyebrow"></span><span id="position"></span></div>
+        <h2 id="sample-title"></h2>
+        <p id="trial-help" class="muted"></p>
+        <details class="transcript"><summary>Read the sample text</summary><p id="sample-text"></p></details>
+        <div id="players" class="players"></div>
+        <fieldset class="preference">
+          <legend>Which would you rather listen to?</legend>
+          <div id="preferences" class="preference-options"></div>
+        </fieldset>
+        <label for="notes">What stood out? <span class="optional">optional</span></label>
+        <textarea id="notes" rows="3" maxlength="4000" placeholder="Rushed words, awkward pauses, a warmer tone, tiring after a while…"></textarea>
+        <div class="actions"><button id="previous" class="quiet">← Previous</button><button id="save" class="primary">Save & next →</button></div>
+        <details class="method"><summary>About this comparison</summary>
+          <p>A/B order and the shorter comparisons are shuffled for each session. The long listen comes last; take a break whenever you need one. Repeat the suite another day using “New session.” These are the same recordings, presented in a new order.</p>
+          <p id="method-copy">Recordings preserve synthesis chunk boundaries, with no live network or playback stalls. They do not measure live chat responsiveness. Audio has not been loudness-normalized. Listen to both clips before saving; replay freely. The short reply also checks whether a small or absent difference is perceived.</p>
+          <p>Identities stay hidden unless you reveal them. A reveal is recorded in your export, so those ratings can be distinguished from blind ratings.</p>
+          <button id="reveal" class="quiet">Reveal this pair’s settings</button>
+          <pre id="identities" hidden></pre>
+        </details>
+      </main>
+    </div>
+    <footer><span>Small differences deserve a careful listen.</span><span>Issue 12 · No conversation history or microphone access</span></footer>
+  </div>
+  <template id="player-template">
+    <section class="player-card">
+      <div class="player-top"><span class="letter"></span><span class="heard">Not played yet</span></div>
+      <audio controls preload="metadata"></audio>
+      <div class="ratings"></div>
+    </section>
+  </template>
+</body>
+</html>

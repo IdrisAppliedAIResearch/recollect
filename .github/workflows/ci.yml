@@ -84,6 +84,9 @@ jobs:
         working-directory: ui
         run: npm test
 
+      - name: Test listening suite state and exports
+        run: node --test tests/listening_ui.test.cjs
+
       # `build` runs `tsc --noEmit` before vite, so this covers types too.
       - name: Typecheck and build
         working-directory: ui

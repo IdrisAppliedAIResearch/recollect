@@ -17,12 +17,14 @@ import numpy as np
 
 from recollect.config import RecollectConfig
 
+from .voice_text import speech_sentences
 from .voice_text import spoken_text as spoken_text
 from .voice_vad import VAD_BYTES, SpeechDetector
 
 SAMPLE_RATE = 16_000
 MAX_FRAME_BYTES = SAMPLE_RATE * 2
 _PREROLL_BYTES = SAMPLE_RATE * 2 * 4
+SENTENCE_PAUSE_S = 0.5
 
 
 class VoiceUnavailable(RuntimeError):
@@ -243,7 +245,15 @@ class VoiceService:
         check_cancelled()
         # Native calls cannot be killed safely. Bound their text and check
         # cancellation between chunks, including while another call owns TTS.
-        for piece in _speech_pieces(prose):
+        sentences = speech_sentences(prose)
+        pieces = []
+        for index, sentence in enumerate(sentences):
+            bounded = _speech_pieces(sentence)
+            pieces.extend(
+                (piece, index < len(sentences) - 1 and part == len(bounded) - 1)
+                for part, piece in enumerate(bounded)
+            )
+        for piece, pause_after in pieces:
             check_cancelled()
             while not self._speech_lock.acquire(timeout=0.1):
                 check_cancelled()
@@ -262,6 +272,15 @@ class VoiceService:
                 check_cancelled()
             finally:
                 self._speech_lock.release()
+            samples = np.asarray(samples, dtype=np.float32).reshape(-1)
+            if not len(samples) or not np.isfinite(samples).all():
+                raise VoiceUnavailable("Kokoro returned empty or invalid audio.")
+            if pause_after:
+                # Kokoro trims each native result. Punctuation alone cannot
+                # guarantee a pause when separately rendered sentences join.
+                samples = np.concatenate((
+                    samples, np.zeros(round(rate * SENTENCE_PAUSE_S), np.float32),
+                ))
             # Never hold a native lock while transport waits for its consumer.
             yield samples, rate
 
