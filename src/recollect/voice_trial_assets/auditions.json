@@ -1,0 +1,26 @@
+[
+  {
+    "id": "clarification",
+    "title": "Responding to a clarification",
+    "memory": "<recent_context>\nUser: I want the assistant to sound conversational. The voice is already clear, and I want to keep the same speaker for now.\nAssistant: We could adjust how quickly it speaks.\n</recent_context>",
+    "question": "No, I mean the words themselves. It sounds like someone reading a report to me.",
+    "checks": {"addresses_wording": "word|phras|conversational|language|writ"},
+    "expected": "Acknowledge the clarification, focus on conversational wording and retain the speaker. No claim to have changed anything already."
+  },
+  {
+    "id": "disagreement",
+    "title": "Handling a disagreement",
+    "memory": "<recent_context>\nUser: I'd like to use our existing models if we can. We haven't tried changing the way the language model writes its spoken replies yet.\nAssistant: A larger speech model is one possible direction, but we have not compared it.\n</recent_context>",
+    "question": "I'm not convinced we need a bigger model. Aren't we skipping over what we can do with Qwen?",
+    "checks": {"uses_qwen": "Qwen|language model|wording|phras"},
+    "expected": "Recognize that Qwen-authored conversational wording is an untested path worth trying before a replacement. No unsupported quality guarantee."
+  },
+  {
+    "id": "next_step",
+    "title": "Choosing the next step",
+    "memory": "<recent_context>\nUser: Long listening tests wear me out. Give me a couple of brief examples to start. I want Qwen to write a readable response and a more conversational spoken version together.\nAssistant: We can keep Kokoro's voice and speed the same for that comparison.\n</recent_context>",
+    "question": "Okay, what should we try first?",
+    "checks": {"brief_trial": "short|brief|couple|two|small"},
+    "expected": "Suggest a small dual-output wording comparison with existing Qwen/Kokoro, keeping voice and speed fixed. Do not pretend samples already exist."
+  }
+]

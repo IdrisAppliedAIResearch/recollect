@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Compare Qwen's readable and spoken responses, rendered with Kokoro.">
+  <title>Qwen + Kokoro · Recollect listening room</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="manifest.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><a href="../">Recollect listening room</a><span>Qwen + Kokoro trial</span></header>
+    <h1>A response written for speaking</h1>
+    <p class="intro">Three short exchanges. Compare the current prompt with Qwen's new display-and-speech prompt. The voice and speed stay the same.</p>
+    <nav id="cases" aria-label="Choose an exchange"></nav>
+    <div id="notice" role="status" aria-live="polite"></div>
+    <section aria-labelledby="case-title">
+      <h2 id="case-title"></h2>
+      <blockquote id="question"></blockquote>
+      <details class="context"><summary>Earlier conversation</summary><pre id="memory"></pre></details>
+      <div id="players" class="players"></div>
+      <fieldset><legend>Which direction feels closer?</legend>
+        <div class="choices" id="choices"></div>
+      </fieldset>
+      <label for="notes">What worked, or what felt unnatural?</label>
+      <textarea id="notes" rows="3" placeholder="Stopping early is fine. A short reaction is useful."></textarea>
+      <div class="actions"><button id="export">Download feedback</button><span>Saved on this device only.</span></div>
+    </section>
+    <details class="method"><summary>Prompt, schema and memory benchmark</summary>
+      <p>Qwen generates both fields in one call. Only the speech field goes to Kokoro. These are recorded responses to synthetic conversations; this is not a live chat.</p>
+      <p><a href="dual-prompt.txt" download>Exact Qwen prompt + example</a> · <a href="schema.json" download>JSON schema</a> · <a href="benchmark.json" download>Run measurements</a></p>
+      <p>This is an experimental format. Compare both displayed and spoken wording against the supplied memory; valid JSON alone does not establish factual agreement. The download records generation measurements for this run.</p>
+      <p>Generation timings use supplied memories. They are not live voice latency or a full memory-system benchmark.</p>
+      <p>Same Kokoro 82M model, 75% Heart / 25% Bella blend, speed 1.0 and original bounded chunking throughout. No added silence. “Another response” is a fresh Qwen generation with the same prompt and context. Examples were selected by repeat number, not by preference.</p>
+    </details>
+    <footer>Start with one exchange. There is no need to finish all three.</footer>
+  </main>
+</body>
+</html>

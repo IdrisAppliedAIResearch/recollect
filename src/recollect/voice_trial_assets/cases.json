@@ -1,0 +1,69 @@
+[
+  {
+    "id": "clarification",
+    "title": "Remembering what bothered you",
+    "memory": "<recent_context>\nUser: The samples are clear, but they sound like someone reading a report. I want more ordinary conversational phrasing.\nAssistant: We can test changes to the wording.\nUser: Keep the voice itself the same while we try that.\n</recent_context>\n<retrieved_stm>\nUser: Last week I considered changing the speaker, but I have not picked another one.\n</retrieved_stm>",
+    "question": "I don't think the voice itself is the problem. What was it I wanted us to change, and what should we keep fixed?",
+    "checks": {
+      "wording": "wording|phras|conversational|language",
+      "same_voice": "(?:same|fixed|keep|unchanged|consistent).{0,55}(?:voice|speaker)|(?:voice|speaker).{0,55}(?:same|fixed|unchanged|consistent)"
+    },
+    "expected": "Change the wording toward conversational responses; keep the voice the same. No claim that another speaker was selected."
+  },
+  {
+    "id": "correction",
+    "title": "A correction overrides an older memory",
+    "memory": "<recent_context>\nUser: The review moved to Thursday at 3 PM. Tuesday is no longer correct.\nAssistant: Thursday at 3 PM.\n</recent_context>\n<retrieved_stm>\nUser: Our project review is Tuesday at 10 AM with Mira.\nAssistant: I will remember the review details.\n</retrieved_stm>",
+    "question": "When is my review with Mira now?",
+    "checks": {"day": "Thursday", "time": "(?:3|three)(?:\\s*(?:p\\.?m\\.?|in the afternoon|o.clock))?"},
+    "expected": "Thursday at 3 PM with Mira. The old Tuesday 10 AM time is superseded."
+  },
+  {
+    "id": "budget",
+    "title": "Combining remembered amounts",
+    "memory": "<recent_context>\nUser: The delivery fee for the desk is 25 dollars.\nAssistant: I have that detail.\n</recent_context>\n<retrieved_stm>\nUser: My total desk budget including delivery is 350 dollars. The desk costs 280 dollars.\nAssistant: We should include delivery in the total.\nUser: The lamp is a separate purchase, not part of this desk budget.\n</retrieved_stm>",
+    "question": "How much is the desk with delivery, and how much of my desk budget would remain?",
+    "checks": {"total": "305|three hundred (?:and )?five", "remaining": "45|forty.five"},
+    "expected": "Desk plus delivery costs $305; $45 remains from the $350 budget. Do not include the lamp."
+  },
+  {
+    "id": "constraints",
+    "title": "Applying two remembered constraints",
+    "memory": "<recent_context>\nUser: The options are Cedar, Birch, and Elm. Cedar costs 90 dollars and needs cloud access. Birch costs 120 dollars and works offline. Elm costs 140 dollars and works offline.\n</recent_context>\n<retrieved_stm>\nUser: It must work offline and cost no more than 125 dollars. I prefer the cheapest option that meets both requirements.\n</retrieved_stm>",
+    "question": "Which option fits what I told you, and why?",
+    "checks": {"choice": "Birch", "offline": "offline|without.{0,15}(?:internet|cloud)", "price": "120|one hundred (?:and )?twenty"},
+    "expected": "Birch, $120 and offline, meets both requirements. Cedar fails offline; Elm exceeds the cap."
+  },
+  {
+    "id": "missing",
+    "title": "Knowing what has not been remembered",
+    "memory": "<recent_context>\nUser: My bicycle is blue and the brand is Trek.\nAssistant: Blue Trek bicycle.\n</recent_context>\n<retrieved_stm>\nUser: I keep the receipt in a drawer.\n</retrieved_stm>",
+    "question": "What is my bicycle's serial number?",
+    "checks": {"admits_missing": "(?:don't|do not|cannot|can't|not).{0,35}(?:recall|know|have|remember|provided|given|shared)|(?:haven't|have not|never).{0,35}(?:shared|provided|told|given)|isn't.{0,20}(?:available|recorded)"},
+    "expected": "Admit not recalling/having the serial number. Do not invent one or imply the receipt was inspected."
+  },
+  {
+    "id": "multihop",
+    "title": "Following a remembered handoff",
+    "memory": "<recent_context>\nUser: Noor is covering the person who owns Orion until Friday.\n</recent_context>\n<retrieved_stm>\nUser: Mira owns Orion. Leo owns Atlas.\nAssistant: Mira owns Orion, Leo owns Atlas.\nUser: Each project owner signs off its final checklist unless someone is covering them.\n</retrieved_stm>",
+    "question": "Who should sign off Orion's checklist while that cover arrangement is in effect?",
+    "checks": {"covering_person": "Noor", "reason": "cover|instead|on behalf|standing in|substitut"},
+    "expected": "Noor signs off because Noor covers Orion's owner, Mira. Not Leo or Mira during this coverage."
+  },
+  {
+    "id": "negation",
+    "title": "Preserving a negative preference",
+    "memory": "<recent_context>\nUser: Just to be clear, I don't dislike coffee; I avoid caffeine after noon. Decaf is fine then.\n</recent_context>\n<retrieved_stm>\nUser: I like the taste of coffee.\n</retrieved_stm>",
+    "question": "Would offering me decaf coffee at 4 PM fit my preference? Explain briefly.",
+    "checks": {"yes": "yes|would fit|fits|fine|works|okay|acceptable", "decaf": "decaf", "reason": "caffeine|caffeinated"},
+    "expected": "Yes, decaf fits the stated preference; user avoids caffeine after noon, not coffee itself. Do not claim decaf contains absolutely zero caffeine."
+  },
+  {
+    "id": "conflict",
+    "title": "Recognizing an unresolved contradiction",
+    "memory": "<recent_context>\nUser: I found two undated notes for the studio door. One says code 4821 and the other says 7396. I don't know which is current.\nAssistant: Neither note has a confirmed current code.\n</recent_context>\n<retrieved_stm>\nUser: The storage room has a different code, 1158.\n</retrieved_stm>",
+    "question": "Which studio door code is definitely current?",
+    "checks": {"uncertain": "(?:can't|cannot|don't|do not|not).{0,45}(?:tell|know|confirm|sure|certain|determine)|neither|unclear|uncertain|unconfirmed|no.{0,20}(?:confirmed|definite)"},
+    "expected": "Cannot determine the current code from conflicting undated notes. Do not select a code as definitely current or confuse the storage room."
+  }
+]

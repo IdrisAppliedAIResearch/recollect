@@ -29,6 +29,39 @@ _MONEY = re.compile(
 )
 
 
+def speech_sentences(prose: str) -> list[str]:
+    """Find conservative English sentence boundaries without changing wording."""
+    sentences = []
+    start = 0
+    for match in re.finditer(r'''[.!?…]+["'’”)\]]*(?:\s+|$)''', prose):
+        end = match.end()
+        punctuation = match.group().rstrip().rstrip('"\'’”)]')
+        before = prose[:match.start()]
+        following = prose[end:].lstrip('"\'‘“([')
+        if following and punctuation == ".":
+            token = re.search(r"[\w.]+$", before)
+            word = token.group().lower() if token else ""
+            # Titles and initials usually belong to the name that follows.
+            if word in {"mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st"}:
+                continue
+            if len(word) == 1 and word.isalpha():
+                continue
+            if word in {"e.g", "i.e"}:
+                continue
+            if ("." in word or word in {"etc", "vs", "approx", "no"}) and (
+                not following[0].isupper()
+            ):
+                continue
+        # A hesitation inside a sentence should not become a second sentence.
+        if following and punctuation in {"...", "…"} and following[0].islower():
+            continue
+        sentences.append(prose[start:end].strip())
+        start = end
+    if prose[start:].strip():
+        sentences.append(prose[start:].strip())
+    return sentences
+
+
 def _integer(value: int) -> str:
     if value >= 10**15:
         return " ".join(_SMALL[int(digit)] for digit in str(value))
