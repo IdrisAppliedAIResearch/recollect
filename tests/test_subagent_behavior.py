@@ -110,7 +110,9 @@ async def test_worker_report_reaches_main_reply_and_only_reported_files_download
     assert notice["source_refs"] == [source]
     evidence = json.loads(state.generator.calls[-1]["user_message"])
     assert evidence["text"] == answer
-    assert evidence["findings"] == ["Alpha serves federal health programs."]
+    # A result narrates the worker's overview. Sending the findings corpus
+    # too is what made the relay recite every fact instead of summarizing.
+    assert "findings" not in evidence
     assert evidence["sources"] == [source]
     if file_requested:
         assert "requested.md" in notice["text"]
@@ -119,7 +121,18 @@ async def test_worker_report_reaches_main_reply_and_only_reported_files_download
     else:
         assert not downloads.exists()
         assert "/artifacts/" not in notice["text"]
-    assert not state.store.config.store_path(state.session_id).exists()
+    # The findings are kept as episodes so a later question can recall them;
+    # that is what lets the spoken result stay an overview.
+    from recollect.engine._internals import read_episodes
+
+    store = state.coordinator.sessions.open_store(state.session_id)
+    try:
+        episodes = list(read_episodes(store))
+    finally:
+        store.close()
+    assert [episode["assistant_message"] for episode in episodes] == [
+        "Alpha serves federal health programs."
+    ]
 
 
 async def test_completion_synthesis_keeps_detail_beyond_old_700_character_cutoff(

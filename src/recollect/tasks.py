@@ -51,6 +51,7 @@ class TaskCoordinator:
         self._pending: deque[tuple[str, str]] = deque()
         self._wake = asyncio.Event()
         self._mutation = asyncio.Lock()
+        self._remembered: set[tuple[str, str]] = set()
         self._worker: asyncio.Task | None = None
         self._execution: asyncio.Task | None = None
         self._active: tuple[str, str] | None = None
@@ -1016,6 +1017,27 @@ class TaskCoordinator:
                 except TimeoutError:
                     self._notification_wake.set()
 
+    async def _remember_research(self, key, task) -> None:
+        """Keep a finished task's findings recallable once its window passes.
+
+        The task context carries findings for the last few tasks only, so
+        without this the research is unreachable afterwards and the spoken
+        summary has to carry everything. Storing them is what lets it be brief.
+        """
+        if key in self._remembered:
+            return
+        self._remembered.add(key)
+        findings = [text for text in task["findings"] if text] or [task["result"]]
+        question = task["original_message"] or task["objective"]
+        try:
+            kept = await asyncio.to_thread(
+                self.sessions.append_research, key[0], question, findings,
+            )
+        except Exception:
+            _LOG.exception("Unable to remember research for %s", key)
+            return
+        _LOG.info("Stored %d research episode(s) for task %s", kept, key[1])
+
     async def _announce_one(self, key, event) -> None:
         if event["kind"] in {"progress", "finding"} and (
             time.monotonic() - self._last_notification.get(key, 0) < UPDATE_INTERVAL
@@ -1046,25 +1068,31 @@ class TaskCoordinator:
                 "a blocker, not an answer, and the whole research question is "
                 "not yours to answer yet."
                 if event["kind"] == "finding" else
-                "Answer the research question out loud in a few sentences, "
-                "the way you would tell someone what you found. Lead with the "
-                "answer itself and keep only the names and caveats that change "
-                "it; the full detail is already recorded for them. Do not "
-                "substitute a count, a completion announcement, or a file "
-                "location for the answer, and do not append a list of sources."
+                "Relay the overview you were given as a spoken answer, in two "
+                "or three sentences. Lead with the answer and keep the caveats "
+                "that change it. The detail is retained and you can recall it "
+                "when the user asks, so close by offering it rather than "
+                "listing it. Do not substitute a count, a completion "
+                "announcement, or a file location for the answer, and do not "
+                "append a list of sources."
                 if substantive else "Use at most two sentences."
             )
         )
         # Reports carry the selected evidence; raw search hits are not citations.
         sources = event.get("sources", [])
         directions = await self._main_messages(*key)
-        evidence = json.dumps(
-            {"objective": task["objective"], "state": task["state"], **event,
-             "later_instructions": [item["payload"]["text"] for item in directions
-                                    if item["kind"] == "steer"][-8:],
-             "findings": task["findings"], "sources": sources},
-            ensure_ascii=False,
-        )
+        payload = {
+            "objective": task["objective"], "state": task["state"], **event,
+            "later_instructions": [item["payload"]["text"] for item in directions
+                                   if item["kind"] == "steer"][-8:],
+            "sources": sources,
+        }
+        # A result narrates the worker's overview. Handing it the whole
+        # findings corpus as well is what made it recite every fact: a model
+        # given everything summarizes everything, however the prompt is worded.
+        if event["kind"] != "result":
+            payload["findings"] = task["findings"]
+        evidence = json.dumps(payload, ensure_ascii=False)
         trace = new_generation_trace(
             settings=self.generator.settings,
             system_prompt=prompt,
@@ -1128,3 +1156,5 @@ class TaskCoordinator:
                 event["revision"],
             )
             self._last_notification[key] = time.monotonic()
+            if event["kind"] == "result":
+                await self._remember_research(key, current)

@@ -100,10 +100,10 @@ class RecollectConfig:
     #: starts. The extra headroom buys nothing visible: this output is
     #: internal, so it cannot make a reply longer.
     generator_routing_max_tokens: int = 320
-    #: The background relay compresses a finished report into speech. It is
-    #: plain prose, so overrun is a severed sentence rather than a parse
-    #: failure; `_trim_to_sentence` cleans that seam and this bounds the cost.
-    task_relay_max_tokens: int = 320
+    #: The background relay speaks the worker's overview, which is already
+    #: short, so this is a backstop rather than the thing setting the length.
+    #: Overrun is a severed sentence, which `_trim_to_sentence` cleans up.
+    task_relay_max_tokens: int = 160
     generator_temperature: float = 0.7
 
     # -- local speech (separate from the embedding and chat models) ---------
