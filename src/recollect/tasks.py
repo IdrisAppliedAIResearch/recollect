@@ -1072,9 +1072,10 @@ class TaskCoordinator:
                 "or three sentences. Lead with the answer and keep the caveats "
                 "that change it. The detail is retained and you can recall it "
                 "when the user asks, so close by offering it rather than "
-                "listing it. Do not substitute a count, a completion "
-                "announcement, or a file location for the answer, and do not "
-                "append a list of sources."
+                "listing it. Carry over a limitation the overview states, but "
+                "do not add sourcing or verification remarks of your own. Do "
+                "not substitute a count, a completion announcement, or a file "
+                "location for the answer, and do not append a list of sources."
                 if substantive else "Use at most two sentences."
             )
         )
