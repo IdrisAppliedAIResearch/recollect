@@ -31,9 +31,34 @@ manager adds a read-only root filesystem, a non-root user, dropped Linux
 capabilities, `no-new-privileges`, PID/CPU/memory/file-descriptor limits,
 no swap, private IPC, two bounded tmpfs mounts, and exactly two bind mounts:
 
-- `/config` is the generated configuration, read-only.
+- `/config` is the generated configuration and bundled Recollect skills, read-only.
 - `/workspace` is an otherwise empty scratch directory, read-write and
   erased before and after every delegation.
+
+Continuous tasks use OpenCode's native skill discovery: only the names and
+descriptions are exposed until the worker loads a skill. `recollect-reporting`
+describes revision acknowledgments and evidence reports; `recollect-files` applies
+only when the user requests a saved TXT, Markdown, CSV, or JSON file.
+`recollect-research` covers source identity, evidence checks, and adapting when
+article extraction omits factual cards. Research
+returns its findings in conversation by default. Both native agents may load
+these three skills; other skills remain denied. Skill changes are copied on the
+next sandbox startup and do not require rebuilding the image.
+The image must include the checksum-pinned ripgrep 15.1.0 executable: the native
+skill tool enumerates supporting files with it. Rebuild older images that lack
+this dependency. Downloading it at runtime is incompatible with the noexec scratch
+mounts; the executable belongs in the read-only image instead.
+
+Workspace checkpointing preserves supported files for recovery. Only paths
+explicitly reported as deliverables are copied to Downloads and appended to
+completion replies. The main agent receives the reported answer, findings, and
+selected sources so it can explain the result aloud, including when the user
+also requested a file. Progress updates remain brief; substantive findings and
+completion replies have a larger synthesis budget.
+
+The web-fetch tool supports a `page` view to retain factual cards that article
+extraction can discard. Native checkpoints compare returned research content;
+changing output limits or reloading a skill does not count as new evidence.
 
 Docker Desktop or Docker Engine must be running before a research request.
 Recollect checks that the engine responds and runs Linux containers before

@@ -573,7 +573,8 @@ class TaskStore:
         return data
 
     def export_workspace(self, session_id: str, task_id: str, workspace: Path,
-                         revision: int | None = None) -> list[dict]:
+                         revision: int | None = None, *,
+                         deliver_names: list[str] | None = None) -> list[dict]:
         workspace = self._workspace(session_id, workspace)
         files = []
         entries = 0
@@ -651,7 +652,12 @@ class TaskStore:
             for path in created:
                 path.unlink(missing_ok=True)
             raise
-        return self.deliver_artifacts(session_id, task_id, result)
+        if deliver_names is None:
+            return self.deliver_artifacts(session_id, task_id, result)
+        selected = [item for item in result if item["name"] in deliver_names]
+        delivered = self.deliver_artifacts(session_id, task_id, selected)
+        by_id = {item["artifact_id"]: item for item in delivered}
+        return [by_id.get(item["artifact_id"], item) for item in result]
 
     def deliver_artifacts(self, session_id: str, task_id: str,
                           artifacts: list[dict]) -> list[dict]:

@@ -10,7 +10,10 @@ export function pendingNotifications(
     const created = Date.parse(item.created_at)
     if (!allowed.has(item.task_id) || !item.text.trim() ||
         !Number.isFinite(created) || now - created > 120_000) continue
-    const key = `${item.task_id}:${['result', 'question', 'blocked'].includes(item.kind) ? item.kind : 'progress'}`
+    // A heartbeat must not replace findings waiting for the user to stop speaking.
+    const category = item.kind === 'finding' ? `finding:${item.notification_id}`
+      : ['result', 'question', 'blocked'].includes(item.kind) ? item.kind : 'progress'
+    const key = `${item.task_id}:${category}`
     if (!selected.has(key) || selected.get(key)!.seq < item.seq) selected.set(key, item)
   }
   for (const item of selected.values()) {

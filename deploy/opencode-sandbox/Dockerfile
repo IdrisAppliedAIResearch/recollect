@@ -14,6 +14,11 @@ RUN test "$(npm view "opencode-ai@${OPENCODE_VERSION}" dist.integrity)" \
 FROM python:3.13-slim-bookworm@sha256:00faa2debb87529f9f0764e9491d8ba400a3678976616c3bd7cb193745ac20d1 AS python-build
 
 COPY deploy/opencode-sandbox/requirements.lock /tmp/requirements.lock
+COPY deploy/opencode-sandbox/fetch-ripgrep.py /tmp/fetch-ripgrep.py
+
+# Native skill loading enumerates supporting files with rg. Runtime downloads
+# land on noexec scratch, so keep the verified binary in the read-only image.
+RUN python /tmp/fetch-ripgrep.py && /opt/rg --version
 
 RUN python -m pip install --no-cache-dir --require-hashes \
         --target /opt/python -r /tmp/requirements.lock \
@@ -25,6 +30,8 @@ FROM python:3.13-slim-bookworm@sha256:00faa2debb87529f9f0764e9491d8ba400a3678976
 
 COPY --from=opencode-build /opt/opencode /usr/local/bin/opencode
 COPY --from=python-build /opt/python /opt/python
+COPY --from=python-build /opt/rg /usr/local/bin/rg
+COPY --from=python-build /opt/ripgrep-notices /usr/share/doc/ripgrep
 
 RUN groupadd --gid 65532 sandbox \
     && useradd --uid 65532 --gid 65532 --no-create-home sandbox \

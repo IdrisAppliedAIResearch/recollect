@@ -32,6 +32,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 import trafilatura
+from lxml import etree, html
 
 #: Scholarly legs come first in a merged result list, so a research task
 #: gets its papers before its news articles.
@@ -812,11 +813,29 @@ def _extract_article(raw: bytes, url: str) -> str:
     return _naive_text(document)
 
 
+def _extract_page(raw: bytes, url: str) -> str:
+    """Keep factual cards and labels that article heuristics can discard."""
+    try:
+        tree = html.fromstring(raw.decode("utf-8", "replace"))
+    except (etree.ParserError, ValueError):
+        return _extract_article(raw, url)
+    for element in tree.xpath(
+        "//script|//style|//nav|//header|//footer|//aside|//svg|//form|//template"
+        "|//*[@hidden]|//*[@aria-hidden='true']"
+    ):
+        parent = element.getparent()
+        if parent is not None:
+            parent.remove(element)
+    body = tree.xpath("//main") or tree.xpath("//body") or [tree]
+    return " ".join(" ".join(node.itertext()) for node in body).strip()
+
+
 async def web_fetch(
     client: httpx.AsyncClient,
     url: str,
     *,
     max_chars: int = 4_000,
+    view: str = "article",
 ) -> str:
     """Fetch one public page and reduce it to its article text.
 
@@ -936,7 +955,9 @@ async def web_fetch(
             retryable=False,
         )
 
-    text = await asyncio.to_thread(_extract_article, content, final_url)
+    extract = _extract_page if view == "page" else _extract_article
+    text = await asyncio.to_thread(extract, content, final_url)
+    text = " ".join(text.split())
     truncated = len(text) > max_chars
     return json.dumps(
         {
