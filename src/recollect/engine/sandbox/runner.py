@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -33,6 +32,7 @@ from ...config import RecollectConfig
 from .. import subagent
 from ..subagent import SubagentEffort, SubagentResult, SubagentStep
 from .configgen import AGENT_NAME, MCP_SERVER
+from .evidence import ResearchEvidence
 from .manager import (
     SandboxHandle,
     SandboxInvocation,
@@ -264,6 +264,7 @@ class OpenCodeRunner:
         issued: set[str] = set()
         accepted: set[int] = set()
         result_revisions: set[int] = set()
+        final_reports: dict[int, TaskReport] = {}
         assistant_ids: set[str] = set()
         events: asyncio.Queue[dict] = asyncio.Queue(maxsize=_EVENT_QUEUE_SIZE)
         pump = asyncio.create_task(self._pump_events(handle, events))
@@ -274,9 +275,11 @@ class OpenCodeRunner:
         pending_commands: list[TaskCommand] = []
         waiting_for_input = False
         checkpoint_assistants = 0
-        checkpoint_evidence: set[str] = set()
-        evidence_signatures: set[str] = set()
+        checkpoint_evidence = 0
+        evidence = ResearchEvidence()
         empty_checkpoints = 0
+        recovery_revision = None
+        acknowledgment_reminders: set[int] = set()
 
         async def apply(event: dict) -> SubagentStep | None:
             nonlocal waiting_for_input
@@ -288,7 +291,9 @@ class OpenCodeRunner:
                         entry.native_session_id == oc_id
                         and entry.related_message_id == revisions[entry.revision]
                     )
-                    if valid:
+                    if valid and (
+                        entry.kind == "accepted" or entry.revision == max(revisions)
+                    ):
                         await report(entry)
                         seen_reports.add(key)
                         sources.extend(entry.sources)
@@ -309,6 +314,7 @@ class OpenCodeRunner:
                         ):
                             waiting_for_input = False
                             result_revisions.add(entry.revision)
+                            final_reports[entry.revision] = entry
             step = self._apply_event(
                 event, oc_id, children, seen_calls, steps, sources,
                 scope_calls=True,
@@ -318,10 +324,9 @@ class OpenCodeRunner:
                     "state", {}
                 )
                 if state.get("status") == "completed":
-                    evidence_signatures.add(hashlib.sha256(json.dumps(
-                        [step.tool, step.args, state.get("output", "")],
-                        sort_keys=True, ensure_ascii=False,
-                    ).encode()).hexdigest())
+                    evidence.observe_call(
+                        step.tool, step.args, state.get("output", ""),
+                    )
             return step
 
         def submit(text: str) -> None:
@@ -336,6 +341,7 @@ class OpenCodeRunner:
             while True:
                 # Drain control before deciding that the last native response
                 # finishes the task. Late commands become another native turn.
+                steering = []
                 while pending_commands or not commands.empty():
                     command = (
                         pending_commands.pop(0)
@@ -356,11 +362,47 @@ class OpenCodeRunner:
                     if command.revision <= max(revisions):
                         continue
                     revisions[command.revision] = command.message_id
-                    submit(self._continuous_prompt(
-                        command.text, command.revision, command.message_id
-                    ))
+                    steering.append(command)
                 if cancelled:
                     break
+                if steering:
+                    # A native task tool can block the parent on child research.
+                    # Resume its saved conversation instead of queuing the new
+                    # direction behind all of that now-superseded work.
+                    await self._manager.quiesce_invocation(invocation)
+                    for message in messages:
+                        if not message.done():
+                            message.cancel()
+                    await asyncio.gather(*messages, return_exceptions=True)
+                    messages.clear()
+                    evidence.unchanged_calls = 0
+                    submit(self._continuous_prompt(
+                        "\n\n".join(command.text for command in steering),
+                        steering[-1].revision, steering[-1].message_id,
+                    ))
+                elif evidence.unchanged_calls >= 6 and not waiting_for_input:
+                    if recovery_revision == max(revisions):
+                        raise RuntimeError(
+                            "Research kept repeating without new evidence after "
+                            "a request to synthesize. Verified findings are saved."
+                        )
+                    await self._manager.quiesce_invocation(invocation)
+                    for message in messages:
+                        if not message.done():
+                            message.cancel()
+                    await asyncio.gather(*messages, return_exceptions=True)
+                    messages.clear()
+                    recovery_revision = max(revisions)
+                    evidence.unchanged_calls = 0
+                    submit(self._continuous_prompt(
+                        "The last six research calls added no evidence. Stop "
+                        "retrying those sources. Finish the latest requested "
+                        "scope from verified evidence already collected, and "
+                        "explicitly identify facts you could not verify. Send "
+                        "the substantive answer with kind=result. Do not "
+                        "invent missing facts or create unrequested files.",
+                        max(revisions), revisions[max(revisions)],
+                    ))
                 while not events.empty():
                     step = await apply(events.get_nowait())
                     if step is not None:
@@ -398,6 +440,22 @@ class OpenCodeRunner:
                     payload = messages[-1].result()
                     final_text = _last_text(payload.get("parts"))
                     native_error = (payload.get("info") or {}).get("error")
+                    if (not native_error
+                            and max(revisions) in result_revisions
+                            and max(revisions) not in accepted
+                            and max(revisions) not in acknowledgment_reminders):
+                        acknowledgment_reminders.add(max(revisions))
+                        await self._manager.quiesce_invocation(invocation)
+                        await asyncio.gather(*messages, return_exceptions=True)
+                        messages.clear()
+                        submit(self._continuous_prompt(
+                            "Your reported result and saved files are retained. "
+                            "The required instruction acknowledgment is missing. "
+                            "Send kind=accepted with the exact current revision "
+                            "and related message ID below. Do not redo the work.",
+                            max(revisions), revisions[max(revisions)],
+                        ))
+                        continue
                     capped = _looks_like_cap_banner(final_text) or (
                         len(assistant_ids) - checkpoint_assistants
                         >= self._config.sandbox_steps
@@ -406,12 +464,11 @@ class OpenCodeRunner:
                         capped and not native_error
                         and max(revisions) not in result_revisions
                     ):
-                        evidence = set(evidence_signatures)
-                        if evidence - checkpoint_evidence:
+                        if evidence.version > checkpoint_evidence:
                             empty_checkpoints = 0
                         else:
                             empty_checkpoints += 1
-                        checkpoint_evidence = evidence
+                        checkpoint_evidence = evidence.version
                         if empty_checkpoints < 2:
                             await self._manager.quiesce_invocation(invocation)
                             if save_workspace is not None:
@@ -464,8 +521,17 @@ class OpenCodeRunner:
             else:
                 payload = messages[-1].result()
                 final_text = _last_text(payload.get("parts"))
+                reported = final_reports.get(max(revisions))
+                if reported is not None:
+                    # Concurrent native message requests can close without prose;
+                    # the authenticated parent report is the completed answer.
+                    final_text = json.dumps({
+                        "summary": reported.text, "findings": [],
+                        "sources": reported.sources,
+                    }, ensure_ascii=False)
                 result = self._finished(
-                    task, final_text, steps, sources,
+                    task, final_text, steps,
+                    sources,
                     (time.perf_counter() - started) * 1000,
                 )
                 native_error = (payload.get("info") or {}).get("error")
@@ -512,14 +578,10 @@ class OpenCodeRunner:
         return (
             f"Instruction revision: {revision}\n"
             f"Related message ID: {message_id}\n"
-            "Use recollect_research_report_message to acknowledge this revision "
-            "with kind=accepted before working. Copy the revision and related "
-            "message ID exactly. Preserve earlier requirements unless this "
-            "instruction replaces them. Relay changes to any native child task. "
-            "Report concise findings with sources, blockers, and the final result "
-            "using that tool. Only report completed observations, never invented "
-            "progress. Write requested TXT, Markdown, CSV, or JSON artifacts "
-            "under /workspace and report their relative paths.\n\n" + text
+            "Load the recollect-reporting skill before working. Return findings "
+            "in conversation by default. Create files only when the user "
+            "requested a file; for creation or revision, load recollect-files.\n\n"
+            + text
         )
 
     @staticmethod
@@ -587,7 +649,7 @@ class OpenCodeRunner:
         for child in response.json():
             if isinstance(child, dict) and child.get("parentID") == oc_id:
                 children.add(str(child["id"]))
-        for native_id in (oc_id, *sorted(children)):
+        for native_id in (*sorted(children), oc_id):
             before = ""
             while True:
                 params: dict[str, str | int] = {"limit": 100}

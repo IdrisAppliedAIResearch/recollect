@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 from .webtools import (
     PublicWebTransport,
@@ -71,9 +72,13 @@ async def web_search(query: str, max_results: int = 8) -> str:
 
 
 @mcp.tool()
-async def web_fetch(url: str, max_chars: int = 4_000) -> str:
+async def web_fetch(
+    url: str, max_chars: int = 4_000, view: Literal["article", "page"] = "article",
+) -> str:
     """Fetch one public http/https page and reduce it to its article
-    text. Read a search result with this before relying on it."""
+    text. Read a search result with this before relying on it. If article view
+    omits a factual label or date, use page view to retain the page's text cards.
+    Repeating an unchanged view does not reveal new evidence."""
     if not url.strip():
         return json.dumps(
             {"tool": "web_fetch", "error": "missing 'url'"}, ensure_ascii=False
@@ -85,13 +90,13 @@ async def web_fetch(url: str, max_chars: int = 4_000) -> str:
         follow_redirects=True,
         headers={"User-Agent": _UA},
     ) as client:
-        return await _web_fetch(client, url, max_chars=max_chars)
+        return await _web_fetch(client, url, max_chars=max_chars, view=view)
 
 
 async def report_message(
     kind: Literal["accepted", "progress", "finding", "question", "blocked", "result"],
-    text: str,
-    revision: int,
+    text: Annotated[str, Field(min_length=1, max_length=4000)],
+    revision: Annotated[int, Field(ge=1, le=1_000_000)],
     related_message_id: str = "",
     sources: list[str] | None = None,
     artifacts: list[str] | None = None,
@@ -103,11 +108,16 @@ async def report_message(
     as work proceeds. Cite public source URLs and relative workspace artifact
     paths. Tool execution history stays private. This receipt records a local
     report; the host separately persists it before delivering an update.
+    Text is limited to 4000 characters. Summarize long files and list their paths
+    in artifacts; do not paste a whole document. Split long findings into reports.
     """
     if kind not in {"accepted", "progress", "finding", "question", "blocked", "result"}:
         raise ValueError("unsupported report kind")
-    if not text.strip() or len(text) > 4000 or not 1 <= revision <= 1_000_000:
-        raise ValueError("report requires bounded text and a positive revision")
+    if not text.strip() or len(text) > 4000:
+        raise ValueError("report requires bounded text (1-4000 characters); "
+                         "summarize long files and put their paths in artifacts")
+    if not 1 <= revision <= 1_000_000:
+        raise ValueError("revision must be between 1 and 1000000")
     if len(related_message_id) > 128:
         raise ValueError("related message ID is too long")
     for values in (sources or [], artifacts or []):

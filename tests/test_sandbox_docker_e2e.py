@@ -150,3 +150,38 @@ async def test_killed_container_restarts_without_poisoning_next_call(
         await manager.finish_invocation(second)
     finally:
         await _finish_active(manager)
+
+
+async def test_continuous_skills_discovered_by_pinned_opencode(docker_root):
+    from dataclasses import replace
+
+    config = replace(_config(docker_root), subagent_continuous_enabled=True)
+    manager = SandboxManager(config)
+    try:
+        invocation = await manager.begin_invocation("skill-discovery")
+        response = await invocation.handle.client.get("/skill")
+        response.raise_for_status()
+        skills = {item["name"]: item for item in response.json()}
+        assert {"recollect-reporting", "recollect-files", "recollect-research"} <= set(
+            skills,
+        )
+        for name in ("recollect-reporting", "recollect-files", "recollect-research"):
+            skill = skills[name]
+            assert skill["location"].startswith("/config/skills/")
+            assert skill["description"]
+        assert "kind=result" in skills["recollect-reporting"]["content"]
+        assert "2 MiB" in skills["recollect-files"]["content"]
+        # Listing /skill does not exercise the native tool's supporting-file
+        # enumeration. Its executable must work with all scratch mounts noexec.
+        name = invocation.handle.container.name
+        _, version, _ = await _docker("exec", name, "rg", "--version")
+        assert "ripgrep 15.1.0" in version
+        code, _, _ = await _docker(
+            "exec", "--workdir", "/config/skills/recollect-reporting", name,
+            "rg", "--no-config", "--files", "--hidden", "--glob=!**/SKILL.md", ".",
+            check=False,
+        )
+        assert code in {0, 1}
+        assert list(invocation.handle.workdir.iterdir()) == []
+    finally:
+        await _finish_active(manager)

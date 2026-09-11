@@ -10,6 +10,7 @@ container remains the security boundary; these rules are defense in depth.
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -23,7 +24,7 @@ _OUTPUT_LIMIT = 32_768
 _CHUNK_TIMEOUT_MS = 600_000
 
 
-def _permission_table(*, subagent: bool) -> dict:
+def _permission_table(*, subagent: bool, continuous: bool = False) -> dict:
     """Deny unknown/plugin tools; a worker cannot delegate recursively."""
     task_rule: dict | str = (
         "deny" if subagent else {"*": "deny", SUBAGENT_NAME: "allow"}
@@ -42,7 +43,9 @@ def _permission_table(*, subagent: bool) -> dict:
         "websearch": "deny",
         "external_directory": "deny",
         "question": "deny",
-        "skill": "deny",
+        "skill": ({"*": "deny", "recollect-reporting": "allow",
+                   "recollect-files": "allow", "recollect-research": "allow"}
+                  if continuous else "deny"),
         "lsp": "deny",
         "task": task_rule,
         f"{MCP_SERVER}_*": "allow",
@@ -64,7 +67,7 @@ def build_config(
     continuous: bool = False,
 ) -> dict:
     """Return a local-provider-only config using native OpenCode agents."""
-    del prompt_dir  # retained for call-site compatibility; no prompt files exist
+    skill_root = (prompt_dir or str(workdir)).rstrip("/\\") + "/skills"
     model_ref = f"{PROVIDER_ID}/{model}"
     runtime_workdir = runtime_workdir or str(workdir)
     if context_limit <= output_limit or output_limit < 1:
@@ -77,6 +80,7 @@ def build_config(
         "default_agent": AGENT_NAME,
         "subagent_depth": 1,
         "plugin": [],
+        **({"skills": {"paths": [skill_root]}} if continuous else {}),
         "autoupdate": False,
         "share": "disabled",
         "snapshot": False,
@@ -110,11 +114,11 @@ def build_config(
             # workflow used by the transfer-wording benchmark.
             AGENT_NAME: {
                 "steps": steps,
-                "permission": _permission_table(subagent=False),
+                "permission": _permission_table(subagent=False, continuous=continuous),
             },
             SUBAGENT_NAME: {
                 "steps": steps,
-                "permission": _permission_table(subagent=True),
+                "permission": _permission_table(subagent=True, continuous=continuous),
             },
             "plan": {"disable": True},
             "explore": {"disable": True},
@@ -152,8 +156,12 @@ def write_config(
     output_limit: int = _OUTPUT_LIMIT,
     continuous: bool = False,
 ) -> Path:
-    """Write the only host file mounted read-only into the container."""
+    """Write configuration and bundled skills into the read-only config mount."""
     workdir.mkdir(parents=True, exist_ok=True)
+    if continuous:
+        shutil.copytree(
+            Path(__file__).with_name("skills"), workdir / "skills", dirs_exist_ok=True,
+        )
     config = build_config(
         workdir,
         base_url=base_url,
