@@ -131,7 +131,10 @@ async def test_completion_synthesis_keeps_detail_beyond_old_700_character_cutoff
     answer = "Detailed finding. " * 70 + "Final specific comparison."
 
     async def stream(messages, *, trace, max_tokens):
-        assert max_tokens == 1024
+        # Not a bare literal: _announce_one swallows exceptions into the
+        # verbatim-report fallback, so a stale number here would pass by
+        # taking that path rather than by checking the budget.
+        assert max_tokens == state.coordinator.config.task_relay_max_tokens
         trace.response_text = answer
         yield None
 

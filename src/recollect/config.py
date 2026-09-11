@@ -41,20 +41,20 @@ DEFAULT_SYSTEM_PROMPT = (
     "Before each reply you are given two blocks. <recent_context> holds the "
     "most recent exchanges in order. <retrieved_stm> holds older exchanges "
     "that were retrieved because they may bear on what was just asked. Both "
-    "are drawn from your own earlier conversation with this user.\n\n"
-    "Treat them as your memory, not as documents: do not mention the blocks, "
-    "do not cite turn numbers, and do not say that something was retrieved. "
-    "If the blocks do not contain what you need, say you do not recall it "
-    "rather than inventing a memory.\n\n"
+    "are drawn from your own earlier conversation with this user. Treat them "
+    "as your memory, not as documents: do not mention the blocks or say that "
+    "something was retrieved. If they do not contain what you need, say you "
+    "do not recall it rather than inventing a memory.\n\n"
+    "You are talking with the user. Default to the shortest answer that "
+    "satisfies the question, and say more only when they ask for more. Use "
+    "plain spoken prose, not headings or bullet lists.\n\n"
     "The run_subagent tool delegates a self-contained task to an autonomous "
-    "subagent. It works the task in its own context, with open-web and "
-    "scholarly research tools and a scratch workspace, and returns a compact "
-    "result with sources that you then answer from. Use it for current or "
-    "external research and genuinely sustained multi-step work. Do not "
-    "delegate ordinary reasoning, writing, or work answerable from this "
-    "conversation. Keep the task brief and self-contained: what to do, and "
-    "what a good result looks like. Mark narrow lookups and bounded tasks as "
-    "focused; reserve deep effort for substantial multi-source work."
+    "subagent with research tools and a scratch workspace, which returns a "
+    "result you then answer from. Use it for current or external research and "
+    "genuinely sustained multi-step work, not for ordinary reasoning or "
+    "anything answerable from this conversation. Keep the task brief: what to "
+    "do, and what a good result looks like. Mark narrow lookups as focused; "
+    "reserve deep effort for substantial multi-source work."
 )
 
 
@@ -89,9 +89,21 @@ class RecollectConfig:
     #: leave `content` empty while thinking. Off by default so a first
     #: conversation returns visible text.
     generator_thinking: bool = False
-    #: The 1024 cap truncated real replies (finish_reason "length"); the
-    #: generator's context is 32k tokens, so 4096 leaves headroom.
-    generator_max_tokens: int = 4_096
+    #: A conversational turn is 15-30 words when answering an open question
+    #: and shorter otherwise. This is the deterministic ceiling, not the
+    #: target: the prompt asks for the shortest sufficient answer. The margin
+    #: above ~40 tokens of speech is the task_reply JSON wrapper, measured at
+    #: 97 output tokens for a 43-word reply.
+    generator_max_tokens: int = 256
+    #: Routing replies are JSON, so truncation is a parse failure rather than
+    #: a short answer - a cut run_subagent call means the research never
+    #: starts. The extra headroom buys nothing visible: this output is
+    #: internal, so it cannot make a reply longer.
+    generator_routing_max_tokens: int = 320
+    #: The background relay compresses a finished report into speech. It is
+    #: plain prose, so overrun is a severed sentence rather than a parse
+    #: failure; `_trim_to_sentence` cleans that seam and this bounds the cost.
+    task_relay_max_tokens: int = 320
     generator_temperature: float = 0.7
 
     # -- local speech (separate from the embedding and chat models) ---------
@@ -217,6 +229,10 @@ class RecollectConfig:
             raise ValueError("budget_chars must be non-negative")
         if self.generator_max_tokens < 1:
             raise ValueError("generator_max_tokens must be positive")
+        if self.generator_routing_max_tokens < 1:
+            raise ValueError("generator_routing_max_tokens must be positive")
+        if self.task_relay_max_tokens < 1:
+            raise ValueError("task_relay_max_tokens must be positive")
         if self.embedding_threads < 1:
             raise ValueError("embedding_threads must be positive")
         if self.subagent_max_steps < 1:
@@ -369,7 +385,13 @@ class RecollectConfig:
             ),
             generator_thinking=_flag(os.environ.get("RECOLLECT_GENERATOR_THINKING")),
             generator_max_tokens=int(
-                os.environ.get("RECOLLECT_GENERATOR_MAX_TOKENS", 4_096)
+                os.environ.get("RECOLLECT_GENERATOR_MAX_TOKENS", 256)
+            ),
+            generator_routing_max_tokens=int(
+                os.environ.get("RECOLLECT_GENERATOR_ROUTING_MAX_TOKENS", 320)
+            ),
+            task_relay_max_tokens=int(
+                os.environ.get("RECOLLECT_TASK_RELAY_MAX_TOKENS", 320)
             ),
             budget_chars=int(
                 os.environ.get("RECOLLECT_BUDGET_CHARS", DEFAULT_BUDGET_CHARS)
