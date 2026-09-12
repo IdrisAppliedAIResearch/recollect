@@ -58,11 +58,35 @@ are not a security sandbox. Structured reviewer reports remain model judgments;
 their identity must be authenticated by the future trusted runtime, not supplied
 as authoritative claims by the modifier.
 
+## Offline checkpoint/controller slice
+
+`journal.py`, `checkpoints.py`, and `controller.py` add an append-only SQLite
+evidence archive, materialized CP0-CP6 bundles, independent byte/chain readback,
+one-shot simulated scheduling, candidate/retest accounting, and the timed CP5
+endpoint. Persistence or verification failures close primary progression.
+Recovery is failure accounting only, including damaged or interrupted evidence;
+it never reconstructs a passing attempt from the archive.
+
+The [implementation contract](SELF_MODIFICATION_CHECKPOINT_IMPLEMENTATION.md)
+describes trust assumptions, ordering, fault cases, and storage limitations.
+These APIs accept trusted fixture observations and produce simulation results,
+not live experiment PASS. They are not wired to the development controller,
+real agents, privileged routing, or independent provider collectors yet.
+
+Independent forward and code review identified timing, infrastructure-retest,
+and interrupted/damaged accounting edge cases; fixes and regression tests were
+re-reviewed with no remaining blocking findings in this offline scope. Validation
+on 2026-09-12: Ruff passed; the final full suite reported 1,298 passed, 4 existing
+skips, and 2 warnings in 128.22 seconds. This slice adds 140 tests, including real
+child-process termination and fault injection. Preregistration and planning-record
+hashes remain unchanged. These are software/process tests, not a hardware
+power-loss qualification or a live capability result.
+
 ## Remaining runtime work
 
 | Planning requirement | Remaining implementation / verification |
 | --- | --- |
-| Deterministic controller and checkpoints | Durable journal, CP0-CP6 seals, independent chain verification, deadline endpoint, recovery accounting |
+| Deterministic controller and checkpoints | Wire offline gates to authenticated runtime collectors and development receipts; qualify installed storage/SQLite durability; freeze runtime identities |
 | Containment and refresh | OS/container resource limits, read-only mounts, network policy, independent watchdog, confirmed termination, separately authorized replacement attempts |
 | Controlled candidate construction | Quiescent filesystem snapshot capture, link/mode/entry validation, immutable artifacts and dependency locks |
 | Review due process | Fresh reviewer launch, read-only inputs, findings/resolution history, authenticated reports, bounded review rounds |
