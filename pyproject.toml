@@ -3,12 +3,14 @@ name = "recollect"
 version = "0.1.0"
 description = "A deployable harness for episodic conversational memory, instrumented so every retrieval decision is visible."
 requires-python = ">=3.13"
-# Proprietary, source-available. Not open source, and not publishable to PyPI.
-# LICENSE carries the grant; THIRD_PARTY_NOTICES.md covers the separately
-# licensed components, including why a proprietary product may build on
-# `episodic` when that library is published under the AGPL.
-license = "LicenseRef-Proprietary"
-license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+# Dual licensed: AGPL-3.0-or-later, or a commercial licence from Idris Applied
+# AI Research. The SPDX expression names only the public grant, because that is
+# the one a resolver can act on; LICENSING.md carries the commercial half and
+# the contribution policy that makes dual licensing possible at all.
+# Still not published to PyPI: the path dependency on `episodic` and the pinned
+# embedder binary mean an installable wheel would not reproduce the mechanism.
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md"]
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     # [aspect] is a base dependency on purpose: this deployment runs the

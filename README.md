@@ -345,27 +345,30 @@ about ten seconds.
 
 ## Licence
 
-**Proprietary. Source-available, not open source.**
-Copyright © 2026 Idris Applied AI Research. All rights reserved.
+**Dual licensed: AGPL-3.0-or-later, or a commercial licence.**
+Copyright © 2026 Idris Applied AI Research.
 
-This repository is public so the mechanism can be read, reviewed, and checked
-against the claims made about it. That is the whole of the grant: you may read
-this source, and you may not run, deploy, copy, modify, or build on it. See
-[`LICENSE`](LICENSE).
+| | AGPL-3.0-or-later | Commercial |
+|---|---|---|
+| Try it, read it, modify it, run it yourself | Yes, free | Yes |
+| Deploy it or offer it over a network | Yes, **if** you release your complete source under the AGPL | Yes, with no source-release obligation |
+| Ship it inside a closed-source product | No | Yes |
 
-Deployment and commercial licences are available —
+Unless you hold a separate agreement, you get Recollect under the
+**GNU Affero General Public License v3 or later** ([`LICENSE`](LICENSE)). That
+is a real grant: evaluate it, take it apart, run it, change it, redistribute
+it. Section 13 is the catch — if users reach your modified version *over a
+network*, you owe those users your complete corresponding source under the
+AGPL. Merely never shipping a copy does not avoid it.
+
+So: **trying it is free and needs no permission. Deploying it commercially,
+without publishing what you built, is what the commercial licence is for.**
+
+Full terms, the contribution policy, and how `episodic` fits:
+[`LICENSING.md`](LICENSING.md). Enquiries:
 **idrisappliedairesearch@gmail.com**.
 
-### On `episodic` and the AGPL
-
-Recollect builds on the `episodic` library, which is dual licensed
-AGPL-3.0-or-later **or** commercial. A proprietary product built on AGPL code
-would normally be a violation. It is not one here, because Idris Applied AI
-Research holds the copyright in `episodic` and uses it under its own
-commercial licence rather than under the AGPL.
-
-That reasoning applies to the copyright holder and to nobody else. If you
-obtain `episodic`, you get it under the AGPL — including section 13, which
-reaches network use and not just distribution — unless you hold a separate
-agreement. [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) has the full
-chain, along with every other dependency and its terms.
+`episodic` is dual licensed on the same terms by the same copyright holder, so
+the two move together — take Recollect under the AGPL and `episodic` comes to
+you under the AGPL. Every other dependency and its terms:
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
