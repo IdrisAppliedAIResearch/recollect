@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -80,6 +81,13 @@ class PreparedTurn:
     user_message: str
 
 
+#: A research episode has to fit the embedder's pinned 512-token window
+#: (see engine/embedder.py), counting both halves of the pair. These leave
+#: room for the question alongside the finding.
+RESEARCH_EPISODE_CHARS = 1_500
+RESEARCH_QUESTION_CHARS = 300
+
+
 class SessionManager:
     """Owns the data directory, the embedder, and every session in it."""
 
@@ -87,6 +95,11 @@ class SessionManager:
         self.config = config
         self.embedder = embedder
         self.config.sessions_dir.mkdir(parents=True, exist_ok=True)
+        # Turns are not the only writer any more: finished research appends
+        # its own episodes. An append landing between a turn's "user" and
+        # "assistant" calls would pair the wrong halves, so both writers
+        # serialize here.
+        self._append_lock = threading.Lock()
 
     # -- session lifecycle -------------------------------------------------
 
@@ -308,18 +321,48 @@ class SessionManager:
         memory.
         """
         session_id = prepared.trace.session_id
-        store = self.open_store(session_id)
-        try:
-            store.append("user", prepared.user_message)
-            store.append("assistant", assistant_message)
-        finally:
-            store.close()
+        with self._append_lock:
+            store = self.open_store(session_id)
+            try:
+                store.append("user", prepared.user_message)
+                store.append("assistant", assistant_message)
+            finally:
+                store.close()
 
         self.save_trace(prepared.trace)
 
         info = self.get_session(session_id)
         info.turn_count += 1
         self._write_info(info)
+
+    def append_research(
+        self, session_id: str, question: str, findings: list[str],
+    ) -> int:
+        """Store delegated research as episodes and return how many were kept.
+
+        Each finding becomes its own episode rather than one combined report:
+        the embedder is pinned to a 512-token window, so a long pair is
+        represented by its opening tokens alone and everything after them
+        would be unretrievable. The originating question is the user half, so
+        a later follow-up resembles the episode it should retrieve.
+        """
+        question = question.strip()[:RESEARCH_QUESTION_CHARS]
+        texts = [
+            finding.strip()[:RESEARCH_EPISODE_CHARS]
+            for finding in findings
+            if finding and finding.strip()
+        ]
+        if not question or not texts:
+            return 0
+        with self._append_lock:
+            store = self.open_store(session_id)
+            try:
+                for text in texts:
+                    store.append("user", question)
+                    store.append("assistant", text)
+            finally:
+                store.close()
+        return len(texts)
 
     # -- traces -------------------------------------------------------------
 

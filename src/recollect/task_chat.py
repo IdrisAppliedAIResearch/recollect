@@ -377,6 +377,7 @@ async def stream_task_turn(
                     messages,
                     trace=trace,
                     tools=task_tools(),
+                    max_tokens=state.config.generator_routing_max_tokens,
                 ):
                     pass
                 if trace.tool_calls:
@@ -400,6 +401,7 @@ async def stream_task_turn(
                             ]["enum"] = ["steer", "continue"]
                         async for _ in state.generator.stream(
                             messages, trace=trace, tools=recovery_tools,
+                            max_tokens=state.config.generator_routing_max_tokens,
                         ):
                             pass
                         if (not trace.tool_calls or trace.tool_calls[0].name

@@ -81,11 +81,9 @@ from .trace import SubagentTrace, ToolCallTrace, TurnSummary, TurnTrace
 from .voice_api import install_voice_routes
 
 _VOICE_INSTRUCTIONS = (
-    "You are talking with the user out loud. Reply in one short, conversational "
-    "paragraph, usually one to three sentences. Give more detail when asked. "
-    "No headings, point labels, lists, or Markdown, even in a detailed answer. "
-    "Use contractions and varied punctuation where they sound natural. "
-    "Write numbers and symbols as you would say them aloud."
+    "You are speaking out loud. No Markdown, point labels, or lists, even in "
+    "a detailed answer. Use contractions and varied punctuation where they "
+    "sound natural. Write numbers and symbols as you would say them aloud."
 )
 
 
@@ -482,11 +480,11 @@ def _sse(event: str, data: dict | str) -> str:
 
 
 _SUBAGENT_HANDOFF = (
-    "The subagent returned the internal evidence below. Answer the "
-    "user's original question now in clear natural language. Synthesize the "
-    "findings; do not reproduce the JSON, tool-call syntax, or internal "
-    "workflow. Cite useful source URLs. If the result says it is partial, "
-    "state that limitation briefly.\n\nINTERNAL SUBAGENT RESULT:\n"
+    "The subagent returned the internal evidence below. Answer the user's "
+    "original question from it now, in spoken prose, as briefly as the "
+    "question allows. Do not reproduce the JSON, tool-call syntax, internal "
+    "workflow, bullet lists, or a list of source URLs. If the result says it "
+    "is partial, say so in passing.\n\nINTERNAL SUBAGENT RESULT:\n"
 )
 
 _SUBAGENT_REPAIR = (
