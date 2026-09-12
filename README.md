@@ -3,60 +3,157 @@
 [![CI](https://github.com/IdrisAppliedAIResearch/recollect/actions/workflows/ci.yml/badge.svg)](https://github.com/IdrisAppliedAIResearch/recollect/actions/workflows/ci.yml)
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
 
-A deployable harness for episodic conversational memory, instrumented so
-that every retrieval decision is visible.
+Recollect is a chat application with a long-term memory that never grows.
 
-The memory mechanism itself is not new work — it comes from the
+Most chat systems remember by re-sending the whole conversation to the model
+on every message. Recollect does not. It stores the conversation, and on each
+turn it builds a small, fresh context out of the pieces that matter right now.
+It also shows you exactly which pieces it picked, and why.
+
+The memory mechanism itself is not new work here. It comes from the
 [contextDecayWindow](https://github.com/IdrisAppliedAIResearch/contextDecayWindow)
-research programme and is consumed here as a pinned library, unmodified.
-What Recollect adds is everything needed to *use* it as a product and to
-*watch* it while it runs.
+research programme and is used as a pinned library, unchanged. What this
+repository adds is everything needed to *run* it as a product and to *watch*
+it while it runs.
 
 ---
 
-## What it does
+## The architecture in one picture: two modes
 
-On every turn, instead of resending a growing transcript, the system
-rebuilds a small context window from scratch out of stored conversation
-episodes.
+Recollect runs in two modes, and they are deliberately different from each
+other.
 
-| path | label | what it does |
+```
+                          you
+                           |
+            +--------------+--------------+
+            |                             |
+   MODE 1: conversation          MODE 2: delegated work
+   the main assistant            a sandboxed worker agent
+            |                             |
+   episodic memory store          task store + scratch files
+   (this conversation)            (thrown away when done)
+            |                             |
+            +--------------+--------------+
+                           |
+                  one local model
+```
+
+| | **Mode 1 — conversation** | **Mode 2 — delegated work** |
 |---|---|---|
-| recency | **RECENT** | the last N episodes, rendered additively — outside the budget, never dropped |
-| semantic | **SEMANTIC** | CC80 ranking (0.8 dense / 0.2 BM25) over the whole store, packed in rank order |
-| aspect | **ASPECT** | a protected facet spread: the episodes with the most uncovered topical value per character |
+| What it is | The assistant you talk to | A background agent it hands jobs to |
+| Good at | Answering, recalling, deciding | Web research, multi-step work, producing files |
+| Where it runs | Inside the Recollect server | Inside a locked-down Docker container |
+| What it can reach | Your stored conversation | The internet and an empty scratch folder |
+| How long it takes | Seconds | Minutes |
+| What it remembers | Everything you actually said | Nothing, once the job ends |
 
-The long-term block splits its character budget 50/50 between the two
-ranked paths, whatever remains is returned to CC80, and every admission is
-charged the exact serialized characters it costs. When nothing is eligible
-for the split, a single CC80 walk owns the whole budget.
+Mode 1 is the only thing that owns memory. Mode 2 is a tool that Mode 1 picks
+up, uses, and puts down. Keeping that line sharp is the point of the design:
+if a worker's tool calls and internal chatter leaked into the conversation
+memory, the memory would stop being a conversation and become a log file.
 
-## Why the instrumentation is the point
+---
 
-The research this deploys found its most important results in what was
-*not* delivered, and the current pipeline has the same failure shapes:
-an episode that ranks high but never fits, a semantic half that admits
-nothing and silently hands the budget to the fallback, an ASPECT spread
-that never runs because the store is still younger than the recency
-window. A count of "7 episodes retrieved" is compatible with a healthy
-system and with a system where two of its three paths never fire.
+## Mode 1: the conversation, and how its memory works
 
-So Recollect records a score for **every** episode, every facet-spread
-step with its arithmetic, and every packing decision with its reason —
-delivered or not.
+### The problem with the normal approach
 
-## The trace is checked, not trusted
+A normal chat app keeps the full transcript and sends it again every time you
+type. That works until the transcript gets too big for the model. Then the app
+has to do one of two things:
 
-The library returns a payload and a report of counts. Everything richer
-than that is computed by an instrumented reconstruction in
-[`engine/shadow.py`](src/recollect/engine/shadow.py) — and a
-reconstruction that merely *looks* right is a liability, because it invites
-confident conclusions from numbers nobody verified.
+1. **Cut** the oldest messages off. Whatever fell off is gone for good.
+2. **Compact** them, which means asking the model to summarize the old part
+   and keeping the summary instead.
 
-So each turn is computed twice: once through the library untouched, once
-through the instrumented path. The two are then compared — the payload
-byte for byte, the report field by field. A mismatch raises
-`TraceDivergenceError` and the turn is not served.
+Both are lossy, and neither tells you what you lost. Compaction is worse than
+it looks, because the summary is itself a guess, and later summaries end up
+being summaries of summaries.
+
+### What Recollect does instead
+
+Recollect saves the conversation as **episodes**. One episode is one exchange:
+your message plus the assistant's reply. An episode is written only after the
+reply is finished, because half a turn is not a memory yet.
+
+Then, on every new turn, it throws the old context away and builds a new one
+from scratch. Three paths compete to fill it:
+
+| path | label in the trace | what it contributes |
+|---|---|---|
+| recency | **RECENT** | the last 32 episodes, in order, always included |
+| semantic | **SEMANTIC** | the best matches from the whole store, by meaning and by keyword |
+| aspect | **ASPECT** | a spread of episodes that each add a *new topic*, not more of the same |
+
+A few details that matter:
+
+- **RECENT is never dropped.** It sits outside the character budget, so a busy
+  long-term search can never push out what you just said.
+- **SEMANTIC** is a fixed blend called CC80: 80% meaning-based (vector) search
+  and 20% keyword (BM25) search, run over *every* episode in the store, not
+  over a recent slice of it. Something you said six months ago is as reachable
+  as something you said this morning.
+- **ASPECT** exists because top-ranked results tend to repeat each other. It
+  picks the episodes that cover the most ground you have not covered yet, per
+  character spent.
+- The long-term part of the context gets a budget of **32,000 characters**.
+  That budget is split 50/50 between SEMANTIC and ASPECT. Whatever one side
+  cannot use goes back to the other. Every episode admitted is charged the
+  exact number of characters it actually costs once rendered, not an estimate.
+
+### Why the context never grows
+
+Every request Recollect sends to the model has exactly three parts:
+
+1. the system prompt (fixed),
+2. one memory block (rebuilt from scratch this turn, capped),
+3. your new message.
+
+That is it. There is no transcript. Turn 5 and turn 5,000 send the model the
+same shape and roughly the same amount of input. A conversation can run for
+months and the per-turn cost does not drift upward.
+
+This is also why **nothing is ever compacted**. There is no growing thing that
+needs shrinking, so there is no summarizing step, and so there is no point at
+which your earlier words get replaced by a paraphrase of your earlier words.
+
+### Why nothing is ever lost
+
+The episode store is append-only. Episodes are not edited, merged, summarized,
+or deleted to make room, because nothing needs to be made room *for*.
+
+So "forgetting" here means something narrower and more honest than usual: an
+episode that did not appear this turn was **not selected this turn**. It is
+still in the store at full fidelity, and a different question can pull it back
+at any time.
+
+### One deliberate incompatibility
+
+Recollect speaks the OpenAI chat API, so tools like Open WebUI can connect to
+it. Those tools re-send the whole transcript on every request. **Recollect
+ignores it** and reads only your last message.
+
+That is not a bug. Honouring the client's transcript would quietly replace the
+memory system with the client's scrollback, and every number Recollect reports
+about its own retrieval would become meaningless. Sessions are keyed off the
+request's `user` field instead.
+
+### The trace is checked, not trusted
+
+The library returns the finished context and a short report of counts. It does
+not explain itself. Everything richer than that — a score for every episode, a
+reason for every rejection — is produced by an instrumented re-implementation
+in [`engine/shadow.py`](src/recollect/engine/shadow.py).
+
+A re-implementation that merely *looks* right is dangerous, because it invites
+confident conclusions from numbers nobody verified. So every turn is computed
+**twice**: once through the untouched library (the authority), once through the
+instrumented copy. The two results are then compared — the context byte for
+byte, the report field by field.
+
+If they disagree, `TraceDivergenceError` is raised and **the turn is not
+served**.
 
 ```
 verification:
@@ -67,207 +164,120 @@ verification:
   shadow cost            : 0.57 ms
 ```
 
-This is why the harness can claim its instrumentation is faithful rather
-than plausible, and it is why the library is never forked to add logging.
+This is why the instrumentation can be called faithful rather than plausible,
+and it is why the library is never forked just to add logging to it.
 
 ---
 
-## Local quickstart
+## Mode 2: delegated work
 
-For the full standalone launcher or the Windows desktop host + Ubuntu Surface
-client setup, see [Deployment configurations](docs/DEPLOYMENT.md).
-After one-time setup, use `recollect` for standalone Windows,
-`recollect-host` for the Windows host, or `recollect-deploy` on Ubuntu.
-Split deployment uses a copied pairing bundle for verified HTTPS/WSS. See
-[security hardening and remaining deployment checks](docs/SECURITY_HARDENING_2026-09-08.md).
+### When it happens
 
-The default setup uses Docker for the isolated OpenCode research subagent.
-Three components remain running locally: Docker Engine (or Docker Desktop),
-the chat model server, and Recollect. Recollect starts and attests the OpenCode
-container itself on the first delegated research task; do not start that
-container manually.
+The assistant has one tool, `run_subagent`. It is meant for work the
+conversation cannot do on its own: looking something up on the live web, or a
+job with enough steps that it needs its own workspace.
 
-### 1. Install prerequisites
+The assistant is told to use it for exactly that, and not for ordinary
+reasoning or for anything already answerable from memory.
 
-- Python 3.13 and [uv](https://docs.astral.sh/uv/)
-- Docker Engine on Linux, or Docker Desktop on Windows
-- A chat-model GGUF and `llama-server`
-- The carried `Qwen3-Embedding-0.6B-Q8_0.gguf` embedding artifact
-- The binary-pinned `llama_cpp` package described in
-  [docs/EMBEDDER.md](docs/EMBEDDER.md)
+### Where the worker runs
 
-The embedder requirement is stricter than a package version: a newly resolved
-`llama-cpp-python==0.3.25` build may produce different vectors. Provision the
-known-good binary build and let `recollect doctor` verify its identity.
+The worker is OpenCode, running inside a pinned Docker image. The container is
+deliberately boring to be inside:
 
-### 2. Clone both sibling repositories
+- read-only root filesystem, non-root user, no added Linux capabilities,
+  `no-new-privileges`;
+- limits on processes, CPU, memory, and open files; no swap; private IPC;
+- exactly two mounted folders — `/config` (its configuration and skills,
+  read-only) and `/workspace` (an empty scratch folder, erased before *and*
+  after every job).
 
-`episodic` is an editable path dependency at
-`../contextDecayWindow/episodic`. The repositories must therefore sit next to
-each other; cloning Recollect alone makes `uv sync` fail.
+There is no fallback to running the worker directly on the host. If Docker or
+the pinned image is missing, delegation fails closed. Recollect starts and
+attests the container itself, the first time a job actually needs it.
 
-```bash
-git clone https://github.com/IdrisAppliedAIResearch/contextDecayWindow.git
-git clone https://github.com/IdrisAppliedAIResearch/recollect.git
-cd recollect
-uv sync
-```
+### Two ways a job comes back
 
-The path dependency is deliberate. Changes to the research implementation are
-exercised against Recollect's shadow verification immediately instead of being
-hidden until a package release.
+- **Inline (the default).** The turn pauses, the worker runs, and the
+  assistant answers using the result. You wait, but you get one clean answer.
+- **Continuous (opt-in, `RECOLLECT_SUBAGENT_CONTINUOUS_ENABLED=true`).** The
+  job becomes a durable task with its own ID and its own message mailbox. You
+  keep talking while it runs, ask how it is going, steer it, cancel it, or ask
+  for a revision later. Tasks survive a restart. Other conversations cannot
+  see them.
 
-### 3. Configure the environment
+### The memory boundary
 
-```bash
-cp .env.example .env
-```
+This is the part that keeps Mode 1 clean. When delegation is involved:
 
-At minimum, set the embedding artifact path and confirm the generator URL in
-`.env`. The OpenCode values shown here match the pinned image built below:
+| goes into conversation memory | does **not** |
+|---|---|
+| what you actually said | tool calls and their arguments |
+| the assistant's substantive answers | the worker's step-by-step chatter |
+| finished research findings, saved as ordinary episodes | progress updates, status checks, file-delivery notices |
 
-```dotenv
-RECOLLECT_EMBEDDING_MODEL_PATH=/absolute/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf
-RECOLLECT_GENERATOR_BASE_URL=http://127.0.0.1:8001/v1
-RECOLLECT_SUBAGENT_BACKEND=opencode
-RECOLLECT_SANDBOX_CONTAINER_RUNTIME=docker
-RECOLLECT_SANDBOX_CONTAINER_IMAGE=recollect-opencode-sandbox:1.18.18
-```
+Findings are written back as real episodes on purpose. Without that, a
+completed piece of research would fall out of reach as soon as it aged past
+the live task list, and the assistant would have to cram everything into one
+long answer. Because they are stored, the answer can be short and you can ask
+about it again next week.
 
-### 4. Prepare Docker and build the sandbox image
+### One model, one slot
 
-Start Docker and verify that its Linux engine is reachable:
+Main chat and the worker share the **same** local model server, with a single
+slot (`--parallel 1`). They take turns. There is no second chat model, and the
+container never gets its own.
 
-```bash
-docker version
-docker build -f deploy/opencode-sandbox/Dockerfile -t recollect-opencode-sandbox:1.18.18 .
-docker image inspect recollect-opencode-sandbox:1.18.18
-```
+---
 
-On Windows with Docker VMM, create
-`%LOCALAPPDATA%\recollect\sandboxes` and add only that directory under
-**Docker Desktop > Settings > Resources > File sharing**. Do not share the
-repository, home directory, or an entire drive. Linux Docker Engine needs no
-equivalent file-sharing configuration. See
-[deploy/opencode-sandbox/README.md](deploy/opencode-sandbox/README.md) for the
-isolation profile, resource limits, and live Docker tests.
+## Seeing it work
 
-### 5. Start the one-slot model server
-
-Run this in its own long-running terminal. `--parallel 1` is intentional:
-main chat, OpenCode, and any native OpenCode subagents take turns using one
-model slot.
-
-```bash
-llama-server -m <chat-model.gguf> --host 127.0.0.1 --port 8001 -ngl 999 -c 32768 --parallel 1 -fa on --no-webui
-```
-
-### 6. Verify dependencies and start Recollect
-
-With Docker and the model server running:
-
-```bash
-uv run recollect doctor
-uv run recollect serve
-```
-
-Keep `recollect serve` in its own terminal. Then use one of:
-
-- Inspector UI: <http://127.0.0.1:8080/>
-- OpenAI-compatible API: `http://127.0.0.1:8080/v1`
-- Terminal client: `uv run recollect chat`
-
-The sandbox container is lazy. It will not appear in `docker ps` until a chat
-turn delegates research, and it remains warm afterward while every invocation
-gets a fresh OpenCode session and scrubbed workspace.
-
-### The inspector
-
-Chat on the left, six views of the turn on the right, and a headline strip
-that stays put whichever view is open.
+The inspector is the web UI at `http://127.0.0.1:8080/`. Chat is on the left;
+six views of the current turn are on the right.
 
 | tab | answers |
 |---|---|
-| **Pipeline** | what each path proposed, delivered, overlapped, and lost — with starvation and an ASPECT fallback called out in words |
-| **Context** | the block exactly as the model received it, colour-coded by delivering path, with a character ruler against the budget |
-| **Scores** | every episode in the store with its CC80 components, rank, path claims, cost, and the reason it was dropped |
-| **Aspect** | the protected spread step by step — marginal, ratio, and coverage arithmetic — or the fallback reason when it did not run |
-| **Budget** | where the characters went, allowance versus total output, and every admission decision in order |
-| **Verify** | whether the trace reproduces the library, plus embedding identity and generation timings |
+| **Pipeline** | what each path proposed, delivered, overlapped, and lost |
+| **Context** | the exact block the model received, coloured by which path delivered each piece |
+| **Scores** | every episode in the store, its score, its rank, its cost, and why it was dropped |
+| **Aspect** | the topic spread step by step, with the arithmetic |
+| **Budget** | where the 32,000 characters went, decision by decision |
+| **Verify** | whether the trace reproduced the library, plus timings |
 
-Retrieval is emitted as its own event before the model starts, so the
-inspector fills in while the reply is still being written. Clicking any past
-reply rewinds it to that turn.
+Retrieval is sent to the browser *before* the model starts writing, so the
+inspector fills in live rather than after the fact. Clicking an old reply
+rewinds every tab to that turn. A **Mock data** toggle runs the whole UI off a
+generated 120-episode trace with no server at all.
 
-There is a **Mock data** toggle in the header: it runs the entire UI off a
-generated 120-episode trace with no server at all, which is the fastest way
-to see what the views look like under load.
+Why bother with all of this: the original research found its most important
+results in what was *not* delivered. "7 episodes retrieved" is equally
+consistent with a healthy system and with a system where two of its three
+paths never fired at all.
 
-The UI is served from the same origin as the API, so `recollect serve` is the
-only process you need. For UI development, `cd ui && npm run dev` proxies
-`/api` and `/v1` to port 8080.
+---
 
-### Hands-free conversation
+## Running it
 
-Recollect can listen locally for **“Hey Idris”**, transcribe your speech with
-Vosk, run the existing verified chat turn, and speak the reply with Kokoro 82M.
-Silero VAD gives you time to pause and detects when you start speaking again.
-Install the optional CPU speech packages and download the models once:
+Setup is involved, mostly because the embedding model has to be bit-for-bit
+the one the research used. Full instructions are in
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
 
-```bash
-uv sync --extra voice --inexact
-uv run --no-sync recollect voice-setup
-uv run --no-sync recollect voice-doctor
-uv run --no-sync recollect serve
-```
+The short version:
 
-`--inexact` preserves the manually installed, binary-pinned embedder. Open the
-inspector on localhost, choose a conversation, click **Enable voice**, and allow
-microphone access. Say **“Hey Idris, what did we decide?”** and watch the live
-transcript in the text box. A 1.4-second pause submits your request. Ask follow-up
-questions without repeating the wake phrase. Speaking during generation or
-playback interrupts the old reply. **Stop voice** releases the microphone and
-stops playback.
+- You need Python 3.13, [uv](https://docs.astral.sh/uv/), Docker, a chat model
+  served by `llama-server`, and the pinned `Qwen3-Embedding-0.6B-Q8_0.gguf`.
+- Clone this repository **next to** `contextDecayWindow`. `episodic` is a path
+  dependency, so cloning Recollect on its own makes `uv sync` fail.
+- Copy `.env.example` to `.env` and set the embedding model path.
+- Run `uv run recollect doctor`, then `uv run recollect serve`.
 
-For NVIDIA GPU synthesis, stop Recollect, run `uv pip uninstall onnxruntime`,
-then `uv sync --extra voice-gpu --inexact`. Set
-`RECOLLECT_VOICE_DEVICE=cuda` to require GPU execution and restart the server.
-The GPU runtime needs CUDA 13 and cuDNN 9; an optional absolute
-`RECOLLECT_VOICE_CUDA_DLL_DIR` can point to those DLLs in a compatible PyTorch
-installation. Default `auto` prefers an available GPU; `cpu` selects CPU
-synthesis. The GPU and CPU voice extras must not be installed together.
-
-Kokoro speaks the completed, verified reply in audio chunks, starting playback
-when the first chunk is ready while later chunks are still being synthesized.
-
-GPU Whisper Turbo dictation is available with the additional `voice-whisper`
-extra. Run `uv sync --extra voice-gpu --extra voice-whisper --inexact`, then
-`uv run --no-sync recollect voice-setup --whisper`. Select
-`RECOLLECT_VOICE_ASR_BACKEND=whisper` and restart Recollect. Vosk still detects
-the wake phrase; Silero handles interruptions independently of GPU decoding.
-See [voice setup](docs/VOICE.md) for runtime requirements and the distinction
-between live transcript revisions and final submitted text.
-
-Voice remains active while the page is open and the browser and computer are
-awake. The microphone stays open while enabled, with browser echo cancellation;
-use headphones if speaker echo causes unwanted interruptions. Existing voice
-installations reuse their verified models and download only the new 2.3 MB
-Silero model. Setup, model sources, settings, and troubleshooting are in
-[docs/VOICE.md](docs/VOICE.md).
-
-### Using it from Open WebUI
-
-Add an OpenAI-compatible connection pointing at
-`http://127.0.0.1:8080/v1` with any API key. The model appears as
-`recollect`.
-
-**One deliberate incompatibility.** OpenAI clients resend the whole
-transcript on every request; Recollect ignores it and reads only the final
-user message. Reconstructing the relevant past from the store is the
-mechanism being deployed — honouring the client's history instead would
-silently replace the memory system with the client's scrollback and make
-every number in the trace meaningless. Sessions are keyed off the request's
-`user` field.
+| topic | document |
+|---|---|
+| Standalone, desktop-host, and Ubuntu-client setups | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| Hands-free "Hey Idris" voice conversation | [docs/VOICE.md](docs/VOICE.md) |
+| The pinned embedder, and why it is pinned | [docs/EMBEDDER.md](docs/EMBEDDER.md) |
+| Container isolation profile | [deploy/opencode-sandbox/README.md](deploy/opencode-sandbox/README.md) |
+| Network hardening and pairing | [docs/SECURITY_HARDENING_2026-09-08.md](docs/SECURITY_HARDENING_2026-09-08.md) |
 
 ---
 
@@ -280,40 +290,46 @@ src/recollect/
   session.py          sessions, stores, and the turn lifecycle
   api.py              /api/* for the inspector, /v1/* for everyone else
   cli.py              serve · doctor · chat
+  tasks.py            delegated tasks and their mailbox
+  task_chat.py        the conversation path that can delegate
   engine/
     _internals.py     the single seam into the library's private modules
     shadow.py         the verified shadow trace
     embedder.py       the pinned in-process embedder
-    generator.py      the OpenAI-compatible chat client
+    generator.py      the chat client
+    sandbox/          container isolation, attestation, and the worker runner
 ui/                   Vite + React inspector
 tests/                shadow-vs-library verification, swept over sizes and budgets
 docs/
 ```
 
-## Constraints worth knowing before changing anything
+## Before you change anything
 
-**Embeddings are computed in-process and never over HTTP.** The same GGUF
-behind `llama-server` returns different vectors than the same file loaded
-in-process — up to 0.599 per component, never byte-equal. The store's
-call-shape gate refuses to open against a drifted embedder, by design.
-Details in [docs/EMBEDDER.md](docs/EMBEDDER.md).
+**Embeddings are computed in-process, never over HTTP.** The same model file
+behind an HTTP server returns different numbers than the same file loaded
+in-process — off by as much as 0.599 per component, never identical. The store
+refuses to open against a drifted embedder, by design. See
+[docs/EMBEDDER.md](docs/EMBEDDER.md).
 
 **A pinned version number does not pin the computation.** Two installs of
-`llama-cpp-python==0.3.25` on this machine produced different embeddings
+`llama-cpp-python==0.3.25` on one machine produced different embeddings,
 because one was a CUDA build and one was CPU-only. The binaries are the
-identity. `recollect doctor` reports their hashes.
+identity, and `recollect doctor` reports their hashes.
 
-**The mechanism constants are not tuning knobs.** `EpisodicConfig` values
-each shaped a committed research number, and a store records the config it
-was created under and refuses to reopen under a different one. Deployment
-settings live separately in `RecollectConfig`.
+**The mechanism constants are not tuning knobs.** Each value in
+`EpisodicConfig` shaped a published research number. A store records the
+config it was created under and refuses to reopen under a different one.
+Deployment settings live separately, in `RecollectConfig`.
 
-**The live instrument is coarse.** The source research measured a 3.0-point
-run-to-run band on a 13-point rubric across byte-identical replicates, and
-the runtime is not bit-reproducible — the same prompt at the same seed can
-produce a different answer. Delivery counts, episode identities and
-character accounting *are* exact and do reproduce; scored judgements about
-answer quality from single runs do not.
+**Never fork `episodic` to add logging.** The whole verification argument
+depends on the library being the untouched one. The single legal seam into it
+is `engine/_internals.py`.
+
+**The live instrument is coarse about quality.** Delivery counts, episode
+identities, and character accounting are exact and reproduce every time.
+Judgements about *answer quality* from single runs do not: the source research
+measured a 3.0-point run-to-run band on a 13-point rubric across identical
+inputs, and the runtime is not bit-reproducible.
 
 ## Tests
 
@@ -321,11 +337,11 @@ answer quality from single runs do not.
 uv run pytest
 ```
 
-The suite sweeps store sizes × budgets — including the degenerate ones:
-zero, one character, and exactly the cost of the empty block tags — and
-asserts byte equality between the library and the reconstruction every
-time. It uses a deterministic fake embedder, so it needs no model file and
-runs in about ten seconds.
+The suite sweeps store sizes against budgets — including the silly ones: zero
+characters, one character, and exactly the cost of an empty block — and
+asserts byte equality between the library and the reconstruction every time.
+It uses a deterministic fake embedder, so it needs no model file and runs in
+about ten seconds.
 
 ## Licence
 
@@ -344,12 +360,12 @@ Deployment and commercial licences are available —
 
 Recollect builds on the `episodic` library, which is dual licensed
 AGPL-3.0-or-later **or** commercial. A proprietary product built on AGPL code
-would normally be a violation; it is not one here, because Idris Applied AI
-Research holds the copyright in `episodic` and uses it under its own commercial
-licence rather than under the AGPL.
+would normally be a violation. It is not one here, because Idris Applied AI
+Research holds the copyright in `episodic` and uses it under its own
+commercial licence rather than under the AGPL.
 
-That reasoning applies to the copyright holder and to nobody else. If you obtain
-`episodic`, you get it under the AGPL — including section 13, which reaches
-network use, not just distribution — unless you hold a separate agreement.
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) has the full chain, along
-with every other dependency and its terms.
+That reasoning applies to the copyright holder and to nobody else. If you
+obtain `episodic`, you get it under the AGPL — including section 13, which
+reaches network use and not just distribution — unless you hold a separate
+agreement. [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) has the full
+chain, along with every other dependency and its terms.
