@@ -48,7 +48,8 @@ def config():
         tuple(
             (name, str(i) * 64)
             for i, name in enumerate(
-                ("protocol", "checkpoints", "amendment", "runtime"), 1
+                ("protocol", "checkpoints", "amendment", "runtime",
+                 "timing_amendment"), 1
             )
         ),
         baseline.sha256,

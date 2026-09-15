@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from recollect.config import RecollectConfig
-from recollect.engine.model_admission import ModelAdmission, ModelIngress
+from recollect.engine.model_admission import LANES, ModelAdmission, ModelIngress
 
 
 async def test_foreground_preference_does_not_starve_background():
@@ -343,5 +343,78 @@ def test_parallel_slot_configuration_is_explicit(monkeypatch, tmp_path):
     monkeypatch.setenv("RECOLLECT_EMBEDDING_MODEL_PATH", str(model))
     monkeypatch.setenv("RECOLLECT_GENERATOR_PARALLEL_SLOTS", "2")
     assert RecollectConfig.from_env().generator_parallel_slots == 2
+    # The registered design adds exactly one lane (the modifier); no fourth slot.
+    assert RecollectConfig(embedding_model_path=model,
+                           generator_parallel_slots=3).generator_parallel_slots == 3
     with pytest.raises(ValueError, match="generator_parallel_slots"):
-        RecollectConfig(embedding_model_path=model, generator_parallel_slots=3)
+        RecollectConfig(embedding_model_path=model, generator_parallel_slots=4)
+
+
+async def test_three_lanes_are_exclusive_pinned_and_never_borrow():
+    admission = ModelAdmission(slots=3)
+    assert [admission.slot_for(lane) for lane in LANES] == [0, 1, 2]
+    for lane in LANES:
+        await asyncio.wait_for(admission.acquire(lane=lane), 0.1)
+    waiting = {lane: asyncio.create_task(admission.acquire(lane=lane))
+               for lane in LANES}
+    await asyncio.sleep(0)
+    assert not any(task.done() for task in waiting.values())
+    admission.release(lane="modifier")
+    await asyncio.wait_for(waiting["modifier"], 0.1)
+    # Free modifier capacity was not lent to either blocked lane.
+    assert not waiting["conversation"].done() and not waiting["worker"].done()
+    admission.release()
+    await asyncio.wait_for(waiting["conversation"], 0.1)
+    admission.release(background=True)
+    await asyncio.wait_for(waiting["worker"], 0.1)
+    for lane in LANES:
+        admission.release(lane=lane)
+    assert not admission.locked()
+
+
+async def test_modifier_lane_exists_only_in_three_slot_profile():
+    for slots in (1, 2):
+        admission = ModelAdmission(slots=slots)
+        assert admission.slot_for("worker") is None
+        with pytest.raises(ValueError, match="lane"):
+            admission.slot_for("modifier")
+        with pytest.raises(ValueError, match="lane"):
+            await admission.acquire(lane="modifier")
+    with pytest.raises(ValueError):
+        ModelAdmission(slots=4)
+    with pytest.raises(ValueError, match="lane"):
+        await ModelAdmission(slots=3).acquire(background=True, lane="modifier")
+
+
+async def test_three_lane_close_rejects_modifier_waiters_and_preserves_owner():
+    admission = ModelAdmission(slots=3)
+    await admission.acquire(lane="modifier")
+    pending = asyncio.create_task(admission.acquire(lane="modifier"))
+    await asyncio.sleep(0)
+    admission.close()
+    with pytest.raises(RuntimeError, match="closing"):
+        await pending
+    assert admission._modifier_busy
+    admission.release(lane="modifier")
+    assert not admission.locked()
+
+
+async def test_three_slot_ingress_pins_worker_and_refuses_worker_slot_choice(gateway):
+    ingress, model, client = gateway
+    ingress.config = replace(ingress.config, generator_parallel_slots=3)
+    ingress.admission = ModelAdmission(slots=3)
+    response = await client.post("/v1/chat/completions", json=payload(id_slot=2))
+    assert response.status_code == 400 and not model.calls
+    response = await client.post("/v1/chat/completions", json=payload())
+    assert response.status_code == 200
+    assert json.loads(model.calls[-1].content)["id_slot"] == 1
+    assert not ingress.admission.locked()
+
+
+async def test_start_accepts_verified_three_slot_profile(gateway):
+    ingress, model, _ = gateway
+    ingress.config = replace(ingress.config, generator_parallel_slots=3)
+    ingress.admission = ModelAdmission(slots=3)
+    model.properties["total_slots"] = 3
+    await ingress.start()
+    assert ingress.server.started

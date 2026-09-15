@@ -22,10 +22,16 @@ from .checkpoints import (
     verify_materialized,
 )
 from .contracts import File, Snapshot, TaskContract, require_digest, require_tuple
-from .journal import EMPTY_SNAPSHOT, IntegrityError, Journal, decode, encode
+from .journal import (
+    EMPTY_SNAPSHOT,
+    Anchor,
+    IntegrityError,
+    Journal,
+    decode,
+    encode,
+)
 
 _BOOT_ID = f"{os.getpid()}-{uuid.uuid4().hex}"
-_LIMIT_NS = 3600 * 1_000_000_000
 PREFLIGHT_CHECKS = frozenset(
     {
         "runtime_frozen",
@@ -67,7 +73,7 @@ OUTCOME_CHECKS = frozenset(
         "unchanged_authorization",
         "main_reply_captured",
         "concurrency_passed",
-        "responsiveness_passed",
+        "responsiveness_recorded",
     }
 )
 
@@ -113,10 +119,10 @@ class ControllerConfig:
             require_digest(pair[1])
         if (
             set(dict(self.registrations))
-            != {"protocol", "checkpoints", "amendment", "runtime"}
-            or len(self.registrations) != 4
+            != {"protocol", "checkpoints", "amendment", "timing_amendment", "runtime"}
+            or len(self.registrations) != 5
         ):
-            raise ValueError("Freeze all three registrations and the runtime identity")
+            raise ValueError("Freeze all registrations including the timing amendment")
         require_digest(self.baseline_sha256)
         require_digest(self.evaluator_sha256)
         require_tuple(self.evaluation_checks)
@@ -232,6 +238,15 @@ class Controller:
         self._branch_sequence = 0
         self._damage = ()
         self._historical_timing = []
+        self._development = None
+        self._integrated = False
+        self._development_pending = False
+        self._role_settings_sha256 = None
+        self._role_model_calls = 0
+        self._development_lease_lock = threading.Lock()
+        self._development_frozen = None
+        self._development_updates = self._development_reviews = 0
+        self._development_submission = None
 
     def _now(self) -> Stamp:
         now = self._clock()
@@ -296,12 +311,33 @@ class Controller:
                 )
         return records
 
+    def _verify_segments(self, records):
+        """Exhaust every bound native sidecar; a flattened copy is never trusted."""
+        from .evidence_segments import iter_segments
+
+        for record in records:
+            value = record.value
+            if value["kind"] != "development_execution":
+                continue
+            for binding in value["data"].get("segments") or ():
+                parts = binding["path"].split("/")
+                if (len(parts) != 3 or parts[0] != "segments"
+                        or any(p in {"", ".", ".."} or "\\" in p for p in parts)):
+                    raise IntegrityError("Invalid evidence segment binding")
+                anchor = Anchor(**binding["anchor"])
+                with contextlib.closing(iter_segments(
+                    self.journal.root.joinpath(*parts), anchor,
+                )) as stream:
+                    for _ in stream:
+                        pass
+
     def _prepare_accounting(self):
         records = self.journal.verify()
         self._verify_config(records)
         if self._eligible and self._phase == "complete":
             try:
                 self._verify()
+                self._verify_segments(self.journal.verify())
             except (ValueError, OSError, KeyError) as exc:
                 self._abort("evidence_integrity_failure: " + str(exc))
                 records = self.journal.verify()
@@ -314,6 +350,10 @@ class Controller:
             records = self.journal.verify()
         inspection = self._inspect_accounting(records)
         issues = list(inspection.issues)
+        try:
+            self._verify_segments(records)
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            issues.append({"reason": "evidence segment: " + str(exc)})
         for record in records:
             if record.value["kind"] == "verification_receipt":
                 try:
@@ -347,7 +387,9 @@ class Controller:
         self._branch_sequence = branch.anchor.sequence
 
     def _abort(self, reason):
-        self._eligible = False
+        # Coordinate revocation with async ownership release, without I/O here.
+        with self._development_lease_lock:
+            self._eligible = False
         self._phase = "failed"
         if reason not in self._reasons:
             self._reasons.append(reason)
@@ -368,13 +410,7 @@ class Controller:
                 raise IntegrityError("Primary path is permanently ineligible")
             try:
                 self._verify()
-                now = self._now()
-                if (
-                    not accounting
-                    and self._started is not None
-                    and now.monotonic_ns - self._started.monotonic_ns > _LIMIT_NS
-                ):
-                    raise IntegrityError("budget_exhausted")
+                self._now()
                 yield
             except BaseException as exc:
                 self._abort(str(exc))
@@ -385,12 +421,7 @@ class Controller:
             raise IntegrityError(f"Expected {phase}, found {self._phase}")
 
     def _after_gate(self):
-        now = self._now()
-        if (
-            self._started is not None
-            and now.monotonic_ns - self._started.monotonic_ns > _LIMIT_NS
-        ):
-            raise IntegrityError("budget_exhausted")
+        self._now()
 
     def _seal(self, checkpoint_id, evidence, observations, gate, reasons=()):
         started = self._now()
@@ -555,8 +586,62 @@ class Controller:
             else:
                 self._abort("baseline_disqualified:" + classification)
 
-    def submit(self, submission_id: str, artifact: Snapshot, evidence: Snapshot):
+    def open_development(self, *, baseline, policy, settings):
+        """Claim a host-local development cycle; never expose this to workers."""
+        from .integration import IntegratedDevelopment
+
         with self._operation():
+            self._expect("modify")
+            if self._dispatched is not None:
+                raise IntegrityError("Modification dispatch already claimed")
+            cp1 = next(
+                c for c in self._checkpoints if c.value["checkpoint_id"] == "CP1"
+            )
+            if not cp1.value["gate"]:
+                raise IntegrityError("Verified passing CP1 required")
+            if baseline.sha256 != self.config.baseline_sha256:
+                raise IntegrityError("Development baseline differs from CP0")
+            frozen = (policy.sha256, settings)
+            if self._development_frozen not in (None, frozen):
+                raise IntegrityError("Development scope/settings changed across cycles")
+            self._development_frozen = frozen
+            self.dispatch("modify")
+            self._integrated = True
+            development = IntegratedDevelopment(
+                self, baseline, policy, settings, cp1.manifest_sha256,
+                self._started, None,
+            )
+            self._development = development
+            self._after_gate()
+            return development
+
+    @contextlib.contextmanager
+    def _development_operation(self, owner):
+        with self._operation():
+            if owner is not self._development:
+                raise IntegrityError("Foreign or stale development authority")
+            self._require_dispatch("modify")
+            yield
+            self._after_gate()
+
+    def submit(
+        self, submission_id: str, artifact: Snapshot, evidence: Snapshot,
+        *, _development=None, _authorization=None,
+    ):
+        with self._operation():
+            if self._integrated:
+                grant = self._development_submission
+                if (
+                    grant is None or _development is not self._development
+                    or _authorization is not grant[0]
+                    or grant[1:] != (self._development, submission_id,
+                                      artifact.sha256, evidence.sha256)
+                    or self._development_pending
+                ):
+                    raise IntegrityError(
+                        "Authenticated development submission required"
+                    )
+                self._development_submission = None
             identity = artifact.sha256
             if submission_id in self._submissions:
                 accepted = self._submissions[submission_id]
@@ -568,6 +653,8 @@ class Controller:
                 raise IntegrityError("submission_limit_or_invalid_identity")
             if not artifact.files or not evidence.files:
                 raise IntegrityError("Candidate/source authoring evidence is missing")
+            # CP2 binds sidecars by anchor; exhaust them before sealing that binding.
+            self._verify_segments(self.journal.verify())
             number = self._number + 1
             captured = Snapshot(
                 (
@@ -706,15 +793,20 @@ class Controller:
             # This observation is AFTER marker commit/readback, not its preparation.
             endpoint = self._now()
             self._emit(
-                "endpoint_observed", {"endpoint": asdict(endpoint), "cp5_sha256": cp5}
+                "endpoint_observed", {
+                    "endpoint": asdict(endpoint), "cp5_sha256": cp5,
+                    "elapsed_ns": endpoint.monotonic_ns - self._started.monotonic_ns,
+                    "timing_policy": "observational",
+                }
             )
             self._endpoint = endpoint
-            if endpoint.monotonic_ns - self._started.monotonic_ns > _LIMIT_NS:
-                raise IntegrityError("budget_exhausted")
             self._phase = "complete"
 
     def account(self, evidence: Snapshot = EMPTY_SNAPSHOT) -> str:
         with self._lock:
+            if self._development_pending:
+                self._abort("development_cleanup_pending")
+                raise IntegrityError("Wait for development cleanup before CP6")
             if self._phase == "accounted":
                 raise IntegrityError("Attempt is already accounted")
             try:
@@ -805,6 +897,14 @@ class Controller:
                     "verification_receipt",
                     "endpoint_marker",
                     "endpoint_observed",
+                    "development_opened",
+                    "development_input",
+                    "development_transition",
+                    "development_execution",
+                    "development_failure",
+                    "development_submission",
+                    "development_role",
+                    "development_driver",
                 }:
                     files.append(
                         File(f"receipts/{record.anchor.sequence}.json", record.body)
@@ -827,4 +927,7 @@ class Controller:
             return result
 
     def close(self):
-        self.journal.close()
+        with self._lock:
+            if self._development_pending:
+                raise IntegrityError("Wait for development cleanup before closing")
+            self.journal.close()

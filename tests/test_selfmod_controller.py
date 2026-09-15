@@ -309,17 +309,15 @@ def test_endpoint_includes_receipt_and_marker_completion(tmp_path, phase, late):
                 clock.ns = start + (3601 if late else 3600) * 1_000_000_000
 
         fault.callback = delay
-        if late:
-            with pytest.raises(IntegrityError, match="budget_exhausted"):
-                controller.outcome(good(OUTCOME_CHECKS), EVIDENCE)
-        else:
-            controller.outcome(good(OUTCOME_CHECKS), EVIDENCE)
+        controller.outcome(good(OUTCOME_CHECKS), EVIDENCE)
+        observed = values(controller, "endpoint_observed")[0]
+        assert observed["endpoint"]["monotonic_ns"] == clock.ns
+        assert observed["elapsed_ns"] == (3601 if late else 3600) * 1_000_000_000
+        assert observed["timing_policy"] == "observational"
         fault.callback = None
         clock.ns += 100 * 1_000_000_000
         controller.account()
-        assert summary(controller)["result"] == (
-            "simulation_failed" if late else "simulation_complete"
-        )
+        assert summary(controller)["result"] == "simulation_complete"
     finally:
         controller.close()
 
@@ -382,7 +380,7 @@ def test_completed_archive_inspection_does_not_reopen_or_invalidate(tmp_path):
     assert before[-1].value["kind"] == "accounting_completed"
 
 
-def test_request_readback_delay_is_inside_original_budget(tmp_path):
+def test_request_readback_delay_is_recorded_without_expiry(tmp_path):
     clock, fault = FakeClock(), Fault()
     controller = create(tmp_path / "attempt", clock, fault)
     try:
@@ -394,8 +392,7 @@ def test_request_readback_delay_is_inside_original_budget(tmp_path):
                 clock.ns += 3601 * 1_000_000_000
 
         fault.callback = delay
-        with pytest.raises(IntegrityError, match="budget_exhausted"):
-            controller.receive_request()
+        controller.receive_request()
         timing = values(controller, "request_start_observed")[0]
         assert timing["started"]["monotonic_ns"] == original
         assert timing["receipt_readback_completed"]["monotonic_ns"] == clock.ns

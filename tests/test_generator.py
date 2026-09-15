@@ -301,3 +301,15 @@ async def test_streamed_tool_call_fragments_reassemble_by_index():
         ("call_a", "alpha", '{"a": 1}'),
         ("call_b", "beta", '{"b": 2}'),
     }
+
+
+async def test_three_lane_profile_pins_conversation_to_its_server_slot():
+    from recollect.engine.model_admission import ModelAdmission
+
+    generator, payloads = _mocked_generator(PLAIN_SSE)
+    generator._model_slot = ModelAdmission(slots=3)
+    async for _ in generator.stream([{"role": "user", "content": "hi"}],
+                                    trace=_trace()):
+        pass
+    assert payloads[-1]["id_slot"] == 0
+    await generator.aclose()

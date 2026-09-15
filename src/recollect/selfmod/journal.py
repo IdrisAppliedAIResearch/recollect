@@ -12,12 +12,12 @@ import os
 import sqlite3
 import stat
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from .contracts import File, Snapshot
+from .contracts import File, Snapshot, require_digest
 
 MAX_FILE_BYTES = 16 * 1024 * 1024
 MAX_RECORD_BYTES = 128 * 1024 * 1024
@@ -160,15 +160,77 @@ def _expected_schema():
 
 def read_archive(root: Path, expected: Anchor | None) -> tuple[Record, ...]:
     """Verify a consistent snapshot against a head held outside the database."""
-    records = inspect_archive(root)
-    actual = records[-1].anchor if records else None
-    if actual != expected:
-        raise IntegrityError("Journal head mismatch: truncation or unexpected records")
-    return records
+    return tuple(iter_archive(root, expected))
 
 
 def inspect_archive(root: Path) -> tuple[Record, ...]:
     """Unanchored inspection for recovery only; a valid prefix is not a trusted head."""
+    return tuple(_iter_archive(root))
+
+
+def require_anchor(anchor: Anchor | None) -> None:
+    if anchor is None:
+        return
+    if (type(anchor) is not Anchor or type(anchor.sequence) is not int
+            or anchor.sequence < 1):
+        raise IntegrityError("Invalid journal anchor")
+    try:
+        require_digest(anchor.sha256)
+    except ValueError as exc:
+        raise IntegrityError("Invalid journal anchor") from exc
+
+
+def validate_record(record: Record, previous: Anchor | None) -> None:
+    """Validate one exact record against its predecessor, including file bounds."""
+    if type(record) is not Record:
+        raise IntegrityError("Invalid journal record")
+    require_anchor(record.anchor)
+    body = record.body
+    if type(body) is not bytes or len(body) > MAX_FILE_BYTES:
+        raise IntegrityError("Invalid journal body")
+    value = decode(body)
+    if (
+        record.anchor is None
+        or set(value) != {"version", "sequence", "previous", "kind", "data", "files"}
+        or type(value["version"]) is not int
+        or value["version"] != 1
+        or type(value["sequence"]) is not int
+        or record.anchor.sequence != (previous.sequence + 1 if previous else 1)
+        or value["sequence"] != record.anchor.sequence
+        or value["previous"] != (previous.sha256 if previous else None)
+        or sha256(body) != record.anchor.sha256
+        or not isinstance(value["kind"], str)
+        or not isinstance(value["data"], dict)
+    ):
+        raise IntegrityError("Invalid journal chain")
+    try:
+        if type(record.files) is not Snapshot:
+            raise ValueError("Expected a snapshot")
+        if encode(inventory(record.files)) != encode(value["files"]):
+            raise IntegrityError("Archived file inventory/hash mismatch")
+    except (TypeError, ValueError) as exc:
+        raise IntegrityError("Invalid archived files") from exc
+
+
+def iter_archive(root: Path, expected: Anchor | None) -> Iterator[Record]:
+    """Independently verify an exact archive end with record-bounded memory.
+
+    Exhaustion without error verifies completeness, never an individual yield.
+    Close the iterator if abandoning it: its read transaction holds a SQLite
+    snapshot (and can block writers). ``None`` requires an empty archive, not an
+    unanchored prefix. There is no aggregate record/byte/work limit.
+    """
+    require_anchor(expected)
+    actual = None
+    with contextlib.closing(_iter_archive(root)) as records:
+        for record in records:
+            actual = record.anchor
+            yield record
+    if actual != expected:
+        raise IntegrityError("Journal head mismatch: truncation or unexpected records")
+
+
+def _iter_archive(root: Path) -> Iterator[Record]:
     path = root_path(root) / "journal.sqlite"
     regular(path)
     connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)
@@ -180,49 +242,105 @@ def inspect_archive(root: Path) -> tuple[Record, ...]:
             or _schema_rows(connection) != _expected_schema()
         ):
             raise IntegrityError("Journal schema/settings mismatch")
-        if connection.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+        check = connection.execute("PRAGMA quick_check")
+        if check.fetchone() != ("ok",) or check.fetchone() is not None:
             raise IntegrityError("SQLite integrity check failed")
-        if connection.execute("PRAGMA foreign_key_check").fetchall():
+        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise IntegrityError("Orphaned evidence")
-        result = []
         previous = None
-        for seq, body, sha in connection.execute(
-            "SELECT seq,body,sha FROM records ORDER BY seq"
+        for seq, body_type, body_size, sha in connection.execute(
+            "SELECT seq,typeof(body),length(body),sha FROM records ORDER BY seq"
         ):
-            if type(body) is not bytes or len(body) > MAX_FILE_BYTES:
-                raise IntegrityError("Invalid journal body")
-            value = decode(body)
-            if (
-                set(value)
-                != {"version", "sequence", "previous", "kind", "data", "files"}
-                or type(value["version"]) is not int
-                or value["version"] != 1
-                or type(value["sequence"]) is not int
-                or seq != len(result) + 1
-                or value["sequence"] != seq
-                or value["previous"] != previous
-                or sha256(body) != sha
-                or not isinstance(value["kind"], str)
-                or not isinstance(value["data"], dict)
-            ):
-                raise IntegrityError("Invalid journal chain")
-            try:
-                snapshot = Snapshot(
-                    tuple(
-                        File(p, b)
-                        for p, b in connection.execute(
-                            "SELECT path,content FROM files WHERE seq=? ORDER BY path",
-                            (seq,),
-                        )
-                    )
-                )
-                if encode(inventory(snapshot)) != encode(value["files"]):
-                    raise IntegrityError("Archived file inventory/hash mismatch")
-            except (TypeError, ValueError) as exc:
-                raise IntegrityError("Invalid archived files") from exc
-            result.append(Record(Anchor(seq, sha), body, snapshot))
-            previous = sha
-        return tuple(result)
+            record = _load_record(connection, seq, body_type, body_size, sha, previous)
+            previous = record.anchor
+            yield record
+    finally:
+        connection.close()
+
+
+def _load_record(connection, seq, body_type, body_size, sha, previous):
+    # Check SQLite lengths before fetching blobs, including corrupt ones.
+    if body_type != "blob" or body_size > MAX_FILE_BYTES:
+        raise IntegrityError("Invalid journal body")
+    body = connection.execute(
+        "SELECT body FROM records WHERE seq=?", (seq,)
+    ).fetchone()[0]
+    try:
+        files = []
+        total = 0
+        for p, content_type, size in connection.execute(
+            "SELECT path,typeof(content),length(content) FROM files "
+            "WHERE seq=? ORDER BY path", (seq,),
+        ):
+            if (content_type != "blob" or size > MAX_FILE_BYTES
+                    or len(files) >= MAX_FILES
+                    or total + size > MAX_RECORD_BYTES):
+                raise IntegrityError("Evidence exceeds frozen archive limits")
+            content = connection.execute(
+                "SELECT content FROM files WHERE seq=? AND path=?", (seq, p),
+            ).fetchone()[0]
+            files.append(File(p, content))
+            total += size
+        snapshot = Snapshot(tuple(files))
+    except (TypeError, ValueError) as exc:
+        raise IntegrityError("Invalid archived files") from exc
+    record = Record(Anchor(seq, sha), body, snapshot)
+    validate_record(record, previous)
+    return record
+
+
+def _require_tail(connection, head):
+    """Bind a write to the owned head without rereading the verified prefix."""
+    if (connection.execute("PRAGMA user_version").fetchone()[0] != 1
+            or _schema_rows(connection) != _expected_schema()):
+        raise IntegrityError("Journal schema/settings mismatch")
+    boundary = head.sequence if head else 0
+    if connection.execute(
+        "SELECT COALESCE(MAX(seq),0) FROM records"
+    ).fetchone()[0] != boundary:
+        raise IntegrityError("Journal head mismatch: truncation or unexpected records")
+    if connection.execute(
+        "SELECT 1 FROM files WHERE seq>? LIMIT 1", (boundary,)
+    ).fetchone():
+        raise IntegrityError("Orphaned evidence beyond the journal head")
+    if head is None:
+        return
+    body_type, body_size, sha = connection.execute(
+        "SELECT typeof(body),length(body),sha FROM records WHERE seq=?", (boundary,)
+    ).fetchone()
+    if body_type != "blob" or body_size > MAX_FILE_BYTES or sha != head.sha256:
+        raise IntegrityError("Journal head record changed")
+    body = connection.execute(
+        "SELECT body FROM records WHERE seq=?", (boundary,)
+    ).fetchone()[0]
+    if sha256(body) != head.sha256:
+        raise IntegrityError("Journal head record changed")
+
+
+def _read_head(root: Path, head: Anchor, previous: Anchor | None) -> Record:
+    """Independent read-only readback of exactly the newly committed head record."""
+    path = root_path(root) / "journal.sqlite"
+    regular(path)
+    connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)
+    try:
+        connection.execute("BEGIN")
+        if (
+            connection.execute("PRAGMA user_version").fetchone()[0] != 1
+            or connection.execute("PRAGMA journal_mode").fetchone()[0] != "delete"
+            or _schema_rows(connection) != _expected_schema()
+        ):
+            raise IntegrityError("Journal schema/settings mismatch")
+        row = connection.execute(
+            "SELECT seq,typeof(body),length(body),sha FROM records "
+            "WHERE seq=(SELECT MAX(seq) FROM records)"
+        ).fetchone()
+        if (row is None or row[0] != head.sequence or row[3] != head.sha256
+                or connection.execute("SELECT 1 FROM files WHERE seq>? LIMIT 1",
+                                      (head.sequence,)).fetchone()):
+            raise IntegrityError(
+                "Journal head mismatch: truncation or unexpected records"
+            )
+        return _load_record(connection, *row, previous)
     finally:
         connection.close()
 
@@ -325,12 +443,20 @@ class Journal:
         self._identity = self._identities()
 
     def verify(self) -> tuple[Record, ...]:
+        return tuple(self.iter_verify())
+
+    def iter_verify(self) -> Iterator[Record]:
+        """Owner-checked streaming verification; exhaust or explicitly close."""
         if self._owner is None or self.poisoned:
             raise IntegrityError("Journal owner is closed or poisoned")
         try:
             if self._identities() != self._identity:
                 raise IntegrityError("Archive physical identity changed")
-            return read_archive(self.root, self._head)
+            with contextlib.closing(iter_archive(self.root, self._head)) as records:
+                yield from records
+        except GeneratorExit:
+            # An abandoned read makes no completeness claim and does not mutate.
+            raise
         except BaseException:
             self.poisoned = True
             raise
@@ -363,14 +489,27 @@ class Journal:
             connection.close()
 
     def append(self, kind: str, data: dict, files: Snapshot = EMPTY_SNAPSHOT) -> Record:
+        """Append one record bound to the owned head, then read back only that record.
+
+        Cost depends on this record and the head row, not archive length, so long
+        native histories append linearly. Full prefix verification remains
+        verify()/iter_verify(), used at checkpoint, export and finalization
+        boundaries. Between those, append-only triggers, exact schema, physical
+        identity and the stored head hash fence every write; a modified older
+        record is detected by that full verification, never silently trusted.
+        """
         try:
-            self.verify()
-            seq = self._head.sequence + 1 if self._head else 1
+            if self._owner is None or self.poisoned:
+                raise IntegrityError("Journal owner is closed or poisoned")
+            if self._identities() != self._identity:
+                raise IntegrityError("Archive physical identity changed")
+            previous = self._head
+            seq = previous.sequence + 1 if previous else 1
             body = encode(
                 dict(
                     version=1,
                     sequence=seq,
-                    previous=self._head.sha256 if self._head else None,
+                    previous=previous.sha256 if previous else None,
                     kind=kind,
                     data=data,
                     files=inventory(files),
@@ -381,6 +520,7 @@ class Journal:
             head = Anchor(seq, sha256(body))
             with self._connection() as connection:
                 connection.execute("BEGIN IMMEDIATE")
+                _require_tail(connection, previous)
                 for file in files.files:
                     connection.execute(
                         "INSERT INTO files VALUES (?,?,?)",
@@ -393,10 +533,10 @@ class Journal:
                 connection.commit()
                 self.fault("journal.after_commit:" + kind)
             self.fault("journal.before_readback:" + kind)
-            records = read_archive(self.root, head)
+            record = _read_head(self.root, head, previous)
             self.fault("journal.after_readback:" + kind)
             self._head = head
-            return records[-1]
+            return record
         except BaseException:
             self.poisoned = True
             raise

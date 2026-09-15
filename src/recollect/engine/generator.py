@@ -257,6 +257,11 @@ class Generator:
             # leaves `content` empty. See the module docstring.
             "chat_template_kwargs": {"enable_thinking": self.settings.thinking},
         }
+        slot_for = getattr(self._model_slot, "slot_for", None)
+        pinned = slot_for("conversation") if slot_for is not None else None
+        if pinned is not None:
+            # Three-lane profiles give conversation its own server slot.
+            payload["id_slot"] = pinned
         structured_tools = bool(tools and self.settings.require_tools)
         if structured_tools:
             # The deployed Qwen template allows prose before a required native

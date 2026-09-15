@@ -15,8 +15,7 @@ def setup():
         attempt_id="attempt", instance_id="modifier-1", author_id="author",
         forward_reviewer_id="forward", code_reviewer_id="code", contract=contract,
         policy=policy, baseline=baseline, verified_cp1_sha256="1" * 64,
-        original_started_at=100.0, deadline=200.0, max_updates=12,
-        max_review_reports=12, clock=lambda: clock[0],
+        original_started_at=100.0, deadline=200.0, clock=lambda: clock[0],
     )
     return Development(**options), plan, proposed, clock, options
 
@@ -204,24 +203,25 @@ def test_boundary_deadline_and_backward_clock(setup):
     assert dev.stage == Stage.TERMINAL
 
 
-@pytest.mark.parametrize("budget", ["max_updates", "max_review_reports"])
-def test_frozen_budgets_cannot_loop_indefinitely(setup, budget):
-    _, plan, _, _, options = setup
-    dev = Development(**{**options, budget: 1})
-    dev.propose("modifier-1", plan)
-    if budget == "max_updates":
-        with pytest.raises(ValueError, match="budget"):
-            dev.propose("modifier-1", plan)
-    else:
+def test_updates_and_reviews_have_no_count_quota_but_keep_deadline(setup):
+    dev, plan, proposed, clock, _ = setup
+    for _ in range(100):
+        dev.propose("modifier-1", plan)
         dev.review("modifier-1", review(dev, "forward", approved=False))
-        with pytest.raises(ValueError, match="budget"):
-            dev.review("modifier-1", review(dev, "forward"))
+        assert dev.stage == Stage.FORWARD_REVIEW
+        dev.review("modifier-1", review(dev, "forward"))
+        dev.implementation("modifier-1", proposed)
+    assert dev._updates == dev._reviews == 200
+    assert dev.stage == Stage.CHECKS
+    clock[0] = 201.0
+    with pytest.raises(ValueError, match="deadline"):
+        dev.propose("modifier-1", plan)
     assert dev.stage == Stage.TERMINAL
 
 
 @pytest.mark.parametrize("change", [
     {"verified_cp1_sha256": ""}, {"code_reviewer_id": "author"},
-    {"max_updates": 0}, {"max_updates": True}, {"deadline": float("inf")},
+    {"deadline": float("inf")},
     {"deadline": 3701}, {"deadline": 99},
 ])
 def test_invalid_frozen_configuration_rejected(setup, change):

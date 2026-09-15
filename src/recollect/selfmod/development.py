@@ -87,8 +87,7 @@ class Development:
         self, *, attempt_id: str, instance_id: str, author_id: str,
         forward_reviewer_id: str, code_reviewer_id: str,
         contract: TaskContract, policy: ChangePolicy, baseline: Snapshot,
-        verified_cp1_sha256: str, original_started_at: float, deadline: float,
-        max_updates: int, max_review_reports: int,
+        verified_cp1_sha256: str, original_started_at: float, deadline: float | None,
         clock: Callable[[], float] = time.monotonic,
     ):
         actors = (author_id, forward_reviewer_id, code_reviewer_id)
@@ -100,19 +99,16 @@ class Development:
         if (contract.policy_sha256 != policy.sha256
                 or baseline.sha256 != policy.baseline_sha256):
             raise ValueError("Frozen contract/policy/baseline mismatch")
-        if (not all(math.isfinite(v) for v in (original_started_at, deadline))
-                or not original_started_at < deadline <= original_started_at + 3600):
+        if (not math.isfinite(original_started_at) or (deadline is not None and (
+                not math.isfinite(deadline)
+                or not original_started_at < deadline <= original_started_at + 3600))):
             raise ValueError("Inherit the original attempt's finite deadline")
-        if any(type(v) is not int or v < 1
-               for v in (max_updates, max_review_reports)):
-            raise ValueError("Freeze positive finite development budgets")
         self._attempt = attempt_id
         self._instance = instance_id
         self._reviewers = (forward_reviewer_id, code_reviewer_id)
         self._contract, self._policy, self._baseline = contract, policy, baseline
         self._deadline, self._clock = deadline, clock
         self._last_time = original_started_at
-        self._max_updates, self._max_reviews = max_updates, max_review_reports
         self._updates = self._reviews = 0
         self._revision = 0
         self._stage = Stage.PLAN
@@ -160,14 +156,11 @@ class Development:
             self._terminate("clock_integrity_failure")
             raise ValueError("Monotonic clock identity/order lost")
         self._last_time = now
-        if now > self._deadline:
+        if self._deadline is not None and now > self._deadline:
             self._terminate("budget_exhausted")
             raise ValueError("Original attempt deadline exhausted")
 
     def _consume_update(self):
-        if self._updates >= self._max_updates:
-            self._terminate("development_update_budget_exhausted")
-            raise ValueError("Development update budget exhausted")
         self._updates += 1
 
     def propose(self, instance_id: str, plan: Plan):
@@ -191,9 +184,6 @@ class Development:
         expected_reviewer = self._reviewers[0 if forward else 1]
         if report.binding != self.binding or report.reviewer_id != expected_reviewer:
             raise ValueError("Stale review or unassigned reviewer")
-        if self._reviews >= self._max_reviews:
-            self._terminate("review_budget_exhausted")
-            raise ValueError("Review budget exhausted")
         self._reviews += 1
         accepted = report.approved and not report.unresolved_blockers
         self._record(

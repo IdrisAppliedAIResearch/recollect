@@ -107,8 +107,11 @@ def validate_bundle(files: Snapshot, expected_sha: str) -> dict:
     ):
         raise IntegrityError("Invalid checkpoint manifest schema")
     if (
-        set(manifest["registrations"])
-        != {"protocol", "checkpoints", "amendment", "runtime", "task_contract"}
+        set(manifest["registrations"]) not in (
+            {"protocol", "checkpoints", "amendment", "runtime", "task_contract"},
+            {"protocol", "checkpoints", "amendment", "timing_amendment",
+             "runtime", "task_contract"},
+        )
         or set(manifest["artifacts"]) != {"baseline", "evaluator"}
         or not isinstance(manifest["observations"], dict)
         or any(

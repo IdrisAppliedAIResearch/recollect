@@ -75,6 +75,14 @@ def rewritten(files, edit):
     )
 
 
+def test_historical_registration_schema_remains_inspectable(prepared):
+    _, record = prepared
+    digest, files = rewritten(
+        record.files, lambda m: m["registrations"].pop("timing_amendment"),
+    )
+    validate_bundle(files, digest)
+
+
 @pytest.mark.parametrize(
     "field,value",
     [

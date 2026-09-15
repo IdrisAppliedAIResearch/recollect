@@ -248,8 +248,9 @@ class RecollectConfig:
         if not 4_096 <= self.generator_context_tokens <= 131_072:
             raise ValueError("generator_context_tokens must be 4096..131072")
         if (type(self.generator_parallel_slots) is not int
-                or self.generator_parallel_slots not in {1, 2}):
-            raise ValueError("generator_parallel_slots must be 1 or 2")
+                or self.generator_parallel_slots not in {1, 2, 3}):
+            # Three slots are the registered conversation/worker/modifier lanes.
+            raise ValueError("generator_parallel_slots must be 1, 2 or 3")
         if not 128 <= self.subagent_inference_tokens < self.generator_context_tokens:
             raise ValueError("subagent inference output must fit the model context")
         if self.sandbox_steps < 1:
