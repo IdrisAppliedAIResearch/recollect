@@ -474,3 +474,30 @@ class DeploymentSandboxes:
         if manager is None:
             raise IntegrityError("No verified sandbox manager for this deployment")
         return manager
+
+
+class TaskDeployments:
+    """The task coordinator's view of routing: bind, link and select only.
+
+    Binding happens once when the coordinator durably creates a task; a linked
+    continuation is bound to B by the router and is never served before release.
+    Blocking journal writes belong off the event loop.
+    """
+
+    def __init__(self, router, sandboxes):
+        if type(router) is not DeploymentRouter or type(sandboxes) is not (
+                DeploymentSandboxes) or sandboxes._router is not router:
+            raise IntegrityError("Task deployments need one router and its selector")
+        self._router, self._sandboxes = router, sandboxes
+
+    def is_bound(self, task_id):
+        return task_id in self._router._tasks
+
+    def bind(self, task_id):
+        return self._router.bind(task_id)
+
+    def link_continuation(self, task_id, parent_task_id):
+        self._router.link_continuation(task_id, parent_task_id)
+
+    def manager_for(self, task_id):
+        return self._sandboxes.manager_for(task_id)

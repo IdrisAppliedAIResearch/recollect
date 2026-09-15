@@ -207,7 +207,13 @@ class ProviderBroker:
         raise IntegrityError("Provider operation is outside the principal's policy")
 
     async def request(self, capability, method, path, *, params=None, body=None,
-                      phase="original"):
+                      phase="original", invocation_id=None):
+        """Forward one authorized operation.
+
+        ``invocation_id`` is the host-observed tool invocation correlated with
+        this request by a trusted relay; it overrides the capability's binding
+        in the journal and is never taken from worker-supplied data.
+        """
         params = dict(params or {})
         if phase not in {"original", "replay"}:
             raise ValueError("Mutation phase is original or replay")
@@ -227,7 +233,9 @@ class ProviderBroker:
             "action_id": capability.action_id, "dedup_id": capability.dedup_id,
             "routing_epoch": capability.routing_epoch,
             "serving_digest": capability.serving_digest,
-            "invocation_id": capability.invocation_id, "method": method,
+            "invocation_id": (invocation_id if invocation_id is not None
+                              else capability.invocation_id),
+            "method": method,
             "path_sha256": sha256(path.encode()), "params": params,
             "kind": kind or "read", "phase": phase if kind == "mutation" else None,
             "attempt": attempt, "request_body_sha256": sha256(raw),

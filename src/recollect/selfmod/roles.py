@@ -84,8 +84,14 @@ class RoleSettings:
     prompts: tuple[tuple[str, str], ...] = field(
         default_factory=lambda: tuple(PROMPTS.items()), init=False,
     )
+    #: Three-lane profiles pin role inference to the modifier's server slot so
+    #: planning and review can never occupy the conversation or worker lane.
+    slot: int | None = None
 
     def __post_init__(self):
+        if self.slot is not None and (type(self.slot) is not int
+                                      or not 0 <= self.slot < 64):
+            raise ValueError("Freeze a valid pinned model slot")
         url = urlsplit(self.base_url)
         if (
             url.scheme != "http" or url.hostname != "127.0.0.1"
@@ -110,6 +116,8 @@ class RoleSettings:
             "timing_policy": "observational",
             "checks_sha256": Snapshot(self.checks).sha256,
             "prompts": self.prompts, "driver_sha256": sha256(self.driver),
+            # Unpinned profiles keep their historical identity.
+            **({"slot": self.slot} if self.slot is not None else {}),
         }))
 
 
@@ -119,7 +127,7 @@ def driver_bytes():
 
 def model_payload(context, settings):
     prompt = context["stage"] if context["role"] == "review" else context["role"]
-    return {
+    payload = {
         "model": settings.model,
         "messages": [{"role": "system", "content": dict(settings.prompts)[prompt]},
                      {"role": "user", "content": encode(context).decode()}],
@@ -127,6 +135,9 @@ def model_payload(context, settings):
         "response_format": {"type": "json_object"},
         "chat_template_kwargs": {"enable_thinking": False},
     }
+    if settings.slot is not None:
+        payload["id_slot"] = settings.slot
+    return payload
 
 
 class LocalRoleModel:

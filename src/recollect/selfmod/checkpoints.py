@@ -320,11 +320,13 @@ def inspect_accounting_chain(
     attempt_id: str,
     registrations: dict,
     artifacts: dict,
+    mode: str = "simulation",
 ) -> AccountingInspection:
     """Find a provable prefix without repairing damaged or abandoned evidence.
 
-    Only an explicitly failed accounting branch can extend that prefix, and only
-    with CP6. Primary progression must continue using verify_checkpoint_chain.
+    Only an explicitly failed accounting branch of the attempt's own mode can
+    extend that prefix, and only with CP6. Primary progression must continue
+    using verify_checkpoint_chain.
     """
     prepared = {}
     selected = []
@@ -338,7 +340,7 @@ def inspect_accounting_chain(
             prepared[record.anchor.sequence] = record
         elif value["kind"] == "accounting_branch":
             data = value["data"]
-            if data.get("result") != "simulation_failed" or data.get(
+            if data.get("result") != mode + "_failed" or data.get(
                 "verified_prefix"
             ) != [c.seal_sequence for c in checkpoints]:
                 issues.append(

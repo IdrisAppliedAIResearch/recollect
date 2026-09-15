@@ -113,9 +113,17 @@ class OpenCodeRunner:
         config: RecollectConfig,
         *,
         observation_chars: int | None = None,
+        observer: Callable[[dict, str, set[str]], None] | None = None,
     ) -> None:
         self._manager = manager
         self._config = config
+        # Trusted host instrumentation: sees each native event with its session tree.
+        self._observer = observer
+        # Amendment 02 profile: history reads and message posts have no timeout;
+        # an actual HTTP error, not elapsed time, is what counts as a failure.
+        unbounded = bool(getattr(config, "experiment_unbounded", False))
+        self._read_timeout = None if unbounded else 10
+        self._request_timeout = httpx.Timeout(None) if unbounded else _REQUEST_TIMEOUT
         self._observation_chars = (
             observation_chars
             if observation_chars is not None
@@ -191,8 +199,12 @@ class OpenCodeRunner:
         effort: SubagentEffort = "focused",
         restore_workspace: WorkspaceCallback | None = None,
         save_workspace: WorkspaceCallback | None = None,
+        message_id: str = "",
     ) -> AsyncIterator[SubagentStep | SubagentResult]:
         """Run owned work independently of a foreground response's lifetime.
+
+        ``message_id`` is the durable ID of the instruction that established
+        ``revision``; reports copy it, which binds them to that instruction.
 
         Per-request admission belongs to the manager's configured model ingress.
         Native sessions live for this invocation; later invocations restore only
@@ -212,7 +224,7 @@ class OpenCodeRunner:
                 await restore_workspace(invocation.handle.workdir)
             async for item in self._continuous_invocation(
                 invocation, task, commands, report, revision, effort, started,
-                save_workspace,
+                save_workspace, message_id,
             ):
                 if isinstance(item, SubagentResult):
                     final = item
@@ -253,6 +265,7 @@ class OpenCodeRunner:
         effort: SubagentEffort,
         started: float,
         save_workspace: WorkspaceCallback | None,
+        message_id: str = "",
     ) -> AsyncIterator[SubagentStep | SubagentResult]:
         handle, oc_id = invocation.handle, invocation.oc_session_id
         steps: list[SubagentStep] = []
@@ -260,7 +273,7 @@ class OpenCodeRunner:
         children: set[str] = set()
         seen_calls: set[str] = set()
         seen_reports: set[tuple[str, str]] = set()
-        revisions = {revision: ""}
+        revisions = {revision: message_id}
         issued: set[str] = set()
         accepted: set[int] = set()
         result_revisions: set[int] = set()
@@ -283,6 +296,8 @@ class OpenCodeRunner:
 
         async def apply(event: dict) -> SubagentStep | None:
             nonlocal waiting_for_input
+            if self._observer is not None:
+                self._observer(event, oc_id, children)
             entry = self._report_from_event(event, oc_id, children)
             if entry is not None:
                 key = (entry.native_session_id, entry.call_id)
@@ -335,7 +350,7 @@ class OpenCodeRunner:
             ))
 
         submit(self._continuous_prompt(
-            subagent.transfer_task(task, effort), revision, ""
+            subagent.transfer_task(task, effort), revision, message_id
         ))
         try:
             while True:
@@ -644,7 +659,8 @@ class OpenCodeRunner:
         children: set[str],
         assistant_ids: set[str],
     ) -> AsyncIterator[dict]:
-        response = await handle.client.get(f"/session/{oc_id}/children", timeout=10)
+        response = await handle.client.get(f"/session/{oc_id}/children",
+                                           timeout=self._read_timeout)
         response.raise_for_status()
         for child in response.json():
             if isinstance(child, dict) and child.get("parentID") == oc_id:
@@ -656,7 +672,8 @@ class OpenCodeRunner:
                 if before:
                     params["before"] = before
                 response = await handle.client.get(
-                    f"/session/{native_id}/message", params=params, timeout=10
+                    f"/session/{native_id}/message", params=params,
+                    timeout=self._read_timeout,
                 )
                 response.raise_for_status()
                 payload = response.json()
@@ -849,7 +866,7 @@ class OpenCodeRunner:
                 "agent": AGENT_NAME,
                 "parts": [{"type": "text", "text": task}],
             },
-            timeout=_REQUEST_TIMEOUT,
+            timeout=self._request_timeout,
         )
         response.raise_for_status()
         payload = response.json()

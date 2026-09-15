@@ -1,7 +1,9 @@
-"""Offline simulation controller. No agent dispatch or live-task PASS is exposed.
+"""Checkpoint controller for simulated fixtures or one primary attempt.
 
-Fixture observations are supplied by the trusted host. Real collectors, runtime
-attestation, and dispatch-time fencing must be wired before any live experiment.
+Observations are supplied by the trusted host: fixtures in ``simulation`` mode,
+real collectors in ``primary`` mode. The controller never executes an agent; its
+gates, evidence and accounting are identical in both modes, and only the recorded
+mode, result labels and declared deviations differ.
 """
 
 import contextlib
@@ -32,6 +34,7 @@ from .journal import (
 )
 
 _BOOT_ID = f"{os.getpid()}-{uuid.uuid4().hex}"
+MODES = ("simulation", "primary")
 PREFLIGHT_CHECKS = frozenset(
     {
         "runtime_frozen",
@@ -159,16 +162,19 @@ class Controller:
         *,
         clock=current_stamp,
         fault=lambda _: None,
+        mode="simulation",
     ):
+        if mode not in MODES:
+            raise IntegrityError("Unknown controller mode")
         journal = Journal.create(root, fault=fault)
         try:
-            result = cls(journal, config, clock=clock)
+            result = cls(journal, config, clock=clock, mode=mode)
             (root / "checkpoints").mkdir()
             (root / "receipts").mkdir()
             result._emit(
                 "attempt_opened",
                 {
-                    "mode": "simulation",
+                    "mode": mode,
                     "config": asdict(config),
                     "controller_instance": result._instance,
                 },
@@ -183,8 +189,12 @@ class Controller:
         """Declare continuity lost; inspect completed archives read-only instead."""
         journal = Journal.recover(root)
         try:
-            result = cls(journal, config, clock=clock)
             records = journal.verify()
+            # The recorded mode is part of the frozen root; recovery never relabels it.
+            mode = records[0].value["data"].get("mode") if records else None
+            if mode not in MODES:
+                raise IntegrityError("Attempt configuration differs from frozen root")
+            result = cls(journal, config, clock=clock, mode=mode)
             result._verify_config(records)
             inspection = result._inspect_accounting(records)
             result._checkpoints = inspection.checkpoints
@@ -216,8 +226,12 @@ class Controller:
             journal.close()
             raise
 
-    def __init__(self, journal: Journal, config: ControllerConfig, *, clock):
+    def __init__(self, journal: Journal, config: ControllerConfig, *, clock,
+                 mode="simulation"):
+        if mode not in MODES:
+            raise IntegrityError("Unknown controller mode")
         self.journal, self.config, self._clock = journal, config, clock
+        self.mode = mode
         self._lock = threading.RLock()
         self._instance = uuid.uuid4().hex
         self._last = clock()
@@ -265,7 +279,7 @@ class Controller:
         if (
             not records
             or records[0].value["kind"] != "attempt_opened"
-            or records[0].value["data"]["mode"] != "simulation"
+            or records[0].value["data"]["mode"] != self.mode
             or encode(records[0].value["data"]["config"]) != encode(asdict(self.config))
         ):
             raise IntegrityError("Attempt configuration differs from frozen root")
@@ -288,6 +302,7 @@ class Controller:
             attempt_id=self.config.attempt_id,
             registrations=self.config.hashes,
             artifacts=self.config.artifacts,
+            mode=self.mode,
         )
 
     def _verify(self):
@@ -378,7 +393,7 @@ class Controller:
         branch = self._emit(
             "accounting_branch",
             {
-                "result": "simulation_failed",
+                "result": self.mode + "_failed",
                 "reasons": self._reasons,
                 "verified_prefix": [c.seal_sequence for c in self._checkpoints],
                 "issues": issues,
@@ -387,6 +402,14 @@ class Controller:
         )
         self._accounting_mode = True
         self._branch_sequence = branch.anchor.sequence
+
+    def fail(self, reason: str) -> None:
+        """Trusted host records a primary-path failure observed outside a gate."""
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("A failure needs a reason")
+        with self._lock:
+            if self._phase != "accounted":
+                self._abort(reason)
 
     def _abort(self, reason):
         # Coordinate revocation with async ownership release, without I/O here.
@@ -452,7 +475,7 @@ class Controller:
             gate=gate,
             reasons=list(reasons or (() if gate else ("checkpoint_gate_failed",))),
             missing_evidence=[],
-            deviations=["offline_simulation"],
+            deviations=["offline_simulation"] if self.mode == "simulation" else [],
         )
         manifest_sha, files = bundle(metadata, captured)
         name = bundle_name(metadata)
@@ -536,7 +559,7 @@ class Controller:
             self._phase = "baseline"
 
     def dispatch(self, action: str):
-        """Consume a simulation scheduling decision; this never executes an agent."""
+        """Consume one scheduling decision; the controller never executes an agent."""
         with self._operation():
             self._expect(action)
             if action not in {"baseline", "modify", "evaluate", "activate", "continue"}:
@@ -711,8 +734,10 @@ class Controller:
             if type(host_failure_proven) is not bool:
                 raise IntegrityError("Invalid evaluator infrastructure classification")
             # Only the trusted host may assert this; no model-supplied exception.
+            # None marks a check the failed evaluator never ran; False is an
+            # observed assertion failure and always excludes the exception.
             infrastructure = host_failure_proven and all(
-                v is True for v in checks.values()
+                v is True or v is None for v in checks.values()
             )
             passed = not host_failure_proven and _passed(
                 checks,
@@ -860,7 +885,7 @@ class Controller:
                 if isinstance(s["checkpoint_id"], str)
             ]
             summary = dict(
-                result="simulation_complete" if completed else "simulation_failed",
+                result=self.mode + ("_complete" if completed else "_failed"),
                 reasons=self._reasons,
                 candidate_count=self._number,
                 confirmed_submissions=self._submissions,

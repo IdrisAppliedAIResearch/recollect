@@ -63,7 +63,35 @@ def main(argv: list[str] | None = None) -> int:
     voice_setup.add_argument("--asr-model-dir", type=Path, default=None)
     subparsers.add_parser("voice-doctor", help="load and check local speech models")
 
+    freeze = subparsers.add_parser(
+        "selfmod-freeze",
+        help="write the frozen runtime manifest (user preregistration step)",
+    )
+    freeze.add_argument("--inputs", type=Path, required=True)
+    freeze.add_argument("--output", type=Path, required=True)
+    trial = subparsers.add_parser(
+        "selfmod-trial", help="run one unattended primary attempt through CP6",
+    )
+    trial.add_argument("--manifest", type=Path, required=True)
+    trial.add_argument("--attempt-root", type=Path, required=True)
+    trial.add_argument("--credential-store", type=Path, default=None)
+    trial.add_argument("--serve-port", type=int, default=None,
+                       help="also serve the UI on this loopback port to observe")
+
     args = parser.parse_args(argv)
+
+    if args.command in {"selfmod-freeze", "selfmod-trial"}:
+        from .selfmod import trial_cli
+
+        repository = Path(__file__).resolve().parents[2]
+        if args.command == "selfmod-freeze":
+            return trial_cli.freeze_main(args.inputs, args.output, repository)
+        from .selfmod.google_auth import default_store
+
+        return trial_cli.trial_main(
+            args.manifest, args.attempt_root, repository,
+            args.credential_store or default_store(), args.serve_port,
+        )
 
     if args.command == "serve":
         return _serve(args)

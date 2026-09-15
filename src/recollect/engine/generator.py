@@ -58,6 +58,8 @@ class GeneratorSettings:
     temperature: float = 0.7
     context_tokens: int | None = None
     require_tools: bool = False
+    #: Amendment 02 experiment profile: no request timeout and no max_tokens.
+    unbounded: bool = False
 
 
 @dataclass
@@ -159,7 +161,8 @@ class Generator:
         self._model_slot = model_slot or asyncio.Lock()
         self._client = httpx.AsyncClient(
             base_url=settings.base_url.rstrip("/"),
-            timeout=httpx.Timeout(settings.timeout_s, connect=10.0),
+            timeout=(httpx.Timeout(None) if settings.unbounded
+                     else httpx.Timeout(settings.timeout_s, connect=10.0)),
             headers={"Authorization": f"Bearer {settings.api_key}"},
         )
 
@@ -257,6 +260,9 @@ class Generator:
             # leaves `content` empty. See the module docstring.
             "chat_template_kwargs": {"enable_thinking": self.settings.thinking},
         }
+        if self.settings.unbounded:
+            # Amendment 02: the server default, not a harness ceiling, ends output.
+            del payload["max_tokens"]
         slot_for = getattr(self._model_slot, "slot_for", None)
         pinned = slot_for("conversation") if slot_for is not None else None
         if pinned is not None:
@@ -324,6 +330,7 @@ class Generator:
                 try:
                     await check_context(
                         self._client, payload, self.settings.context_tokens,
+                        timeout=None if self.settings.unbounded else 15,
                     )
                 except ValueError as error:
                     trace.error = str(error)

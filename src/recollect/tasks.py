@@ -37,12 +37,20 @@ def _trim_to_sentence(text: str) -> str:
 
 
 class TaskCoordinator:
-    def __init__(self, config, sessions, store, generator, sandboxes) -> None:
+    def __init__(self, config, sessions, store, generator, sandboxes,
+                 deployments=None, tool_observer=None) -> None:
+        # tool_observer(task_id, event, session_id, children) is host attribution.
+        self.tool_observer = tool_observer
         self.config = config
         self.sessions = sessions
         self.store = store
         self.generator = generator
         self.sandboxes = sandboxes
+        # Experiment runs route each task to its pinned A/B deployment; a linked
+        # continuation is held out of the queue until the controller releases it.
+        self.deployments = deployments
+        self._held: set[tuple[str, str]] = set()
+        self._active_manager = None
         self.enabled = bool(
             config.subagent_enabled
             and config.subagent_continuous_enabled
@@ -122,7 +130,7 @@ class TaskCoordinator:
             return
         _, pending = await asyncio.wait(owned, timeout=SHUTDOWN_SECONDS)
         if pending:
-            await self.sandboxes.force_stop_active()
+            await (self._active_manager or self.sandboxes).force_stop_active()
             for task in pending:
                 task.cancel()
             _, pending = await asyncio.wait(pending, timeout=5)
@@ -146,6 +154,8 @@ class TaskCoordinator:
         original_message,
         effort="focused",
         parent_task_id=None,
+        *,
+        continuation=False,
     ) -> dict:
         return await self._owned(
             self._submit(
@@ -155,6 +165,7 @@ class TaskCoordinator:
                 original_message,
                 effort,
                 parent_task_id,
+                continuation,
             )
         )
 
@@ -171,9 +182,12 @@ class TaskCoordinator:
         original_message,
         effort,
         parent_task_id=None,
+        continuation=False,
     ) -> dict:
         if session_id in self._resetting:
             raise ValueError("This conversation is being reset.")
+        if continuation and (self.deployments is None or not parent_task_id):
+            raise ValueError("A held continuation needs a deployment and parent task.")
         existing = await asyncio.to_thread(self.store.request, session_id, request_id)
         if existing:
             if existing["original_message"] != original_message:
@@ -190,13 +204,34 @@ class TaskCoordinator:
             effort,
             parent_task_id,
         )
-        self._pending.append((session_id, task["task_id"]))
+        key = (session_id, task["task_id"])
+        if self.deployments is not None and task["state"] == "queued":
+            if continuation:
+                await asyncio.to_thread(
+                    self.deployments.link_continuation, task["task_id"],
+                    parent_task_id,
+                )
+                self._held.add(key)
+                return task
+            await asyncio.to_thread(self.deployments.bind, task["task_id"])
+        self._pending.append(key)
         self._wake.set()
         return task
 
+    async def release_held(self, session_id, task_id) -> None:
+        """Queue a held continuation after the controller released its route."""
+        async with self._mutation:
+            self._available()
+            key = (session_id, task_id)
+            if key not in self._held:
+                raise ValueError("No held continuation for this task.")
+            self._held.discard(key)
+            self._pending.append(key)
+            self._wake.set()
+
     def _has_owner(self, task: dict) -> bool:
         key = (task["session_id"], task["task_id"])
-        return key in self._pending or (
+        return key in self._pending or key in self._held or (
             self._active == key
             and self._execution is not None
             and not self._execution.done()
@@ -626,6 +661,7 @@ class TaskCoordinator:
                         await self._settle_cancellation(key)
                         self._execution = None
                         self._active = None
+                        self._active_manager = None
                         self._commands = None
 
     async def _settle_cancellation(self, key) -> None:
@@ -834,8 +870,26 @@ class TaskCoordinator:
                         )
                     await asyncio.to_thread(self.store.update, *key, **changes)
 
+            # Routing refuses unsealed B work; that failure blocks this task.
+            manager = (
+                self.deployments.manager_for(task_id)
+                if self.deployments is not None else self.sandboxes
+            )
+            self._active_manager = manager
+            instrumentation = {}
+            if self.tool_observer is not None:
+                observe = self.tool_observer
+                instrumentation["observer"] = (
+                    lambda event, native_id, children:
+                    observe(task_id, event, native_id, children))
+            # Reports copy the durable ID of the instruction that set this revision.
+            establishing = (
+                f"start:{task['request_id']}" if latest["revision"] == 1 else next(
+                    (item["message_id"] for item in reversed(directions)
+                     if item["revision"] == latest["revision"]), "")
+            )
             async for item in OpenCodeRunner(
-                self.sandboxes, self.config
+                manager, self.config, **instrumentation
             ).run_continuous(
                 session_id,
                 task_text,
@@ -845,6 +899,7 @@ class TaskCoordinator:
                 effort=task["effort"],
                 restore_workspace=restore,
                 save_workspace=save,
+                message_id=establishing,
             ):
                 if isinstance(item, SubagentStep):
                     await asyncio.to_thread(
@@ -958,6 +1013,9 @@ class TaskCoordinator:
             task["task_id"],
         )
         child_key = (task["session_id"], child["task_id"])
+        if (self.deployments is not None and child["state"] == "queued"
+                and not self.deployments.is_bound(child["task_id"])):
+            await asyncio.to_thread(self.deployments.bind, child["task_id"])
         if child_key in self._pending or child["state"] != "queued":
             pass
         elif len(self._pending) < MAX_QUEUED:
@@ -1101,7 +1159,12 @@ class TaskCoordinator:
             user_message=evidence,
         )
         try:
-            async with asyncio.timeout(ANNOUNCEMENT_TIMEOUT):
+            # Amendment 02 profile: the captured main-chat reply is never replaced
+            # by raw worker text merely because generation was slow.
+            async with asyncio.timeout(
+                None if getattr(self.config, "experiment_unbounded", False)
+                else ANNOUNCEMENT_TIMEOUT
+            ):
                 async for _ in self.generator.stream(
                     self.generator.build_messages(
                         system_prompt=prompt,

@@ -22,6 +22,10 @@ MCP_SERVER = "recollect_research"
 _CONTEXT_LIMIT = 200_000
 _OUTPUT_LIMIT = 32_768
 _CHUNK_TIMEOUT_MS = 600_000
+#: The pinned binary always applies this per-request MCP timeout; a bundle's
+#: tool host keeps healthy calls alive with progress (draft amendment 03).
+MCP_TIMEOUT_MS = 120_000
+TOOL_HOST_MODULE = "recollect.engine.toolhost"
 
 
 def _permission_table(*, subagent: bool, continuous: bool = False) -> dict:
@@ -65,9 +69,30 @@ def build_config(
     context_limit: int = _CONTEXT_LIMIT,
     output_limit: int = _OUTPUT_LIMIT,
     continuous: bool = False,
+    unbounded: bool = False,
+    bundle_pythonpath: str | None = None,
+    tool_environment: dict[str, str] | None = None,
 ) -> dict:
-    """Return a local-provider-only config using native OpenCode agents."""
+    """Return a local-provider-only config using native OpenCode agents.
+
+    ``tool_environment`` adds host-issued transport settings, such as the
+    provider relay address and its token, to the tool server's environment.
+
+    ``bundle_pythonpath`` serves a verified deployment bundle: its harness-owned
+    tool host runs the bundle's own tool server, and the base image's packaged
+    copy is left off the import path.
+    """
     skill_root = (prompt_dir or str(workdir)).rstrip("/\\") + "/skills"
+    environment = {"RECOLLECT_TASK_REPORTING": "1"} if continuous else {}
+    module = "recollect.engine.mcp_research"
+    if bundle_pythonpath is not None:
+        environment["PYTHONPATH"] = bundle_pythonpath
+        module = TOOL_HOST_MODULE
+    for name, value in (tool_environment or {}).items():
+        if (not name.startswith("RECOLLECT_PROVIDER_") or name in environment
+                or type(value) is not str):
+            raise ValueError("Tool environment accepts only provider transport values")
+        environment[name] = value
     model_ref = f"{PROVIDER_ID}/{model}"
     runtime_workdir = runtime_workdir or str(workdir)
     if context_limit <= output_limit or output_limit < 1:
@@ -95,7 +120,9 @@ def build_config(
                     "baseURL": base_url,
                     "apiKey": api_key,
                     "timeout": False,
-                    "chunkTimeout": _CHUNK_TIMEOUT_MS,
+                    # The pinned binary arms its chunk timer only for a positive
+                    # value; omission is the qualified unbounded setting.
+                    **({} if unbounded else {"chunkTimeout": _CHUNK_TIMEOUT_MS}),
                 },
                 "models": {
                     model: {
@@ -130,13 +157,12 @@ def build_config(
                 "command": [
                     runtime_python or sys.executable,
                     "-m",
-                    "recollect.engine.mcp_research",
+                    module,
                 ],
                 "cwd": runtime_workdir,
-                "timeout": 120_000,
+                "timeout": MCP_TIMEOUT_MS,
                 "enabled": True,
-                **({"environment": {"RECOLLECT_TASK_REPORTING": "1"}}
-                   if continuous else {}),
+                **({"environment": environment} if environment else {}),
             }
         },
     }
@@ -156,6 +182,9 @@ def write_config(
     output_limit: int = _OUTPUT_LIMIT,
     continuous: bool = False,
     skills_source: Path | None = None,
+    unbounded: bool = False,
+    bundle_pythonpath: str | None = None,
+    tool_environment: dict[str, str] | None = None,
 ) -> Path:
     """Write configuration and bundled skills into the read-only config mount.
 
@@ -180,6 +209,9 @@ def write_config(
         context_limit=context_limit,
         output_limit=output_limit,
         continuous=continuous,
+        unbounded=unbounded,
+        bundle_pythonpath=bundle_pythonpath,
+        tool_environment=tool_environment,
     )
     config_path = workdir / "opencode.json"
     config_path.write_text(

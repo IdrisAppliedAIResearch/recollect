@@ -42,10 +42,11 @@ def parse_gap_report(message):
             or type(report["attempted"]) is not list
             or any(type(item) is not str for item in report["attempted"])):
         return None
+    # The coordinator persists A's copied related message ID as ``reply_to``.
     return {**report, "task_id": message.get("task_id"),
             "message_id": message.get("message_id"),
             "revision": message.get("revision"),
-            "related_message_id": payload.get("related_message_id")}
+            "related_message_id": payload.get("reply_to")}
 
 
 def baseline_observations(*, report, request_message_id, task_id, verifier_empty,

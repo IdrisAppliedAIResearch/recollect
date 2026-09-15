@@ -559,3 +559,54 @@ no insert or delete. No Calendar capability was built and the target request was
 not submitted. Registration, freeze, CP0 sealing and every target trial remain
 not performed; the inputs still gated on the user are listed by the readiness
 collector.
+
+## Unattended trial runner (2026-09-15, in progress)
+
+Design and user decisions: [trial runner design](SELF_MODIFICATION_TRIAL_RUNNER.md).
+The generated tool is not named (CP3 grades B end to end with model turns), the
+harness cancels A's target task after its durable gap report, and one dedicated
+`recollect selfmod-trial` command owns its app state and controller. Nothing here
+freezes, registers, publishes, seals CP0 or runs a target trial.
+
+Implemented with unit tests: controller `primary` mode and a host `fail()`
+record; amendment 02 transport profile (`experiment_unbounded`: no request
+timeouts or per-response token caps for conversation, worker ingress, task relay
+and sandbox control; lane-parameterized ingress); A's subagent tree, change
+policy and bundle tool-host launch; deployment-aware tasks with held CP4
+continuation; the provider relay (alias routes, frozen action identity,
+journaled refusals, lost-response reconciliation) and host tool-invocation
+attribution; the frozen candidate evaluator and in-process Calendar fixture;
+acceptance criteria and frozen stdlib development checks; the CP0-CP6
+orchestrator; the runtime manifest (identities, freeze, registered request and
+next-Chicago-day event date); the live environment and the `selfmod-freeze` /
+`selfmod-trial` commands. Issue #15 is captured verbatim for the frozen modifier
+input.
+
+Integration defects found while wiring and fixed with regression coverage: CP1
+gap binding read a field the coordinator never stores (`related_message_id`
+versus the durable `reply_to`), and the worker's first instruction carried an
+empty related message ID (now `start:<request_id>`). An evaluator crash left
+checks `False`, which the controller treated as an assertion failure; unrun
+checks are now `None`, so only real assertion failures exclude the one
+infrastructure retest.
+
+Tool-call liveness finding: the pinned OpenCode binary always applies an MCP
+per-request timeout and resets it on MCP progress with no total cap. The user
+chose a tool-host keepalive plus a prospective amendment; the
+[draft amendment 03](SELF_MODIFICATION_AMENDMENT_03_DRAFT.md) is unregistered.
+Live qualification (`.agent/toolhost-live-20260915-160341.xml`, 2 passed): through
+the tool host a 60 s quiet non-target tool call completed past a 25 s MCP timeout
+in the real binary; the same tool served without the host timed out. An earlier
+control run was invalid because the test appended the probe tool after the
+module's `__main__` block (never registered when run directly); that fixture was
+corrected, not the expectation. Full gate before the final configgen constant
+refactor: Ruff clean, 2992 passed, 65 skipped.
+
+Not yet qualified live: the candidate evaluator in real B sandboxes, the native
+modifier through the orchestrator, A/B activation with a held continuation, the
+harness replay via `docker exec`, and any end-to-end dry run. Open decisions and
+risks: main-chat routing guidance is research-oriented and may not delegate the
+calendar request; the frozen event date must equal the next America/Chicago day
+of the actual start (CP0 checks it); registering amendment 03 needs a controller
+registration key; attribution relies on host correlation with one in-flight MCP
+call; bundle dependencies are limited to the pinned base image.

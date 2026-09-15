@@ -158,6 +158,11 @@ class RecollectConfig:
     generator_context_tokens: int = 32_768
     generator_parallel_slots: int = 1
     subagent_inference_tokens: int = 2_048
+    #: Amendment 02 experiment profile: the conversation generator, worker model
+    #: ingress, task relay and sandbox control transports carry no request
+    #: timeout or per-response token cap. Cleanup after an observed stop keeps
+    #: its short bounds; elapsed or quiet time never ends healthy work.
+    experiment_unbounded: bool = False
     # Limits for the opencode backend. The step cap is handed to opencode
     # (it forces a text-only final pass at the cap) and is the run's only
     # bound: there is no client-side wallclock, so a long research pass is
@@ -269,6 +274,8 @@ class RecollectConfig:
             raise ValueError("sandbox_container_cpus must be positive")
         if not isinstance(self.aspect_enabled, bool):
             raise ValueError("aspect_enabled must be a boolean")
+        if not isinstance(self.experiment_unbounded, bool):
+            raise ValueError("experiment_unbounded must be a boolean")
         # The deployment owns switch on or off; the mechanism constants stay
         # frozen. Frozen dataclass, hence the setattr.
         object.__setattr__(
@@ -430,6 +437,9 @@ class RecollectConfig:
             ),
             subagent_inference_tokens=int(
                 os.environ.get("RECOLLECT_SUBAGENT_INFERENCE_TOKENS", 2_048)
+            ),
+            experiment_unbounded=_flag(
+                os.environ.get("RECOLLECT_EXPERIMENT_UNBOUNDED", "0")
             ),
             sandbox_steps=int(os.environ.get("RECOLLECT_SANDBOX_STEPS", 24)),
             sandbox_idle_ttl_s=float(

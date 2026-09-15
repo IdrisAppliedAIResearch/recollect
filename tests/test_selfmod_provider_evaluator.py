@@ -246,7 +246,8 @@ def gap_message(kind="blocked", related="request-1", **report_changes):
     return {"direction": "subagent", "task_id": "task-original", "kind": kind,
             "message_id": "report-7", "revision": 1, "payload": {
                 "text": "Blocked.\n```capability_gap\n" + json.dumps(report) + "\n```",
-                "related_message_id": related, "sources": [], "artifacts": []}}
+                # The coordinator's durable report field for the copied ID.
+                "reply_to": related, "sources": [], "artifacts": []}}
 
 
 def test_only_durable_structured_subagent_gap_reports_are_accepted():
