@@ -124,8 +124,29 @@ def test_rollback_before_commit_never_serves_b_work_and_blocks_reactivation(rout
         router.route("task-during")
     with pytest.raises(IntegrityError):
         router.release_continuation("task-continued")
-    with pytest.raises(IntegrityError, match="never-rolled-back"):
+    with pytest.raises(IntegrityError, match="freshly staged"):
         router.begin_activation()
+
+
+def test_retry_stages_a_fresh_b_and_voided_b_work_never_serves(router):
+    activating(router)
+    router.bind("task-during")
+    router.rollback("candidate_failed_to_start")
+    retry = bundle(Snapshot((File("extension.py", b"second attempt\n"),
+                             File("dependencies.lock", b"httpx==0.28.1\n"))))
+    image = "sha256:" + "d" * 64
+    router.stage_b(verified(retry, image))
+    assert router.live_b
+    with pytest.raises(IntegrityError, match="no B is live"):
+        router.stage_b(verified(retry, image))
+    router.begin_activation()
+    router.link_continuation("task-retry", "task-original")
+    router.commit()
+    assert router.release_continuation("task-retry").image_id == image
+    with pytest.raises(IntegrityError, match="voided"):
+        router.route("task-during")
+    router.rollback("resumed_request_failed")
+    assert not router.live_b and router.serving.role == "A"
 
 
 def test_rollback_after_commit_restores_the_recorded_a_digest(router):
@@ -150,7 +171,7 @@ def test_crash_during_uncommitted_activation_recovers_to_a(tmp_path):
         assert recovered.serving.role == "A"
         with pytest.raises(IntegrityError, match="activation commit"):
             recovered.route("task-during")
-        with pytest.raises(IntegrityError, match="never-rolled-back"):
+        with pytest.raises(IntegrityError, match="freshly staged"):
             recovered.begin_activation()
         assert [r.value["data"]["reason"] for r in journal.verify()
                 if r.value["kind"] == "deployment_rolled_back"] == [

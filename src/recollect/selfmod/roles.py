@@ -32,7 +32,8 @@ PROMPTS = {
     "plan": (
         "Plan only the original task within the frozen change policy. Return JSON "
         "with changes (path, operation, requirement_ids, reason) and verification "
-        "(requirement_id, method). Cover every requirement. No other keys. "
+        "(requirement_id, method). Cover every requirement. prior_attempts says "
+        "why earlier attempts failed; do not repeat those causes. No other keys. "
         "Output only the raw JSON object, without Markdown fences or commentary."
     ),
     "forward_review": (
@@ -240,6 +241,7 @@ def make_context(dev, grant, settings):
         "cycle_id": grant.cycle_id, "generation": grant.generation,
         "binding": asdict(grant.binding) if grant.binding else None,
         "contract": asdict(dev._controller.config.contract),
+        "prior_attempts": list(dev._controller.config.feedback),
         "policy": asdict(dev._policy),
         "baseline": source_context(dev._baseline),
         "candidate": (source_context(dev._development._artifact)

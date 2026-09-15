@@ -38,7 +38,7 @@ def _trim_to_sentence(text: str) -> str:
 
 class TaskCoordinator:
     def __init__(self, config, sessions, store, generator, sandboxes,
-                 deployments=None) -> None:
+                 deployments=None, on_gap=None) -> None:
         self.config = config
         self.sessions = sessions
         self.store = store
@@ -47,6 +47,9 @@ class TaskCoordinator:
         # Experiment runs route each task to its pinned A/B deployment; a linked
         # continuation is held out of the queue until the controller releases it.
         self.deployments = deployments
+        # A subagent's structured capability-gap report starts self-modification.
+        self.on_gap = on_gap
+        self._gap_handlers = set()
         self._held: set[tuple[str, str]] = set()
         self._active_manager = None
         self.enabled = bool(
@@ -812,6 +815,19 @@ class TaskCoordinator:
                     if (item.kind in {"blocked", "question"}
                             and item.revision < current["revision"]):
                         return
+                    if item.kind == "blocked" and self.on_gap is not None:
+                        from .selfmod.gap_trigger import parse_gap_report
+
+                        gap = parse_gap_report({
+                            "direction": "subagent", "kind": item.kind,
+                            "payload": payload, "task_id": task_id,
+                            "message_id": report_id, "revision": item.revision,
+                        })
+                        if gap is not None:
+                            handler = asyncio.create_task(
+                                self.on_gap(session_id, gap))
+                            self._gap_handlers.add(handler)
+                            handler.add_done_callback(self._gap_handlers.discard)
                     changes = {}
                     parent_result = item.kind == "result" and (
                         item.native_session_id == current["backend_session_id"]

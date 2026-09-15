@@ -106,6 +106,39 @@ async def test_uncommitted_b_work_is_blocked_not_served(routed):
     assert "activation commit" in blocked["error"] and not state.managers
 
 
+async def test_structured_gap_report_starts_self_modification(routed, monkeypatch):
+    state = routed
+    gaps = []
+
+    async def on_gap(session_id, gap):
+        gaps.append((session_id, gap))
+
+    report = ('I cannot do this.\n```capability_gap\n{"type": "capability_gap", '
+              '"missing_capability": "calendar write", "attempted": ["search"], '
+              '"modification_request": "add a calendar tool"}\n```')
+
+    class Runner:
+        def __init__(self, used, config):
+            pass
+
+        async def run_continuous(self, session_id, task, **kwargs):
+            await kwargs["report"](TaskReport("blocked", report, kwargs["revision"],
+                                              call_id="gap"))
+            yield SubagentResult("task", "ok", "{}", "Blocked")
+
+    monkeypatch.setattr(tasks_module, "OpenCodeRunner", Runner)
+    state.coordinator.on_gap = on_gap
+    await state.coordinator.start()
+    task = await submit(state, "needs-a-new-capability")
+    for _ in range(200):
+        if gaps:
+            break
+        await asyncio.sleep(0.01)
+    [(session_id, gap)] = gaps
+    assert session_id == state.session_id and gap["task_id"] == task["task_id"]
+    assert gap["missing_capability"] == "calendar write" and gap["revision"] == 1
+
+
 async def test_held_continuation_requires_deployments_and_a_parent(routed):
     state = routed
     with pytest.raises(ValueError, match="parent"):

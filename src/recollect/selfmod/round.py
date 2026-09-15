@@ -23,10 +23,15 @@ class RoundConfig:
     attempt_id: str
     contract: TaskContract
     baseline_sha256: str
+    #: Why earlier attempts failed; every role sees it as ``prior_attempts``.
+    feedback: tuple[str, ...] = ()
 
     def __post_init__(self):
         if not isinstance(self.attempt_id, str) or not self.attempt_id.strip():
             raise ValueError("Round ID required")
+        if type(self.feedback) is not tuple or any(
+                type(item) is not str or not item.strip() for item in self.feedback):
+            raise ValueError("Feedback is a tuple of recorded failure reasons")
         if type(self.contract) is not TaskContract:
             raise ValueError("A round needs the original request's task contract")
         require_digest(self.baseline_sha256)

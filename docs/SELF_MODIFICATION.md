@@ -42,6 +42,20 @@ returns to A, and the cycle restarts automatically from A with the recorded
 failure as feedback. Retries continue until a candidate passes or the user stops
 the run. Every step is kept in an append-only audit journal.
 
+## Implementation
+
+| Step | Code |
+|---|---|
+| Gap trigger | `TaskCoordinator(on_gap=...)` calls the hook with `gap_trigger.parse_gap_report` output for A's durable `blocked` report |
+| Tests first | `tests_first.py`: requirements anchored on `original_request`, stdlib check scripts, independent review, frozen digest, fixed `regression.py` check |
+| Loop | `loop.py` `SelfModificationLoop`: freeze tests once, then attempt → reset → feedback until finished or `stop()` |
+| Due process | `loop.RoundDeveloper`: a fresh `ModificationRound` per attempt, `IntegratedDevelopment.run_until_ready` with the frozen checks, submit; earlier failures reach roles as `prior_attempts` |
+| Switch | `loop.DeploymentSwitch`: build and verify B, stage, activate, register B's sandbox, hold the continuation, commit, release, await the resumed task |
+| Bomb shelter | `DeploymentRouter.rollback`; a retry stages a fresh B and work bound to a voided B never serves |
+
+Not yet wired: application startup that builds A's bundle and constructs these
+ports, cancelling A's original task when the gap arrives, and a live run.
+
 ## Timing
 
 No elapsed-time limits on agent work. Tool calls stay alive through the tool

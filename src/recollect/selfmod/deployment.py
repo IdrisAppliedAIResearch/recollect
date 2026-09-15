@@ -9,7 +9,8 @@ The router is harness state, not a worker capability. Existing tasks keep the
 deployment they were bound to; new tasks bind to the serving deployment. B
 serves only after its activation is committed, and the original request's
 continuation stays blocked until it is released. Failure, rollback or recovery
-restores A, which is never modified. Blocking methods belong off the event loop.
+restores A, which is never modified. A retry may then stage a fresh B; work bound
+to a voided B never serves. Blocking methods belong off the event loop.
 """
 
 import io
@@ -243,6 +244,7 @@ class DeploymentRouter:
         self._continuations = {}
         self._released = set()
         self._rolled_back = False
+        self._b_epoch = None
         for record in journal.verify():
             self._apply(record.value["kind"], record.value["data"])
 
@@ -258,10 +260,13 @@ class DeploymentRouter:
                 data["candidate_sha256"], data["epoch"])
             if data["role"] == "A":
                 self._serving, self._epoch = "A", data["epoch"]
+            else:
+                self._rolled_back = False
         elif kind == "bound":
             self._tasks[data["task_id"]] = (data["role"], data["epoch"])
         elif kind == "activation_started":
             self._activation, self._serving = data["epoch"], "B"
+            self._b_epoch = data["epoch"]
             self._epoch, self._committed = data["epoch"], False
         elif kind == "activation_committed":
             self._committed, self._activation = True, None
@@ -285,6 +290,11 @@ class DeploymentRouter:
     def epoch(self):
         return self._epoch
 
+    @property
+    def live_b(self):
+        """A B is staged, activating or serving and has not been rolled back."""
+        return "B" in self._deployments and not self._rolled_back
+
     @staticmethod
     def _verified(verified):
         if type(verified) is not VerifiedImage:
@@ -302,8 +312,9 @@ class DeploymentRouter:
 
     def stage_b(self, verified):
         verified = self._verified(verified)
-        if "A" not in self._deployments or "B" in self._deployments:
-            raise IntegrityError("Stage exactly one B after registering A")
+        if ("A" not in self._deployments or self._serving != "A"
+                or self._activation is not None or self.live_b):
+            raise IntegrityError("Stage B only while A serves and no B is live")
         self._record("registered", {
             "role": "B", "bundle_digest": verified.bundle.digest,
             "image_id": verified.image_id,
@@ -328,8 +339,9 @@ class DeploymentRouter:
         return self._deployments[self._serving]
 
     def route(self, task_id):
-        role, _ = self._tasks[task_id]
-        if role == "B" and not self._committed:
+        role, epoch = self._tasks[task_id]
+        # Work bound to an earlier, rolled-back B stays voided after a retry.
+        if role == "B" and (not self._committed or epoch != self._b_epoch):
             raise IntegrityError(
                 "B serves only after activation commit (blocked or voided)")
         if (role == "B" and task_id in self._continuations
@@ -350,7 +362,7 @@ class DeploymentRouter:
         if ("B" not in self._deployments or self._serving != "A"
                 or self._activation is not None or self._committed
                 or self._rolled_back):
-            raise IntegrityError("Activation requires staged, never-rolled-back B")
+            raise IntegrityError("Activation requires a freshly staged B")
         self._record("activation_started", {
             "epoch": self._epoch + 1,
             "from": self._deployments["A"].bundle_digest,
@@ -426,7 +438,11 @@ class DeploymentSandboxes:
 
         recorded = self._router.deployment(role)
         pinned = getattr(manager, "deployment", None)
-        if role in self._managers:
+        current = self._managers.get(role)
+        # A retried B has a new image; the same recorded image never re-registers.
+        if current is not None and (recorded is None or getattr(
+                current, "deployment", None) is None
+                or current.deployment.image_id == recorded.image_id):
             raise IntegrityError("A deployment's sandbox manager is registered once")
         if (type(verified) is not VerifiedImage or recorded is None or pinned is None
                 or not (pinned.image_id == recorded.image_id == verified.image_id)
