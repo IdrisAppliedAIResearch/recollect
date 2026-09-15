@@ -539,3 +539,23 @@ lane's exclusivity rather than a server-side request identity, and `ModelIngress
 retains its ordinary per-inference cap, which amendment 02 requires adapting
 before that path joins the experiment. The earlier 2026-09-15 concurrency receipt
 was produced before the interval-start tightening.
+
+### Live Google access check (2026-09-15)
+
+The account owner approved both OAuth roles through `google_auth authorize`
+with a Desktop client in a Testing-mode project whose only test user is the
+owner. The worker holds `calendar.events` and the verifier holds
+`calendar.readonly`; both refresh tokens are stored outside the repository. A
+new, empty private calendar (alias `selfmod-test`, time zone `America/Chicago`)
+was created for the experiment. Its identifier, like the rest of the frozen
+inputs (event date 2026-09-22, experiment ID `selfmod-2026-09`), is held in the
+agent's local records rather than in this document.
+
+One read-only check was run through the production `ProviderBroker` against the
+live origin, using only the verifier principal: `CalendarVerifier.baseline_empty`
+completed the marker search in one read (status 200) and found zero matching
+events. The provider journal recorded one issued capability and one read, with
+no insert or delete. No Calendar capability was built and the target request was
+not submitted. Registration, freeze, CP0 sealing and every target trial remain
+not performed; the inputs still gated on the user are listed by the readiness
+collector.
