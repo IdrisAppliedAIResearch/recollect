@@ -3,8 +3,8 @@
 The caller owns the journal outside worker mounts and supplies request identity
 and a controller guard. Use one broker on one event loop. Its local
 HTTP cleanup cannot certify that upstream inference has stopped. The journal
-must not have concurrent writers; its current readback implementation also has
-history-dependent cost, independent of this broker's bounded chunk buffering.
+must not have concurrent writers. Journal appends read back only the new record,
+so archive cost is linear in history; this broker also buffers bounded chunks.
 """
 
 import asyncio

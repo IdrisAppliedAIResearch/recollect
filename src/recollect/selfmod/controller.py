@@ -324,7 +324,9 @@ class Controller:
                 if (len(parts) != 3 or parts[0] != "segments"
                         or any(p in {"", ".", ".."} or "\\" in p for p in parts)):
                     raise IntegrityError("Invalid evidence segment binding")
-                anchor = Anchor(**binding["anchor"])
+                # An empty journal is bound with a null anchor, not omitted.
+                anchor = (Anchor(**binding["anchor"])
+                          if binding["anchor"] is not None else None)
                 with contextlib.closing(iter_segments(
                     self.journal.root.joinpath(*parts), anchor,
                 )) as stream:
@@ -338,7 +340,7 @@ class Controller:
             try:
                 self._verify()
                 self._verify_segments(self.journal.verify())
-            except (ValueError, OSError, KeyError) as exc:
+            except (ValueError, OSError, KeyError, TypeError) as exc:
                 self._abort("evidence_integrity_failure: " + str(exc))
                 records = self.journal.verify()
             else:

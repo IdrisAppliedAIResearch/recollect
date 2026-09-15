@@ -175,6 +175,7 @@ class SupervisorChannel:
         self.model_assembling = False
         self.failure = None
         self.failed = asyncio.Event()
+        self.closing = asyncio.Event()
         self.reader_done = asyncio.Event()
 
     def fail(self, error):
@@ -182,14 +183,19 @@ class SupervisorChannel:
             self.failure = error
         self.failed.set()
 
-    async def until(self, awaitable, *, terminal=True):
-        """Await work, but wake on host failure or supervisor terminal collection.
+    async def until(self, awaitable, *, terminal=True, failure=True, closing=True):
+        """Await work, but wake on failure, closing or supervisor terminal collection.
 
         PID 1 may reach terminal collection on its own (native exit, rejected
         frame); no further lane output can follow, so waiting would never end.
+        The closing fence send disables failure/closing wakes so it is delivered.
         """
         work = asyncio.ensure_future(awaitable)
-        wakes = [self.failed]
+        wakes = []
+        if failure:
+            wakes.append(self.failed)
+        if closing:
+            wakes.append(self.closing)
         if terminal:
             wakes.append(self._events["terminal_collection_finished"])
         waiters = [asyncio.create_task(event.wait()) for event in wakes]
@@ -203,6 +209,8 @@ class SupervisorChannel:
                 await asyncio.gather(work, return_exceptions=True)
         if not work.cancelled():
             return work.result()
+        if self.failure is None and self.closing.is_set():
+            raise IntegrityError("Native runtime closing")
         if self.failure is None:
             raise IntegrityError("Native supervisor reached terminal collection")
         raise IntegrityError("Native supervisor channel failed") from self.failure
@@ -281,7 +289,7 @@ class SupervisorChannel:
                 wait.cancel()
         return self.controls.get("terminal_collection_finished")
 
-    async def send(self, frame):
+    async def send(self, frame, *, urgent=False):
         """Write one frame without letting a stopped PID 1 reader block the host.
 
         The write stays owned by a tracked task even when this wait is abandoned;
@@ -297,7 +305,9 @@ class SupervisorChannel:
         self._writes.add(task)
         task.add_done_callback(self._write_done)
         try:
-            await self.until(asyncio.shield(task))
+            # An urgent terminal fence is still delivered after host failure.
+            await self.until(asyncio.shield(task), failure=not urgent,
+                             closing=not urgent)
         except BaseException as error:
             self.fail(error)
             raise
@@ -808,10 +818,15 @@ class NativeRuntime:
             raise
 
     def _upstream_settled(self):
-        """Pinned-slot settlement when configured; otherwise completed bodies only."""
-        if self._broker is not None and self._broker.settlement is not None:
-            return self._broker.upstream_settled
-        return not self._upstream_active
+        """Only pinned-slot settlement is upstream stop; HTTP completion never is.
+
+        A run that never reached a broker dispatched no model request.
+        """
+        if self._broker is None:
+            return not self._upstream_active
+        if self._broker.settlement is None:
+            return False
+        return self._broker.upstream_settled
 
     def _state(self):
         return {
@@ -842,10 +857,14 @@ class NativeRuntime:
     async def _close(self):
         self._closing = True
         errors = []
+        # Wake launch, prompt and lane waiters: no further native work starts.
+        self.channel.closing.set()
         if self._main is not None and not self._main.done():
-            self.channel.fail(IntegrityError("Native runtime closing"))
             with contextlib.suppress(BaseException):
                 await self.started()
+        while self.session is not None and self.session._busy:
+            # A woken native operation first settles its owned journal writes.
+            await asyncio.sleep(0.01)
         for task in (self._pump,):
             if task is not None and not task.done():
                 task.cancel()
@@ -897,7 +916,8 @@ class NativeRuntime:
                   and not self._finish_started):
                 self._finish_started = True
                 with contextlib.suppress(BaseException):
-                    await self.channel.send(decode(self.spec.control("fence")))
+                    await self.channel.send(decode(self.spec.control("fence")),
+                                            urgent=True)
             if self._released:
                 collected = await self.channel.terminal()
         if self._released and (collected is None
@@ -1059,12 +1079,16 @@ class NativeRuntime:
     def verify_stop(self):
         """Report owned namespace removal and completed upstream bodies only."""
         state = self._summary or self._state()
+        # An unclosed journal cannot be copied exactly; evidence stays incomplete,
+        # so stop is unconfirmed and ownership is retained.
+        unclosed = [name for name, journal in self._journals.items()
+                    if journal._owner is not None]
         return NativeStop(
             self.run, sha256(self._admission.settings.authority),
-            self._namespace_stopped, self._upstream_settled(),
+            self._namespace_stopped and not unclosed, self._upstream_settled(),
             Snapshot((File("native/stop-summary.json", encode(state)),)),
-            # Closed host journals are bound as exact sidecars, never flattened.
+            # Every host journal, even an empty one, is bound as an exact sidecar.
             tuple((name, journal.root, journal.head)
                   for name, journal in self._journals.items()
-                  if journal.head is not None and journal._owner is None),
+                  if journal._owner is None),
         )

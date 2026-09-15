@@ -62,6 +62,20 @@ class SandboxHandle:
 
 
 @dataclass(frozen=True)
+class SandboxDeployment:
+    """A verified bundle launch: immutable image ID, its skills and its own root."""
+
+    image_id: str
+    skills_source: Path
+    root: Path
+
+    def __post_init__(self) -> None:
+        if (not self.image_id.startswith("sha256:") or len(self.image_id) != 71
+                or any(c not in "0123456789abcdef" for c in self.image_id[7:])):
+            raise ValueError("A deployment must launch an immutable image ID")
+
+
+@dataclass(frozen=True)
 class SandboxInvocation:
     """Fresh state for exactly one delegated call."""
 
@@ -99,13 +113,18 @@ class SandboxManager:
         model_slot: asyncio.Lock | None = None,
         model_base_url: str | None = None,
         model_api_key: str | None = None,
+        deployment: SandboxDeployment | None = None,
     ) -> None:
         self._config = config
+        # A deployment (A or B bundle) owns its own image, skills and root.
+        self.deployment = deployment
         # Absolute on purpose: a relative workdir lands the opencode
         # project in whichever directory the server happens to run in,
         # and the session's stored directory (absolute) would never
         # match for re-attachment.
-        self._root = Path(config.sandbox_root).resolve()
+        self._root = Path(
+            deployment.root if deployment is not None else config.sandbox_root
+        ).resolve()
         self._handle: SandboxHandle | None = None
         self._active: SandboxInvocation | None = None
         self._lifecycle_lock = asyncio.Lock()
@@ -154,6 +173,12 @@ class SandboxManager:
             # OpenCode may use several model calls, including native child
             # agents. Hold the single hardware slot for the whole run.
             if not continuous:
+                if getattr(self._model_slot, "slots", 1) == 3:
+                    # Unpinned whole-run calls would borrow a lane and could land
+                    # on the modifier's slot; three lanes need the pinned ingress.
+                    raise SandboxStartError(
+                        "Three-lane model profiles require continuous worker ingress"
+                    )
                 await self._model_slot.acquire()
                 model_acquired = True
             async with self._lifecycle_lock:
@@ -300,6 +325,14 @@ class SandboxManager:
             if invocation is not None:
                 await self.finish_invocation(invocation)
 
+    def _launch_image(self) -> str:
+        if self.deployment is not None:
+            return self.deployment.image_id
+        return self._config.sandbox_container_image
+
+    def _skills_source(self) -> Path | None:
+        return self.deployment.skills_source if self.deployment is not None else None
+
     @staticmethod
     def _scrub_workspace(workdir: Path) -> None:
         root = workdir.resolve(strict=True)
@@ -343,6 +376,7 @@ class SandboxManager:
             runtime_workdir=runtime_workdir,
             runtime_python="/usr/local/bin/python" if self._commands is None else None,
             prompt_dir=prompt_dir,
+            skills_source=self._skills_source(),
             **({
                 "context_limit": cfg.generator_context_tokens,
                 "output_limit": cfg.subagent_inference_tokens,
@@ -356,7 +390,7 @@ class SandboxManager:
             try:
                 container = build_container_launch(
                     runtime=cfg.sandbox_container_runtime,
-                    image=cfg.sandbox_container_image,
+                    image=self._launch_image(),
                     name=f"recollect-subagent-{uuid.uuid4().hex[:12]}",
                     host_port=port,
                     workspace=workdir,
@@ -506,7 +540,9 @@ class SandboxManager:
             attest_container(
                 inspection,
                 name=container.name,
-                image=self._config.sandbox_container_image,
+                image=self._launch_image(),
+                image_id=(self.deployment.image_id
+                          if self.deployment is not None else None),
                 workspace=handle.workdir,
                 config_dir=config_dir,
                 host_port=handle.port,

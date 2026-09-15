@@ -1,9 +1,10 @@
 """Frozen independent read-only Calendar verifier, replay and attribution checks.
 
 The verifier holds only a read principal. A completed search means every page
-was read; exhausted transient reads produce "unknown", never zero events. It
-records field-level mismatches and keeps B's claim, observed provider state and
-the calendar-action result as separate fields. Cleanup is a separate principal.
+was read; exhausted transient reads or authorization errors produce "unknown",
+never zero or absent events. It records field-level mismatches and keeps B's
+claim, observed provider state and the calendar-action result separate.
+Cleanup can delete only an event this verifier itself observed as passing.
 """
 
 import asyncio
@@ -16,6 +17,7 @@ from .journal import IntegrityError
 from .provider_broker import TRANSIENT_STATUS
 
 READ_BACKOFF_S = (1, 2)
+UNKNOWN_STATUS = frozenset({401, 403})
 
 
 @dataclass(frozen=True)
@@ -86,6 +88,7 @@ class CalendarVerifier:
             raise IntegrityError("Verifier requires a read-only principal")
         self._broker, self._capability = broker, capability
         self.expected, self._sleep = expected, sleep
+        self.passed = set()
 
     async def _read(self, path, params=None):
         observations = []
@@ -100,6 +103,8 @@ class CalendarVerifier:
                                      "failure": type(error).__name__})
             else:
                 observations.append({"attempt": attempt + 1, "status": status})
+                if status in UNKNOWN_STATUS:
+                    return None, None, observations
                 if status not in TRANSIENT_STATUS:
                     return status, payload, observations
             if attempt < len(READ_BACKOFF_S):
@@ -148,15 +153,18 @@ class CalendarVerifier:
         observed = ("duplicate" if count > 1 else "absent" if count == 0
                     else "wrong" if fields or search["matches"][0].get("id") != event_id
                     else "exactly_one_correct")
+        passed = observed == "exactly_one_correct"
+        if passed:
+            self.passed.add(event_id)
         return {**result, "event": event, "mismatches": fields,
                 "matching_count": count, "observed": observed,
                 "html_link": event.get("htmlLink"),
-                "action_result": "pass" if observed == "exactly_one_correct"
-                else "failed"}
+                "action_result": "pass" if passed else "failed"}
 
     async def verify_replay(self, first, replay_event_id):
+        """The replay must report the same provider event and leave exactly one."""
         again = await self.verify(first["event_id"])
-        same = replay_event_id in (None, first["event_id"])
+        same = replay_event_id is not None and replay_event_id == first["event_id"]
         passed = (first["action_result"] == "pass" and again["action_result"] == "pass"
                   and same)
         return {"first_event_id": first["event_id"], "replay_event_id": replay_event_id,
@@ -165,49 +173,47 @@ class CalendarVerifier:
                 if again["observed"] == "unknown" else "failed"}
 
 
-async def cleanup(broker, capability, verified):
-    """Delete only the independently verified experiment event; record receipt."""
-    if capability.principal != "cleanup" or verified.get("action_result") != "pass":
+async def cleanup(broker, capability, verifier, event_id):
+    """Delete only an event this verifier observed passing; record the receipt."""
+    if capability.principal != "cleanup" or event_id not in verifier.passed:
         raise IntegrityError("Cleanup requires a cleanup principal and verified event")
-    broker.allow_cleanup(verified["event_id"])
+    broker._allow_cleanup(event_id)
     status, _ = await broker.request(
-        capability, "DELETE",
-        broker.policy.events_path + "/" + verified["event_id"])
-    return {"event_id": verified["event_id"], "status": status,
+        capability, "DELETE", broker.policy.events_path + "/" + event_id)
+    return {"event_id": event_id, "status": status,
             "deleted": status in {200, 204, 410}}
 
 
-def attribute(operations, *, verified_event_id, action_id, serving_digest,
-              routing_epoch, invocation_modules, sealed_after_ns):
+def attribute(operations, *, verified_event_id, action_id, task_id, serving_digest,
+              routing_epoch, invocation_modules, candidate_modules, sealed_after_ns):
     """Link generated invocation -> provider write -> response -> independent read.
 
     ``operations`` are provider_operation journal data; ``invocation_modules``
-    maps controller-instrumented invocation IDs to executed candidate modules.
-    Any missing or ambiguous link fails attribution.
+    maps controller-instrumented invocation IDs to executed modules, which must
+    belong to B's accepted candidate (``candidate_modules``). Any missing,
+    foreign or ambiguous link fails attribution.
     """
     writes = [o for o in operations if o["kind"] == "mutation"
               and o["action_id"] == action_id]
-    succeeded = [o for o in writes if o["status"] in {200, 409}
-                 and (o["response_fields"] or {}).get("id")
-                 in {verified_event_id, None}]
     created = [o for o in writes if o["status"] == 200]
     reasons = []
     if len(created) != 1:
         reasons.append("expected_exactly_one_successful_create")
     for write in writes:
-        if (write["serving_digest"] != serving_digest
+        module = invocation_modules.get(write["invocation_id"])
+        if (write["principal"] != "worker" or write["task_id"] != task_id
+                or write["serving_digest"] != serving_digest
                 or write["routing_epoch"] != routing_epoch
-                or write["invocation_id"] not in invocation_modules
+                or module is None or module not in candidate_modules
                 or write["dispatched_ns"] <= sealed_after_ns):
-            reasons.append("unattributed_or_pre_activation_write")
+            reasons.append("unattributed_foreign_or_pre_activation_write")
             break
     created_id = None
     if created:
         created_id = (created[0]["response_fields"] or {}).get("id")
     if created and created_id != verified_event_id:
         reasons.append("created_event_differs_from_verified_event")
-    return {"attributed": not reasons, "reasons": reasons,
-            "writes": len(writes), "successful": len(succeeded),
+    return {"attributed": not reasons, "reasons": reasons, "writes": len(writes),
             "modules": sorted({invocation_modules.get(w["invocation_id"])
                                for w in writes
                                if w["invocation_id"] in invocation_modules})}

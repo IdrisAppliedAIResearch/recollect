@@ -147,14 +147,30 @@ class BundleImages:
         await self.verify(bundle, image)
         return image
 
-    async def verify(self, bundle, image_id):
-        """Only an image whose labels and copied-out bytes match may serve."""
+    async def _inspect(self, image_id):
         value = json.loads(await self._checked("image", "inspect", image_id))
-        labels = (value[0].get("Config") or {}).get("Labels") or {} if value else {}
-        if (len(value) != 1 or value[0].get("Id") != image_id
-                or labels.get("recollect.bundle") != bundle.digest
+        if len(value) != 1 or value[0].get("Id") != image_id:
+            raise IntegrityError("Bundle image identity mismatch")
+        return value[0]
+
+    async def verify(self, bundle, image_id):
+        """Only an image with exact labels, base layers and bundle bytes may serve.
+
+        Labels are settable by anyone, so they are only a first filter: the base
+        image's layers must be an exact prefix of this image's layers, and the
+        copied-out bundle tree must equal the accepted digest byte for byte.
+        """
+        image = await self._inspect(image_id)
+        base = await self._inspect(bundle.base_image_id)
+        labels = (image.get("Config") or {}).get("Labels") or {}
+        layers = (image.get("RootFS") or {}).get("Layers") or []
+        base_layers = (base.get("RootFS") or {}).get("Layers") or []
+        if (labels.get("recollect.bundle") != bundle.digest
                 or labels.get("recollect.candidate") != bundle.candidate.sha256):
-            raise IntegrityError("Bundle image identity or labels mismatch")
+            raise IntegrityError("Bundle image labels mismatch")
+        if (not base_layers or len(layers) <= len(base_layers)
+                or layers[:len(base_layers)] != base_layers):
+            raise IntegrityError("Bundle image is not built on the pinned base image")
         container = (await self._checked("create", "--pull=never", "--network",
                                          "none", image_id)).decode().strip()
         try:
@@ -163,9 +179,45 @@ class BundleImages:
         finally:
             await self._checked("rm", container)
         files, manifest = read_bundle_tar(raw)
-        if files != bundle.candidate or manifest != encode(bundle.manifest):
+        # Compare exact path -> bytes; snapshot tuples may differ only in order.
+        served = {f.path: f.content for f in files.files}
+        accepted = {f.path: f.content for f in bundle.candidate.files}
+        if served != accepted or manifest != encode(bundle.manifest):
             raise IntegrityError("Served bundle bytes differ from the accepted digest")
-        return True
+        return VerifiedImage(bundle, image_id, _VERIFIED)
+
+
+_VERIFIED = object()
+
+
+@dataclass(frozen=True)
+class VerifiedImage:
+    """Minted only by BundleImages.verify; routing accepts nothing else."""
+
+    bundle: SubagentBundle
+    image_id: str
+    token: object
+
+    def __post_init__(self):
+        if self.token is not _VERIFIED:
+            raise IntegrityError("Image verification receipts come only from verify")
+
+
+def bundle_skills(bundle):
+    return Snapshot(tuple(File(f.path[len("skills/"):], f.content)
+                          for f in bundle.candidate.files
+                          if f.path.startswith("skills/")))
+
+
+def materialize_skills(bundle, destination):
+    """Write a verified bundle's skills tree for its read-only config mount."""
+    from .checkpoints import materialize
+
+    skills = bundle_skills(bundle)
+    if not skills.files:
+        raise IntegrityError("Deployment bundle has no skills tree")
+    materialize(destination, skills)
+    return destination
 
 
 @dataclass(frozen=True)
@@ -191,6 +243,7 @@ class DeploymentRouter:
         self._committed = False
         self._continuations = {}
         self._released = set()
+        self._rolled_back = False
         for record in journal.verify():
             self._apply(record.value["kind"], record.value["data"])
 
@@ -216,6 +269,7 @@ class DeploymentRouter:
         elif kind == "rolled_back":
             self._serving, self._epoch = "A", data["epoch"]
             self._activation, self._committed = None, False
+            self._rolled_back = True
         elif kind == "continuation_linked":
             self._continuations[data["task_id"]] = data["parent_task_id"]
         elif kind == "continuation_released":
@@ -232,36 +286,54 @@ class DeploymentRouter:
     def epoch(self):
         return self._epoch
 
-    def register_a(self, bundle, image_id):
+    @staticmethod
+    def _verified(verified):
+        if type(verified) is not VerifiedImage:
+            raise IntegrityError("Register only BundleImages.verify receipts")
+        return verified
+
+    def register_a(self, verified):
+        verified = self._verified(verified)
         if "A" in self._deployments:
             raise IntegrityError("Deployment A is registered once")
-        self._record("registered", {"role": "A", "bundle_digest": bundle.digest,
-                                    "image_id": image_id, "candidate_sha256": None,
-                                    "epoch": 1})
+        self._record("registered", {"role": "A",
+                                    "bundle_digest": verified.bundle.digest,
+                                    "image_id": verified.image_id,
+                                    "candidate_sha256": None, "epoch": 1})
 
-    def stage_b(self, bundle, image_id):
+    def stage_b(self, verified):
+        verified = self._verified(verified)
         if "A" not in self._deployments or "B" in self._deployments:
             raise IntegrityError("Stage exactly one B after registering A")
-        self._record("registered", {"role": "B", "bundle_digest": bundle.digest,
-                                    "image_id": image_id,
-                                    "candidate_sha256": bundle.candidate.sha256,
-                                    "epoch": self._epoch})
+        self._record("registered", {
+            "role": "B", "bundle_digest": verified.bundle.digest,
+            "image_id": verified.image_id,
+            "candidate_sha256": verified.bundle.candidate.sha256,
+            "epoch": self._epoch,
+        })
 
     def bind(self, task_id):
-        """Bind new work to the serving deployment; existing bindings never move."""
+        """Record new work's deployment; binding never starts it and never moves.
+
+        During an open activation new work binds to B, but ``route`` refuses to
+        serve any B task until CP4 is sealed. After a rollback that work stays
+        unserved: an unsealed B never runs and nothing is silently moved to A.
+        """
         if task_id in self._tasks:
             raise IntegrityError("Task is already bound to a deployment")
         if self.serving is None:
             raise IntegrityError("No serving deployment")
         self._record("bound", {"task_id": task_id, "role": self._serving,
                                "epoch": self._epoch})
-        return self.route(task_id)
+        return self._deployments[self._serving]
 
     def route(self, task_id):
         role, _ = self._tasks[task_id]
+        if role == "B" and not self._committed:
+            raise IntegrityError("B serves only after its CP4 seal (blocked or voided)")
         if (role == "B" and task_id in self._continuations
                 and task_id not in self._released):
-            raise IntegrityError("Original-task continuation is blocked before CP4")
+            raise IntegrityError("Original-task continuation awaits release")
         return self._deployments[role]
 
     def link_continuation(self, task_id, parent_task_id):
@@ -275,8 +347,9 @@ class DeploymentRouter:
 
     def begin_activation(self):
         if ("B" not in self._deployments or self._serving != "A"
-                or self._activation is not None or self._committed):
-            raise IntegrityError("Activation requires staged B while A serves")
+                or self._activation is not None or self._committed
+                or self._rolled_back):
+            raise IntegrityError("Activation requires staged, never-rolled-back B")
         self._record("activation_started", {
             "epoch": self._epoch + 1,
             "from": self._deployments["A"].bundle_digest,
@@ -348,10 +421,56 @@ class DeploymentRouter:
         self._record("rolled_back", {"reason": reason, "epoch": self._epoch + 1,
                                      "restored": self._deployments["A"].bundle_digest})
 
+    def deployment(self, role):
+        return self._deployments.get(role)
+
     @classmethod
     def recover(cls, journal):
-        """An activation interrupted before its CP4 seal restores A for new work."""
+        """An activation interrupted before its CP4 seal restores A.
+
+        Work bound to that unsealed B stays unserved. A crash between the
+        controller's CP4 seal and this router's seal record also rolls back and
+        leaves the continuation blocked: it fails closed, never dispatching.
+        """
         router = cls(journal)
         if router._activation is not None and not router._committed:
             router.rollback("recovered_unsealed_activation")
         return router
+
+
+class DeploymentSandboxes:
+    """Hand each task the sandbox manager of its pinned deployment only.
+
+    A manager is accepted for a role only when it launches exactly the image ID
+    the router recorded for that role. Selection always goes through router
+    routing, so existing tasks keep A and a blocked continuation cannot start.
+    """
+
+    def __init__(self, router):
+        self._router, self._managers = router, {}
+
+    def register(self, role, manager, verified):
+        """Accept a manager only for the verified image and exact bundle skills."""
+        from .checkpoints import verify_materialized
+
+        recorded = self._router.deployment(role)
+        pinned = getattr(manager, "deployment", None)
+        if role in self._managers:
+            raise IntegrityError("A deployment's sandbox manager is registered once")
+        if (type(verified) is not VerifiedImage or recorded is None or pinned is None
+                or not (pinned.image_id == recorded.image_id == verified.image_id)
+                or recorded.bundle_digest != verified.bundle.digest):
+            raise IntegrityError("Sandbox manager does not launch the recorded image")
+        try:
+            verify_materialized(pinned.skills_source, bundle_skills(verified.bundle))
+        except (ValueError, OSError) as error:
+            raise IntegrityError("Sandbox skills differ from verified bundle") from (
+                error)
+        self._managers[role] = manager
+
+    def manager_for(self, task_id):
+        deployment = self._router.route(task_id)
+        manager = self._managers.get(deployment.role)
+        if manager is None:
+            raise IntegrityError("No verified sandbox manager for this deployment")
+        return manager

@@ -155,12 +155,18 @@ def write_config(
     context_limit: int = _CONTEXT_LIMIT,
     output_limit: int = _OUTPUT_LIMIT,
     continuous: bool = False,
+    skills_source: Path | None = None,
 ) -> Path:
-    """Write configuration and bundled skills into the read-only config mount."""
+    """Write configuration and bundled skills into the read-only config mount.
+
+    ``skills_source`` selects a verified deployment bundle's skills tree; the
+    default remains the skills shipped with this package.
+    """
     workdir.mkdir(parents=True, exist_ok=True)
     if continuous:
         shutil.copytree(
-            Path(__file__).with_name("skills"), workdir / "skills", dirs_exist_ok=True,
+            skills_source or Path(__file__).with_name("skills"), workdir / "skills",
+            dirs_exist_ok=True,
         )
     config = build_config(
         workdir,

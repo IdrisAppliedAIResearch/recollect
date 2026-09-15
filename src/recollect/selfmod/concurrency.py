@@ -40,28 +40,30 @@ def generating_intervals(samples, slot, window):
 
     Sampling can be faster than token cadence, so equal decoded counts between
     two observed increases of the same continuously processing task stay inside
-    one interval. A task change, an idle or unlinked sample, or the time before
-    the first observed increase never counts as generation.
+    one interval. Intervals start at the first observed increase, so prompt
+    processing before decoding never counts, nor does a task change or an idle
+    or unlinked sample.
     """
     start, end = window
-    intervals, anchor = [], None
+    intervals, anchor, decoding = [], None, False
     for observed, value in samples:
         if not start <= observed <= end:
             continue
         state = slot_state(value, slot)
         if (not state["is_processing"] or state["id_task"] is None
                 or state["n_decoded"] is None):
-            anchor = None
+            anchor, decoding = None, False
             continue
         if anchor is None or anchor[1] != state["id_task"]:
-            anchor = (observed, state["id_task"], state["n_decoded"])
+            anchor, decoding = (observed, state["id_task"], state["n_decoded"]), False
             continue
         if state["n_decoded"] > anchor[2]:
-            if intervals and intervals[-1][1] == anchor[0]:
-                intervals[-1] = (intervals[-1][0], observed)
-            else:
-                intervals.append((anchor[0], observed))
-            anchor = (observed, state["id_task"], state["n_decoded"])
+            if decoding:
+                if intervals and intervals[-1][1] == anchor[0]:
+                    intervals[-1] = (intervals[-1][0], observed)
+                else:
+                    intervals.append((anchor[0], observed))
+            anchor, decoding = (observed, state["id_task"], state["n_decoded"]), True
     return intervals
 
 

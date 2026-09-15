@@ -385,7 +385,8 @@ class NativeAdmission:
         if type(stop.segments) is not tuple or any(
             type(item) is not tuple or len(item) != 3 or type(item[0]) is not str
             or not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", item[0])
-            or not isinstance(item[1], Path) or type(item[2]) is not Anchor
+            or not isinstance(item[1], Path)
+            or (item[2] is not None and type(item[2]) is not Anchor)
             for item in stop.segments
         ) or len({item[0] for item in stop.segments}) != len(stop.segments):
             raise IntegrityError("Invalid native evidence segment")
@@ -395,7 +396,8 @@ class NativeAdmission:
             destination = self._controller.journal.root.joinpath(*relative.split("/"))
             destination.parent.mkdir(parents=True, exist_ok=True)
             copy_archive(source, destination, anchor)
-            bindings.append({"name": name, "path": relative, "anchor": asdict(anchor)})
+            bindings.append({"name": name, "path": relative,
+                             "anchor": asdict(anchor) if anchor is not None else None})
         return bindings
 
     def _read_stop(self):

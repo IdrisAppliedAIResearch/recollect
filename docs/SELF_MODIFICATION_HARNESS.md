@@ -445,8 +445,8 @@ broker record `pinned_slot_idle_confirmed` and report upstream settlement.
 cap, samples `/slots` with host monotonic time, and counts generation only where a
 linked slot's single task advances decoded tokens inside its request window. The
 registered one-second simultaneous criterion, correctness and durations (no
-cutoffs) are recorded. Serialized, prompt-only or incorrect runs fail. The user's
-running server reports one slot; the opt-in real-server test has not run.
+cutoffs) are recorded. Serialized, prompt-only or incorrect runs fail. The real
+three-slot qualification is recorded in the following section.
 
 ### 4. Immutable A/B deployment (scaffolding)
 
@@ -473,5 +473,69 @@ field-level comparison, 1 s/2 s transient read retry yielding unknown on
 exhaustion, replay verification and cleanup; `attribute` fails any missing,
 pre-activation or ambiguous write. `gap_trigger` accepts only A's emitted
 structured report. No Google account, credential, network or calendar write was
-used. User-performed authorization, the private calendar identity/time zone and
-event inputs, and A's generic gap-report channel remain.
+used. User-performed authorization and the private calendar identity/time zone
+and event inputs remain; A's gap-report channel is in the following section.
+
+### Real three-lane qualification and A's gap channel (2026-09-15)
+
+With the user's approval to restart the model, the running launcher-started
+model server's exact command line was verified and recorded, then replaced by
+the same command with only `--parallel 3` (unchanged 131072 total context, so
+43,776 tokens per slot and no added KV memory). The generic, non-target
+concurrency check passed: 6.505 seconds of simultaneous linked decoding across
+the conversation, worker and modifier slots, all three probes correct, lane
+durations 6.72, 8.63 and 8.66 seconds (observational). The original 1-slot
+command was then restored byte-identically with GPU offload confirmed, and
+Recollect's health reported the generator reachable. Evidence:
+`.agent/model-swap-20260915-085906/`. This establishes server capability only;
+the experiment's own CP0 concurrency evidence must be recorded at registration
+under the frozen profile.
+
+A's reporting skill now asks, generically and without task keywords, for one
+`blocked` report containing a fenced `capability_gap` JSON block when no
+available tool can perform a requested operation. Skills are copied into the
+read-only config mount, so no image rebuild was needed. `gap_trigger` binds a
+report only through the durable `subagent` message record and the copied
+related message ID. `google_auth.py` provides a user-run installed-app OAuth
+flow with separate worker (`calendar.events`) and read-only verifier
+(`calendar.readonly`) credentials stored outside the repository and mounts.
+
+### Independent audit of workstreams 2-5 and fixes (2026-09-15)
+
+A fresh-context audit found no trusted-wrong archive, passing-but-different
+sidecar, keyword-manufactured gap report or regressed earlier fix. It found two
+blocking deployment defects and several should-fix gaps; all were fixed with
+regression tests (affected unit suites: 619 passed).
+
+- Blocking: B-bound work was servable before the CP4 seal and survived rollback.
+  `route` now refuses every B task until the seal; rollback and recovery leave
+  unsealed B work unserved (never moved to A) and forbid re-activation.
+- Blocking: arbitrary image IDs could be registered. Only `VerifiedImage`
+  receipts minted by `BundleImages.verify` register; verification now also
+  requires the base image's layers as an exact prefix, and sandbox registration
+  checks the materialized skills tree byte for byte. A verification bug that
+  rejected valid bundles whose files were not pre-sorted was also fixed.
+- Provider broker: no local request timeout (amendment 02); separate worker and
+  read-only verifier credentials; live versus fixture derives from the origin;
+  one frozen deduplication identity per action; attempts and outcomes are
+  replayed from the journal, a non-transient failure ends that phase, and an
+  uncertain outcome requires a completed read before redispatch.
+- Evidence: every closed native journal, including empty ones, is bound as a
+  sidecar (null anchor for empty); an unclosed journal leaves namespace stop
+  unconfirmed. An unpinned runtime never reports upstream settlement; pinned
+  settlement additionally requires the server's deferred-request count to be zero.
+- A three-lane profile refuses the non-continuous sandbox path that would borrow
+  a lane without a pinned slot. Attribution requires the worker principal, task
+  identity and a module of B's accepted candidate; a replay without the same
+  event ID fails; authorization errors are unknown; cleanup deletes only events
+  the verifier itself passed. Generation intervals start at the first observed
+  decode increase. Credentials cannot be stored inside the repository.
+- Close now wakes in-flight native work with a closing signal and still delivers
+  the terminal fence; a fence during a model exchange waits until the pinned slot
+  is idle before releasing ownership.
+
+Recorded limitations: attribution and slot linkage still depend on the pinned
+lane's exclusivity rather than a server-side request identity, and `ModelIngress`
+retains its ordinary per-inference cap, which amendment 02 requires adapting
+before that path joins the experiment. The earlier 2026-09-15 concurrency receipt
+was produced before the interval-start tightening.

@@ -23,14 +23,14 @@ IMMUTABLE_RECEIPTS = (
     "SELF_MODIFICATION_PLANNING_CONVERSATION.sha256",
 )
 USER_GATED = (
-    "three_slot_model_server_launch_and_real_overlap_evidence",
+    "cp0_concurrency_evidence_under_frozen_three_slot_profile",
     "model_weight_file_sha256_at_freeze",
     "google_authorization_performed_by_user",
     "private_test_calendar_id_alias_and_time_zone",
     "experiment_id_event_date_and_exact_request_bytes",
-    "a_generic_capability_gap_report_channel",
     "provider_deduplication_and_transient_error_contract_confirmation",
     "registered_main_chat_probes",
+    "model_ingress_inference_cap_adaptation_per_amendment_02",
 )
 
 

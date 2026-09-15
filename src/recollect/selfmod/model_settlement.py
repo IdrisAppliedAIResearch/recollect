@@ -97,15 +97,31 @@ class SlotSettlement:
             raise IntegrityError("Pinned model slot is already processing")
         return state
 
+    async def deferred(self):
+        """Server-wide queued requests; a cancelled queued request must be gone."""
+        response = await self._observer._client.get("/metrics")
+        response.raise_for_status()
+        for line in response.text.splitlines():
+            name, _, value = line.partition(" ")
+            if name == "llamacpp:requests_deferred":
+                return int(float(value))
+        raise IntegrityError("Model server metrics lack requests_deferred")
+
     async def settle(self):
-        """Poll until the pinned slot is idle; there is deliberately no deadline."""
+        """Poll until the pinned slot is idle and nothing is queued; no deadline.
+
+        Idle alone cannot rule out a request cancelled while still queued that
+        starts later, so the server's deferred-request count must also be zero.
+        """
         retained, polls = [], 0
         while True:
             state = await self.sample()
+            state["requests_deferred"] = await self.deferred()
             polls += 1
-            if len(retained) < MAX_RETAINED_SAMPLES or not state["is_processing"]:
+            quiet = not state["is_processing"] and state["requests_deferred"] == 0
+            if len(retained) < MAX_RETAINED_SAMPLES or quiet:
                 retained.append(state)
-            if not state["is_processing"]:
+            if quiet:
                 return {"slot": self.slot, "polls": polls, "confirmed": True,
                         "samples": retained[-MAX_RETAINED_SAMPLES:]}
             await asyncio.sleep(self._observer.poll_interval)

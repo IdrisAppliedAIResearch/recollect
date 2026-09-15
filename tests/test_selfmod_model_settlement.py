@@ -69,3 +69,22 @@ def test_slot_and_poll_interval_are_explicit():
         SlotSettlement(URL, -1)
     with pytest.raises(ValueError):
         SlotSettlement(URL, 0, poll_interval=0)
+
+
+async def test_queued_request_blocks_settlement_until_deferred_drains():
+    fake = FakeLlama()
+    fake.deferred = 1
+    settlement = SlotSettlement(URL, 2, transport=fake.transport(),
+                                poll_interval=0.01)
+
+    async def drain_later():
+        await asyncio.sleep(0.1)
+        fake.deferred = 0
+
+    later = asyncio.create_task(drain_later())
+    result = await settlement.settle()
+    await later
+    assert result["polls"] > 1
+    assert result["samples"][0]["requests_deferred"] == 1
+    assert result["samples"][-1]["requests_deferred"] == 0
+    await settlement.aclose()

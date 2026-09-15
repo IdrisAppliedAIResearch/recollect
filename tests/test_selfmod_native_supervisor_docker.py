@@ -150,10 +150,15 @@ class RunningSupervisor:
                 assert frame.get("run_id") == self.config.run_id
                 assert frame.get("runtime_sha256") == self.config.sha256
                 assert frame.get("kind") in {
-                    "ready", "native_started", "fenced", "terminal_collection_finished",
+                    "ready", "native_started", "native_listening", "fenced",
+                    "terminal_collection_finished",
                 }, "Unexpected control event in no-model qualification"
                 with (self.evidence / "control.jsonl").open("ab") as output:
                     output.write(raw)
+                if frame["kind"] == "native_listening":
+                    # Connect-only readiness is evidence here; this diagnostic
+                    # still waits on its own probe, so it is not queued.
+                    continue
                 if frame["kind"] == "terminal_collection_finished":
                     assert set(frame) == {
                         "kind", "run_id", "runtime_sha256", "collector_returncode",

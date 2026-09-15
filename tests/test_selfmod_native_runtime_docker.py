@@ -86,12 +86,41 @@ class Provider(BaseHTTPRequestHandler):
                                  "oldString": "value = 1", "newString": "value = 2"})
         return None
 
+    def do_GET(self):
+        # Minimal pinned-slot evidence so the broker's settlement is exercised.
+        server = self.server
+        if self.path == "/slots":
+            payload = json.dumps([{"id": slot, "is_processing": slot in server.busy}
+                                  for slot in range(3)]).encode()
+            content_type = "application/json"
+        elif self.path == "/metrics":
+            payload = b"llamacpp:requests_deferred 0\n"
+            content_type = "text/plain"
+        else:
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def do_POST(self):
         server = self.server
         raw = self.rfile.read(int(self.headers["Content-Length"]))
         body = json.loads(raw)
+        slot = body.get("id_slot")
         with server.lock:
             server.requests.append(body)
+            server.busy.add(slot)
+        try:
+            self.generate(server, body)
+        finally:
+            with server.lock:
+                server.busy.discard(slot)
+
+    def generate(self, server, body):
         tools = {t["function"]["name"] for t in body.get("tools", [])}
         messages = body["messages"]
         if tools and server.block is not None:
@@ -147,6 +176,7 @@ def provider():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     server.lock, server.requests = threading.Lock(), []
     server.overflow_sent, server.block, server.mode = False, None, "edit"
+    server.busy = set()
     server.blocked = threading.Event()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -207,7 +237,7 @@ def observed(monkeypatch):
 def start(case, provider, docker, tmp_path, observed, **kwargs):
     cli, image, sandboxes = docker
     admission = admit(case, base_url=f"http://127.0.0.1:{provider.server_port}/v1",
-                      **kwargs)
+                      slot=2, **kwargs)
     loop = asyncio.get_running_loop()
     value = admission.start(lambda owner: NativeRuntime(
         owner, docker=cli, sandbox_root=sandboxes, archive_root=tmp_path,
@@ -326,7 +356,7 @@ async def test_driver_runs_real_checks_and_fresh_review_on_native_candidate(
             grant, native_factory,
             prompt="QUALIFY_NATIVE_EDIT: implement the frozen accepted plan",
             model="fixture-model", context_limit=32768, output_limit=4096,
-            base_url=f"http://127.0.0.1:{provider.server_port}/v1",
+            base_url=f"http://127.0.0.1:{provider.server_port}/v1", slot=2,
         )
 
     await dev.run_until_ready(profile, runtime_factory,
@@ -467,25 +497,34 @@ async def test_close_without_handoff_preserves_raw_state_and_fails_primary(
         case.dev.authorize("execute")
 
 
-async def test_fence_during_model_exchange_settles_launch_and_retains_unknown_upstream(
+async def test_fence_during_model_exchange_settles_only_when_slot_goes_idle(
     case, provider, docker, observed, tmp_path,
 ):
     provider.block = threading.Event()
     admission, value = start(case, provider, docker, tmp_path, observed)
-    prompt = None
+    prompt = closing = None
     try:
         await asyncio.to_thread(admission.release)
         await value.started()
         prompt = asyncio.create_task(value.prompt("QUALIFY_NATIVE_EDIT: block"))
         assert await asyncio.to_thread(provider.blocked.wait, 120)
+        closing = asyncio.create_task(admission.close())
+        await asyncio.sleep(3)
+        # Cancelled HTTP is not settlement: close waits while the slot is busy.
+        assert not closing.done() and case.dev._busy
     finally:
-        with pytest.raises(IntegrityError, match="unconfirmed"):
-            await admission.close()
         provider.block.set()
+        if closing is not None:
+            await closing
+        else:
+            await admission.close()
         if prompt is not None:
             await asyncio.gather(prompt, return_exceptions=True)
-    # The provider body never completed, so upstream stop is not inferred.
-    assert case.dev._busy and not admission.settled
+    ends = [r.value["data"] for r in inspect_archive(
+        tmp_path / ("native-" + value.run.run_id) / "broker")
+        if r.value["kind"] == "native_broker_end"]
+    assert ends[-1]["upstream_quiescence"] == "pinned_slot_idle_confirmed"
+    assert admission.settled and not case.dev._busy
     assert not case.controller._eligible
     evidence, records = evidence_tar(tmp_path, value.run.run_id)
     assert json.loads(evidence["collector-result.json"]) == {"returncode": 0}

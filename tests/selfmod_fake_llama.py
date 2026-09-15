@@ -29,6 +29,7 @@ class FakeLlama:
         self.requests, self.tasks = [], []
         self.hold = None
         self.slots_error = None
+        self.deferred = 0
         self._task = 0
         self._serial = asyncio.Lock() if serial else None
 
@@ -43,6 +44,10 @@ class FakeLlama:
             if self.slots_error is not None:
                 raise self.slots_error
             return httpx.Response(200, json=copy.deepcopy(self.state))
+        if path == "/metrics":
+            return httpx.Response(200, text=(
+                "# TYPE llamacpp:requests_deferred gauge\n"
+                f"llamacpp:requests_deferred {self.deferred}\n"))
         if path == "/v1/chat/completions":
             body = json.loads(request.content)
             self.requests.append(body)

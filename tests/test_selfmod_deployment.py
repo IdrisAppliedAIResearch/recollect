@@ -20,6 +20,7 @@ from tests.selfmod_checkpoint_helpers import (
     submit,
     through_baseline,
 )
+from tests.selfmod_fake_images import FakeImages, verified
 
 BASE = "sha256:" + "a" * 64
 IMAGE_A, IMAGE_B = "sha256:" + "b" * 64, "sha256:" + "c" * 64
@@ -108,22 +109,27 @@ def test_bundle_archive_roundtrip_rejects_links_and_escapes():
 def test_existing_tasks_keep_a_new_tasks_bind_b_and_continuation_waits_for_cp4(
     router, controller,
 ):
-    router.register_a(bundle(), IMAGE_A)
+    router.register_a(verified(bundle(), IMAGE_A))
     existing = router.bind("task-existing")
     original = router.bind("task-original")
     assert existing.role == original.role == "A"
     b = b_bundle()
     accepted_controller(controller, b.candidate)
-    router.stage_b(b, IMAGE_B)
+    router.stage_b(verified(b, IMAGE_B))
     router.begin_activation()
     assert router.bind("task-new").role == "B"
+    with pytest.raises(IntegrityError, match="CP4 seal"):
+        router.route("task-new")
     router.link_continuation("task-original-continued", "task-original")
-    with pytest.raises(IntegrityError, match="blocked"):
+    with pytest.raises(IntegrityError, match="CP4 seal"):
         router.route("task-original-continued")
     checks = good_checks(router)
     assert all(checks.values())
     assert router.seal(controller, checks) is True
     assert controller._phase == "continue"
+    assert router.route("task-new").role == "B"
+    with pytest.raises(IntegrityError, match="release"):
+        router.route("task-original-continued")
     continued = router.release_continuation("task-original-continued")
     assert continued.role == "B" and continued.image_id == IMAGE_B
     # Existing A work is not moved; A drains only when it finishes.
@@ -139,12 +145,12 @@ def test_existing_tasks_keep_a_new_tasks_bind_b_and_continuation_waits_for_cp4(
 def test_failed_cp4_rolls_new_work_back_to_a_and_keeps_continuation_blocked(
     router, controller, fault,
 ):
-    router.register_a(bundle(), IMAGE_A)
+    router.register_a(verified(bundle(), IMAGE_A))
     router.bind("task-original")
     b = b_bundle()
     accepted_controller(controller, b.candidate if fault != "wrong_candidate"
                         else Snapshot((File("different.py", b"x"),)))
-    router.stage_b(b, IMAGE_B)
+    router.stage_b(verified(b, IMAGE_B))
     router.begin_activation()
     if fault != "no_continuation":
         router.link_continuation("task-continued", "task-original")
@@ -161,11 +167,11 @@ def test_failed_cp4_rolls_new_work_back_to_a_and_keeps_continuation_blocked(
 
 def test_explicit_rollback_restores_recorded_a_digest(router, controller):
     a = bundle()
-    router.register_a(a, IMAGE_A)
+    router.register_a(verified(a, IMAGE_A))
     router.bind("task-original")
     b = b_bundle()
     accepted_controller(controller, b.candidate)
-    router.stage_b(b, IMAGE_B)
+    router.stage_b(verified(b, IMAGE_B))
     router.begin_activation()
     router.link_continuation("task-continued", "task-original")
     assert router.seal(controller, good_checks(router))
@@ -180,16 +186,20 @@ def test_crash_during_unsealed_activation_recovers_to_a(tmp_path, controller):
     root = tmp_path / "routing"
     with Journal.create(root) as journal:
         router = DeploymentRouter(journal)
-        router.register_a(bundle(), IMAGE_A)
+        router.register_a(verified(bundle(), IMAGE_A))
         router.bind("task-original")
         b = b_bundle()
-        router.stage_b(b, IMAGE_B)
+        router.stage_b(verified(b, IMAGE_B))
         router.begin_activation()
         assert router.bind("task-during").role == "B"
     with Journal.recover(root) as journal:
         recovered = DeploymentRouter.recover(journal)
         assert recovered.serving.role == "A"
-        assert recovered.route("task-during").role == "B"
+        # Work bound to the unsealed B is voided: never served, never moved.
+        with pytest.raises(IntegrityError, match="CP4 seal"):
+            recovered.route("task-during")
+        with pytest.raises(IntegrityError, match="never-rolled-back"):
+            recovered.begin_activation()
         assert [r.value["data"]["reason"] for r in journal.verify()
                 if r.value["kind"] == "deployment_rolled_back"] == [
             "recovered_unsealed_activation"]
@@ -199,11 +209,11 @@ def test_routing_state_is_replayed_exactly_from_receipts(tmp_path, controller):
     root = tmp_path / "routing"
     with Journal.create(root) as journal:
         router = DeploymentRouter(journal)
-        router.register_a(bundle(), IMAGE_A)
+        router.register_a(verified(bundle(), IMAGE_A))
         router.bind("task-original")
         b = b_bundle()
         accepted_controller(controller, b.candidate)
-        router.stage_b(b, IMAGE_B)
+        router.stage_b(verified(b, IMAGE_B))
         router.begin_activation()
         router.link_continuation("task-continued", "task-original")
         router.seal(controller, good_checks(router))
@@ -219,8 +229,8 @@ def test_routing_state_is_replayed_exactly_from_receipts(tmp_path, controller):
 
 def test_router_refuses_out_of_order_operations(router):
     with pytest.raises(IntegrityError):
-        router.stage_b(b_bundle(), IMAGE_B)
-    router.register_a(bundle(), IMAGE_A)
+        router.stage_b(verified(b_bundle(), IMAGE_B))
+    router.register_a(verified(bundle(), IMAGE_A))
     with pytest.raises(IntegrityError):
         router.begin_activation()
     with pytest.raises(IntegrityError):
@@ -228,3 +238,45 @@ def test_router_refuses_out_of_order_operations(router):
     router.bind("task")
     with pytest.raises(IntegrityError):
         router.bind("task")
+
+
+def test_failed_cp4_never_serves_work_bound_during_activation(router, controller):
+    router.register_a(verified(bundle(), IMAGE_A))
+    router.bind("task-original")
+    b = b_bundle()
+    accepted_controller(controller, b.candidate)
+    router.stage_b(verified(b, IMAGE_B))
+    router.begin_activation()
+    router.bind("task-during")
+    router.link_continuation("task-continued", "task-original")
+    assert router.seal(controller, good_checks(router, b_healthy=False)) is False
+    with pytest.raises(IntegrityError, match="CP4 seal"):
+        router.route("task-during")
+    with pytest.raises(IntegrityError):
+        router.begin_activation()
+
+
+def test_router_accepts_only_verify_receipts(router):
+    from recollect.selfmod.deployment import VerifiedImage
+
+    with pytest.raises(IntegrityError, match="verify"):
+        router.register_a(bundle())
+    with pytest.raises(IntegrityError, match="only from verify"):
+        VerifiedImage(bundle(), IMAGE_A, object())
+
+
+@pytest.mark.parametrize("fault", ["labels", "base", "bytes", "missing_layer"])
+def test_verify_rejects_copied_labels_wrong_base_or_changed_bytes(fault):
+    fake, value = FakeImages(), bundle()
+    if fault == "labels":
+        fake.add(value, IMAGE_B, labels={"recollect.bundle": "0" * 64})
+    elif fault == "base":
+        fake.add(value, IMAGE_B, layers=["sha256:other", "sha256:base-2", "x"])
+    elif fault == "missing_layer":
+        fake.add(value, IMAGE_B, layers=["sha256:base-1", "sha256:base-2"])
+    else:
+        fake.add(value, IMAGE_B, tar=bundle_tar(bundle(Snapshot((
+            File("dependencies.lock", b"httpx==0.28.1\n"),
+            File("tools/research.py", b"changed\n"))))))
+    with pytest.raises(IntegrityError):
+        verified(value, IMAGE_B, fake)

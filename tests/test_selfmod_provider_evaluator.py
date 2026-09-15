@@ -29,9 +29,10 @@ DEDUP = "selfmod0001action1"
 async def world(tmp_path):
     calendar = FakeCalendar()
     journal = Journal.create(tmp_path / "provider")
-    policy = ProviderPolicy(calendar.calendar_id, 10)
-    broker = ProviderBroker(policy, journal, credential=lambda: "host-secret-token",
-                            transport=calendar.transport())
+    policy = ProviderPolicy(calendar.calendar_id)
+    broker = ProviderBroker(policy, journal, credentials={
+        "worker": lambda: "host-secret-token", "verifier": lambda: "read-only-token"},
+        transport=calendar.transport())
     sleeps = []
 
     async def sleep(seconds):
@@ -94,9 +95,16 @@ async def test_target_gate_dedup_identity_and_attempt_limits_are_enforced(world)
                              body=event_body(dedup="othervalue1"))
     calendar.faults.append(lambda request: httpx.ReadTimeout("uncertain")
                            if request.method == "POST" else None)
-    for _ in range(3):
+    reader = broker.issue("verifier")
+    for attempt in range(3):
         with pytest.raises(httpx.ReadTimeout):
             await broker.request(capability, "POST", events, body=event_body())
+        if attempt < 2:
+            # An uncertain outcome requires a completed read before redispatch.
+            with pytest.raises(IntegrityError, match="Reconcile"):
+                await broker.request(capability, "POST", events, body=event_body())
+            await broker.request(reader, "GET", events)
+    await broker.request(reader, "GET", events)
     with pytest.raises(IntegrityError, match="exhausted"):
         await broker.request(capability, "POST", events, body=event_body())
     calendar.faults.clear()
@@ -146,11 +154,13 @@ async def test_exactly_one_correct_event_replay_attribution_and_cleanup(world):
     assert replay["result"] == "pass"
     attribution = attribute(
         operations(journal), verified_event_id=created["id"], action_id="action-1",
-        serving_digest="b" * 64, routing_epoch=2,
+        task_id="task-original", serving_digest="b" * 64, routing_epoch=2,
         invocation_modules={"inv-1": "tools/calendar_integration.py"},
-        sealed_after_ns=0)
+        candidate_modules={"tools/calendar_integration.py"}, sealed_after_ns=0)
     assert attribution["attributed"], attribution
-    receipt = await cleanup(broker, broker.issue("cleanup"), first)
+    with pytest.raises(IntegrityError):
+        await cleanup(broker, broker.issue("cleanup"), verifier, "unverified0001")
+    receipt = await cleanup(broker, broker.issue("cleanup"), verifier, created["id"])
     assert receipt["deleted"]
     assert calendar.events[created["id"]]["status"] == "cancelled"
 
@@ -197,11 +207,14 @@ async def test_complete_search_reads_every_page(world):
 
 
 @pytest.mark.parametrize("fault", ["pre_activation", "wrong_digest", "unmapped",
-                                   "two_creates"])
+                                   "two_creates", "not_candidate", "other_task",
+                                   "not_worker"])
 def test_missing_or_ambiguous_attribution_fails(fault):
     write = {"kind": "mutation", "action_id": "action-1", "status": 200,
              "response_fields": {"id": DEDUP}, "serving_digest": "b" * 64,
-             "routing_epoch": 2, "invocation_id": "inv-1", "dispatched_ns": 100}
+             "routing_epoch": 2, "invocation_id": "inv-1", "dispatched_ns": 100,
+             "principal": "worker", "task_id": "task-original"}
+    modules = {"inv-1": "tools/calendar.py"}
     writes = [dict(write)]
     if fault == "pre_activation":
         writes[0]["dispatched_ns"] = 5
@@ -209,44 +222,128 @@ def test_missing_or_ambiguous_attribution_fails(fault):
         writes[0]["serving_digest"] = "a" * 64
     elif fault == "unmapped":
         writes[0]["invocation_id"] = "inv-unknown"
+    elif fault == "not_candidate":
+        modules = {"inv-1": "preexisting/old_calendar.py"}
+    elif fault == "other_task":
+        writes[0]["task_id"] = "task-other"
+    elif fault == "not_worker":
+        writes[0]["principal"] = "cleanup"
     else:
         writes.append(dict(write))
     result = attribute(writes, verified_event_id=DEDUP, action_id="action-1",
-                       serving_digest="b" * 64, routing_epoch=2,
-                       invocation_modules={"inv-1": "tools/calendar.py"},
-                       sealed_after_ns=10)
+                       task_id="task-original", serving_digest="b" * 64,
+                       routing_epoch=2, invocation_modules=modules,
+                       candidate_modules={"tools/calendar.py"}, sealed_after_ns=10)
     assert not result["attributed"] and result["reasons"]
 
 
-def gap_message(**report_changes):
-    report = {"type": "capability_gap", "task_id": "task-original",
-              "request_id": "request-1",
-              "missing_capability": "No integration can create provider events.",
+def gap_message(kind="blocked", related="request-1", **report_changes):
+    report = {"type": "capability_gap",
+              "missing_capability": "No available tool can perform the operation.",
               "attempted": ["listed available tools"],
-              "modification_request": "Add an event creation integration.",
+              "modification_request": "Add the smallest integration for it.",
               **report_changes}
-    return {"direction": "worker", "task_id": "task-original",
-            "text": "I cannot do this.\n```capability_gap\n" + json.dumps(report)
-            + "\n```\n"}
+    return {"direction": "subagent", "task_id": "task-original", "kind": kind,
+            "message_id": "report-7", "revision": 1, "payload": {
+                "text": "Blocked.\n```capability_gap\n" + json.dumps(report) + "\n```",
+                "related_message_id": related, "sources": [], "artifacts": []}}
 
 
-def test_only_as_emitted_structured_gap_reports_are_accepted():
+def test_only_durable_structured_subagent_gap_reports_are_accepted():
     report = parse_gap_report(gap_message())
-    assert report["request_id"] == "request-1"
-    assert parse_gap_report({"direction": "worker", "task_id": "task-original",
-                             "text": "calendar exp0001 unsupported"}) is None
-    assert parse_gap_report(gap_message(task_id="other-task")) is None
-    assert parse_gap_report(gap_message(extra="field")) is None
-    with pytest.raises(IntegrityError, match="worker output"):
-        parse_gap_report({**gap_message(), "direction": "controller"})
-    checks = baseline_observations(report=report, request_id="request-1",
-                                   verifier_empty=True, target_quiescent=True,
-                                   same_identity=True, claimed_success=False,
-                                   unknown_effects=False)
+    assert report["task_id"] == "task-original"
+    assert report["related_message_id"] == "request-1"
+    assert parse_gap_report(gap_message(kind="result")) is None
+    keyword_only = gap_message()
+    keyword_only["payload"]["text"] = "calendar exp0001 unsupported"
+    assert parse_gap_report(keyword_only) is None
+    assert parse_gap_report(gap_message(task_id="self-reported")) is None
+    assert parse_gap_report(gap_message(attempted="not a list")) is None
+    with pytest.raises(IntegrityError, match="subagent report"):
+        parse_gap_report({**gap_message(), "direction": "main"})
+    facts = dict(verifier_empty=True, target_quiescent=True, same_identity=True,
+                 claimed_success=False, unknown_effects=False)
+    checks = baseline_observations(report=report, request_message_id="request-1",
+                                   task_id="task-original", **facts)
     assert all(checks.values())
-    failing = baseline_observations(report=None, request_id="request-1",
-                                    verifier_empty=None, target_quiescent=True,
-                                    same_identity=True, claimed_success=True,
-                                    unknown_effects=False)
+    foreign = baseline_observations(report=parse_gap_report(gap_message(
+        related="other-instruction")), request_message_id="request-1",
+        task_id="task-original", **facts)
+    assert not foreign["gap_reported"]
+    failing = baseline_observations(report=None, request_message_id="request-1",
+                                    task_id="task-original",
+                                    **{**facts, "verifier_empty": None,
+                                       "claimed_success": True})
     assert not failing["gap_reported"] and not failing["no_false_success"]
     assert not failing["baseline_empty"]
+
+
+async def test_attempt_limits_and_dedup_survive_broker_restart(tmp_path):
+    calendar = FakeCalendar()
+    root = tmp_path / "provider"
+    credentials = {"worker": lambda: "w", "verifier": lambda: "r"}
+    calendar.faults.append(lambda request: httpx.ReadTimeout("uncertain")
+                           if request.method == "POST" else None)
+    with Journal.create(root) as journal:
+        broker = ProviderBroker(ProviderPolicy(calendar.calendar_id), journal,
+                                credentials=credentials,
+                                transport=calendar.transport())
+        capability = worker(broker)
+        broker.open_gate("action-1", "released")
+        reader = broker.issue("verifier")
+        for _ in range(3):
+            with pytest.raises(httpx.ReadTimeout):
+                await broker.request(capability, "POST", broker.policy.events_path,
+                                     body=event_body())
+            await broker.request(reader, "GET", broker.policy.events_path)
+        await broker.aclose()
+    with Journal.recover(root) as journal:
+        restarted = ProviderBroker(ProviderPolicy(calendar.calendar_id), journal,
+                                   credentials=credentials,
+                                   transport=calendar.transport())
+        with pytest.raises(IntegrityError, match="one frozen"):
+            restarted.issue("worker", task_id="task-original", action_id="action-1",
+                            dedup_id="differentid01")
+        again = worker(restarted)
+        restarted.open_gate("action-1", "released")
+        with pytest.raises(IntegrityError, match="exhausted"):
+            await restarted.request(again, "POST", restarted.policy.events_path,
+                                    body=event_body())
+        await restarted.aclose()
+
+
+async def test_non_transient_rejection_is_not_a_retry_condition(world):
+    calendar, _, broker, _, _ = world
+    capability = worker(broker)
+    broker.open_gate("action-1", "released")
+    calendar.faults.append(lambda request: httpx.Response(400, json={"error": {}})
+                           if request.method == "POST" else None)
+    status, _ = await broker.request(capability, "POST", broker.policy.events_path,
+                                     body=event_body())
+    assert status == 400
+    with pytest.raises(IntegrityError, match="final outcome"):
+        await broker.request(capability, "POST", broker.policy.events_path,
+                             body=event_body())
+
+
+async def test_principals_use_their_own_role_credentials(world):
+    calendar, _, broker, verifier, _ = world
+    await verifier.search()
+    assert calendar.requests[-1].headers["authorization"] == "Bearer read-only-token"
+    with pytest.raises(ValueError, match="fixture"):
+        ProviderBroker(broker.policy, None, credentials={"fixture": lambda: "x"},
+                       transport=calendar.transport())
+
+
+async def test_authorization_errors_are_unknown_not_absent(world):
+    calendar, _, _, verifier, _ = world
+    calendar.faults.append(lambda request: httpx.Response(403))
+    result = await verifier.verify(DEDUP)
+    assert result["observed"] == "unknown"
+
+
+async def test_replay_without_event_identity_fails(world):
+    calendar, _, _, verifier, _ = world
+    calendar.insert(event_body())
+    first = await verifier.verify(DEDUP)
+    assert (await verifier.verify_replay(first, None))["result"] == "failed"

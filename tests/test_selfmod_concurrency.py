@@ -95,7 +95,12 @@ def test_overlap_is_intersection_not_union():
                "next_token": [{"n_decoded": 3}]}]),
         (30, [{"id": 0, "is_processing": True, "id_task": 2,
                "next_token": [{"n_decoded": 3}]}]),
+        (40, [{"id": 0, "is_processing": True, "id_task": 2,
+               "next_token": [{"n_decoded": 4}]}]),
+        (50, [{"id": 0, "is_processing": True, "id_task": 2,
+               "next_token": [{"n_decoded": 5}]}]),
     ]
-    # A task change and a stalled decode count never extend generation.
-    assert generating_intervals(samples, 0, (0, 30)) == [(0, 10)]
-    assert generating_intervals(samples, 0, (15, 30)) == []
+    # Generation starts at the first observed increase; a task change resets it
+    # and a stalled count never extends an interval.
+    assert generating_intervals(samples, 0, (0, 50)) == [(40, 50)]
+    assert generating_intervals(samples, 0, (0, 30)) == []
