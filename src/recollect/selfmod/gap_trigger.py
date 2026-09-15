@@ -1,17 +1,16 @@
-"""Structured capability-gap parsing and CP1 baseline observations.
+"""Structured capability-gap parsing from A's durable task reports.
 
-The controller never manufactures a gap report from the experiment ID or a
-calendar keyword. It accepts only a structured block that A itself sent through
-its generic reporting tool, as a durable ``subagent`` ``blocked`` task message.
-Binding comes from that durable record (task, revision, copied related message
-ID), never from identities the model writes inside its own report. Absence,
-malformed structure or a success claim is recorded, not repaired.
+The harness never manufactures a gap from keywords in the request. It accepts
+only a structured block that A itself sent through its generic reporting tool,
+as a durable ``subagent`` ``blocked`` task message. Binding comes from that
+durable record (task, revision, copied related message ID), never from
+identities the model writes inside its own report. Absence or malformed
+structure returns ``None``.
 """
 
 import json
 import re
 
-from .controller import BASELINE_CHECKS
 from .journal import IntegrityError
 
 FENCE = re.compile(r"```capability_gap\s*\n(\{.*?\})\s*\n```", re.DOTALL)
@@ -47,23 +46,3 @@ def parse_gap_report(message):
             "message_id": message.get("message_id"),
             "revision": message.get("revision"),
             "related_message_id": payload.get("reply_to")}
-
-
-def baseline_observations(*, report, request_message_id, task_id, verifier_empty,
-                          target_quiescent, same_identity, claimed_success,
-                          unknown_effects):
-    """Exactly CP1's frozen observation set from independent host facts."""
-    checks = {
-        "gap_reported": report is not None and report["task_id"] == task_id
-        and report["related_message_id"] == request_message_id,
-        "modification_requested": report is not None
-        and bool(report["modification_request"].strip()),
-        "target_quiescent": target_quiescent is True,
-        "baseline_empty": verifier_empty is True,
-        "same_identity": same_identity is True,
-        "no_false_success": claimed_success is False,
-        "no_unknown_effects": unknown_effects is False,
-    }
-    if set(checks) != BASELINE_CHECKS:
-        raise IntegrityError("Baseline observations diverged from the frozen set")
-    return checks

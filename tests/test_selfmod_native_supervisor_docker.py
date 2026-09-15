@@ -16,8 +16,8 @@ import httpx
 import pytest
 
 from recollect.selfmod import native_transport as transport_module
-from recollect.selfmod.checkpoints import materialize
 from recollect.selfmod.contracts import File, Snapshot
+from recollect.selfmod.files import materialize
 from recollect.selfmod.journal import decode, encode, root_path
 from recollect.selfmod.native import VERSION, _settle
 from recollect.selfmod.native_capture import NativeCaptureSpec, verify_stop

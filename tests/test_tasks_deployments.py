@@ -69,7 +69,7 @@ async def test_new_work_binds_to_a_and_runs_on_its_pinned_sandbox(routed):
     assert state.managers == [state.a_manager]
 
 
-async def test_continuation_is_held_until_cp4_release_then_runs_on_b(routed):
+async def test_continuation_is_held_until_commit_and_release_then_runs_on_b(routed):
     state = routed
     await state.coordinator.start()
     original = await submit(state, "original")
@@ -84,11 +84,9 @@ async def test_continuation_is_held_until_cp4_release_then_runs_on_b(routed):
     current = state.store.get(state.session_id, held["task_id"])
     assert current["state"] == "queued" and len(state.calls) == 1
     assert state.coordinator._has_owner(current)
-    with pytest.raises(IntegrityError, match="sealed CP4"):
+    with pytest.raises(IntegrityError, match="committed B"):
         state.router.release_continuation(held["task_id"])
-    # Stand-in for the controller's verified CP4 seal record.
-    state.router._record("activation_sealed", {"epoch": state.router.epoch,
-                                               "bundle_digest": state.b_bundle.digest})
+    state.router.commit()
     state.router.release_continuation(held["task_id"])
     await state.coordinator.release_held(state.session_id, held["task_id"])
     await wait_state(state, held["task_id"], "completed")
@@ -97,7 +95,7 @@ async def test_continuation_is_held_until_cp4_release_then_runs_on_b(routed):
         await state.coordinator.release_held(state.session_id, held["task_id"])
 
 
-async def test_unsealed_b_work_is_blocked_not_served(routed):
+async def test_uncommitted_b_work_is_blocked_not_served(routed):
     state = routed
     await state.coordinator.start()
     state.router.stage_b(state.receipt_b)
@@ -105,7 +103,7 @@ async def test_unsealed_b_work_is_blocked_not_served(routed):
     state.router.begin_activation()
     task = await submit(state, "new-during-activation")
     blocked = await wait_state(state, task["task_id"], "blocked")
-    assert "CP4 seal" in blocked["error"] and not state.managers
+    assert "activation commit" in blocked["error"] and not state.managers
 
 
 async def test_held_continuation_requires_deployments_and_a_parent(routed):

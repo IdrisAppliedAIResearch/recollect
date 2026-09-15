@@ -562,7 +562,8 @@ collector.
 
 ## Unattended trial runner (2026-09-15, in progress)
 
-Design and user decisions: [trial runner design](SELF_MODIFICATION_TRIAL_RUNNER.md).
+Design and user decisions: the trial runner design (removed in the general
+pivot below; see git history).
 The generated tool is not named (CP3 grades B end to end with model turns), the
 harness cancels A's target task after its durable gap report, and one dedicated
 `recollect selfmod-trial` command owns its app state and controller. Nothing here
@@ -593,7 +594,7 @@ infrastructure retest.
 Tool-call liveness finding: the pinned OpenCode binary always applies an MCP
 per-request timeout and resets it on MCP progress with no total cap. The user
 chose a tool-host keepalive plus a prospective amendment; the
-[draft amendment 03](SELF_MODIFICATION_AMENDMENT_03_DRAFT.md) is unregistered.
+draft amendment 03 was never registered (removed in the general pivot below).
 Live qualification (`.agent/toolhost-live-20260915-160341.xml`, 2 passed): through
 the tool host a 60 s quiet non-target tool call completed past a 25 s MCP timeout
 in the real binary; the same tool served without the host timed out. An earlier
@@ -610,3 +611,35 @@ calendar request; the frozen event date must equal the next America/Chicago day
 of the actual start (CP0 checks it); registering amendment 03 needs a controller
 registration key; attribution relies on host correlation with one in-flight MCP
 call; bundle dependencies are limited to the pinned base image.
+
+## General pivot and strip (2026-09-15)
+
+The user judged the calendar-specific unattended trial runner flaky and off
+intent. The target is now the general loop in
+[SELF_MODIFICATION.md](SELF_MODIFICATION.md): A reports a capability gap, the
+system writes tests anchored on the original request first, builds the fix under
+due process, switches to B and finishes the same request, with automatic
+rollback to A and retry until pass or user stop. The preregistration framing is
+retired; the calendar request is only a demonstration.
+
+Removed: the CP0-CP6 controller and checkpoint bundles, trial runner, manifest,
+CLI and live environment, concurrency probe, readiness gate, provider relay and
+broker, tool-invocation attribution, calendar/candidate evaluators and fixtures,
+Google auth helper, issue #15 capture and draft amendment 03. Kept: journal,
+contracts, due-process development cycle (roles, native modifier, executor,
+Docker runtimes), bundles and A/B deployment router, deployment-aware tasks with
+held continuation, subagent tree, tool-host keepalive, gap report parsing and the
+unbounded config profile.
+
+`ModificationRound` (`round.py`) replaces the controller: one lock, clock
+continuity and an eligibility fence around the development cycle, a plain audit
+journal, and unlimited candidate submissions through the cycle's one-shot grant.
+A failed round is never repaired; retry opens a new round from A. The deployment
+router's CP4 seal became an explicit `commit()` after B passes its checks and
+starts healthy. `Stamp`/`current_stamp` moved to `clock.py` and snapshot
+materialization to `files.py`. Gate after the strip: Ruff clean, 2754 passed,
+66 skipped.
+
+Next: the tests-first stage, generic networkless evaluation of frozen tests plus
+a regression suite, build/commit/resume switch, the rollback-and-retry loop, the
+authentication-steps handoff, and live qualification.

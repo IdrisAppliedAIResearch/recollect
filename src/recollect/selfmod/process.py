@@ -4,7 +4,7 @@ import contextlib
 import subprocess
 import threading
 
-from .controller import current_stamp
+from .clock import current_stamp
 from .executor import Deadline
 from .journal import IntegrityError
 

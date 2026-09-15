@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
+from .clock import Stamp, current_stamp
 from .containment import (
     MAX_WIRE_BYTES,
     FixtureSpec,
@@ -22,7 +23,6 @@ from .containment import (
     verify_ready,
 )
 from .contracts import File, Snapshot
-from .controller import Stamp, current_stamp
 from .journal import EMPTY_SNAPSHOT, Anchor, IntegrityError, Journal, encode, sha256
 
 

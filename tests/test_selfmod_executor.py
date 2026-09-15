@@ -14,8 +14,8 @@ from recollect.selfmod.executor import (
     Termination,
 )
 from recollect.selfmod.journal import IntegrityError, encode, sha256
-from tests.selfmod_checkpoint_helpers import FakeClock, Fault
 from tests.selfmod_containment_helpers import CONTAINER_ID, inspection, report, spec
+from tests.selfmod_round_helpers import FakeClock, Fault
 
 
 class Runtime:

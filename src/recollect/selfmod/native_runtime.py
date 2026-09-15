@@ -27,8 +27,8 @@ from pathlib import Path
 import httpx
 
 from . import native_http_relay as wire
-from .checkpoints import materialize
 from .contracts import File, Snapshot
+from .files import materialize
 from .journal import IntegrityError, Journal, decode, encode, root_path, sha256
 from .model_settlement import SlotSettlement
 from .native import NativeSession, _durable, _settle

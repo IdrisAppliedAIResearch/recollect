@@ -23,9 +23,9 @@ from recollect.selfmod.roles import (
     review_result,
     role_spec,
 )
-from tests.selfmod_checkpoint_helpers import FakeClock
+from tests.selfmod_round_helpers import FakeClock
 from tests.test_selfmod_integration import case as case
-from tests.test_selfmod_integration import checkpoint, opened, planned
+from tests.test_selfmod_integration import opened, planned
 
 CHECKS = (
     File("unit.py", b"from pathlib import Path\n"
@@ -244,7 +244,6 @@ async def test_repeated_cancel_cannot_interrupt_model_transport_cleanup(case):
         with pytest.raises(asyncio.CancelledError):
             await task
     assert not dev._busy and not case.controller._development_pending
-    case.controller.account()
 
 
 def test_driver_and_prompt_capture_cannot_drift_during_build(case, monkeypatch):
@@ -370,10 +369,7 @@ async def test_equal_but_foreign_role_grant_never_calls_model_or_runtime(case):
     with pytest.raises(IntegrityError, match="grant"):
         await dev.run_role(grant, settings(), None, model=broker)
     assert not calls
-    case.controller.account()
-    assert decode(checkpoint(case.controller, "CP6")["accounting.json"])[
-        "result"
-    ] == "simulation_failed"
+    assert not case.controller.eligible
 
 
 async def test_cancel_during_inference_preserves_role_evidence_and_lease(case):
@@ -397,11 +393,10 @@ async def test_cancel_during_inference_preserves_role_evidence_and_lease(case):
         await task
     assert settle.is_set() and not dev._busy
     assert not case.controller._development_pending
-    case.controller.account()
-    cp6 = checkpoint(case.controller, "CP6")
-    assert any(p.endswith("model-request.json") for p in cp6)
-    assert any(p.endswith("role-request.json") for p in cp6)
-    with pytest.raises(IntegrityError, match="ineligible|accounted"):
+    archived = [f.path for r in case.controller.journal.verify()
+                if r.value["kind"] == "development_role" for f in r.files.files]
+    assert "model-request.json" in archived and "role-request.json" in archived
+    with pytest.raises(IntegrityError, match="ineligible"):
         dev.authorize("plan")
 
 

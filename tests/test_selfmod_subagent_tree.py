@@ -8,8 +8,8 @@ from pathlib import Path
 from recollect.engine.sandbox import configgen
 from recollect.engine.sandbox.manager import SandboxDeployment
 from recollect.selfmod import subagent_tree
-from recollect.selfmod.checkpoints import materialize
 from recollect.selfmod.deployment import SubagentBundle
+from recollect.selfmod.files import materialize
 
 REPO = Path(__file__).resolve().parents[1]
 BASE = "sha256:" + "a" * 64

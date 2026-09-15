@@ -149,12 +149,12 @@ def test_tasks_get_pinned_sandbox_and_unsealed_b_never_serves(
     router.link_continuation("task-continued", "task-original")
     assert sandboxes.manager_for("task-existing") is a_manager
     # Unsealed B work never gets a sandbox, including after rollback.
-    with pytest.raises(IntegrityError, match="CP4 seal"):
+    with pytest.raises(IntegrityError, match="activation commit"):
         sandboxes.manager_for("task-new")
     router.rollback("cp4_failed_fixture")
-    with pytest.raises(IntegrityError, match="CP4 seal"):
+    with pytest.raises(IntegrityError, match="activation commit"):
         sandboxes.manager_for("task-new")
-    with pytest.raises(IntegrityError, match="CP4 seal"):
+    with pytest.raises(IntegrityError, match="activation commit"):
         sandboxes.manager_for("task-continued")
     with pytest.raises(KeyError):
         sandboxes.manager_for("task-unbound")

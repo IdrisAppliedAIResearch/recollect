@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from recollect.selfmod.controller import current_stamp
+from recollect.selfmod.clock import current_stamp
 from recollect.selfmod.executor import Deadline
 from recollect.selfmod.journal import IntegrityError
 from recollect.selfmod.process import PipeCommand

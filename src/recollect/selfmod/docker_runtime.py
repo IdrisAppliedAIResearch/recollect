@@ -7,11 +7,11 @@ import threading
 import uuid
 from pathlib import Path
 
-from .checkpoints import materialize, verify_materialized
+from .clock import current_stamp
 from .containment import MAX_WIRE_BYTES, create_arguments, frozen_input, verify_ready
 from .contracts import File, Snapshot
-from .controller import current_stamp
 from .executor import Collected, Deadline, Prepared, Termination
+from .files import materialize, verify_materialized
 from .journal import IntegrityError, encode, regular, root_path, sha256
 from .process import PipeCommand
 

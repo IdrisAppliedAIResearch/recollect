@@ -71,12 +71,8 @@ def build_config(
     continuous: bool = False,
     unbounded: bool = False,
     bundle_pythonpath: str | None = None,
-    tool_environment: dict[str, str] | None = None,
 ) -> dict:
     """Return a local-provider-only config using native OpenCode agents.
-
-    ``tool_environment`` adds host-issued transport settings, such as the
-    provider relay address and its token, to the tool server's environment.
 
     ``bundle_pythonpath`` serves a verified deployment bundle: its harness-owned
     tool host runs the bundle's own tool server, and the base image's packaged
@@ -88,11 +84,6 @@ def build_config(
     if bundle_pythonpath is not None:
         environment["PYTHONPATH"] = bundle_pythonpath
         module = TOOL_HOST_MODULE
-    for name, value in (tool_environment or {}).items():
-        if (not name.startswith("RECOLLECT_PROVIDER_") or name in environment
-                or type(value) is not str):
-            raise ValueError("Tool environment accepts only provider transport values")
-        environment[name] = value
     model_ref = f"{PROVIDER_ID}/{model}"
     runtime_workdir = runtime_workdir or str(workdir)
     if context_limit <= output_limit or output_limit < 1:
@@ -184,7 +175,6 @@ def write_config(
     skills_source: Path | None = None,
     unbounded: bool = False,
     bundle_pythonpath: str | None = None,
-    tool_environment: dict[str, str] | None = None,
 ) -> Path:
     """Write configuration and bundled skills into the read-only config mount.
 
@@ -211,7 +201,6 @@ def write_config(
         continuous=continuous,
         unbounded=unbounded,
         bundle_pythonpath=bundle_pythonpath,
-        tool_environment=tool_environment,
     )
     config_path = workdir / "opencode.json"
     config_path.write_text(

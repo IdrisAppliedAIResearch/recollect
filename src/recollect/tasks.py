@@ -38,9 +38,7 @@ def _trim_to_sentence(text: str) -> str:
 
 class TaskCoordinator:
     def __init__(self, config, sessions, store, generator, sandboxes,
-                 deployments=None, tool_observer=None) -> None:
-        # tool_observer(task_id, event, session_id, children) is host attribution.
-        self.tool_observer = tool_observer
+                 deployments=None) -> None:
         self.config = config
         self.sessions = sessions
         self.store = store
@@ -876,12 +874,6 @@ class TaskCoordinator:
                 if self.deployments is not None else self.sandboxes
             )
             self._active_manager = manager
-            instrumentation = {}
-            if self.tool_observer is not None:
-                observe = self.tool_observer
-                instrumentation["observer"] = (
-                    lambda event, native_id, children:
-                    observe(task_id, event, native_id, children))
             # Reports copy the durable ID of the instruction that set this revision.
             establishing = (
                 f"start:{task['request_id']}" if latest["revision"] == 1 else next(
@@ -889,7 +881,7 @@ class TaskCoordinator:
                      if item["revision"] == latest["revision"]), "")
             )
             async for item in OpenCodeRunner(
-                manager, self.config, **instrumentation
+                manager, self.config
             ).run_continuous(
                 session_id,
                 task_text,

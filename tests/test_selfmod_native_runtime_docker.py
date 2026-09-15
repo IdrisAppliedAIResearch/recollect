@@ -15,7 +15,6 @@ import tarfile
 import threading
 import time
 import uuid
-from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,7 +22,6 @@ from types import SimpleNamespace
 import pytest
 
 from recollect.selfmod import native_runtime as runtime_module
-from recollect.selfmod.checkpoints import materialize
 from recollect.selfmod.contracts import (
     ChangePolicy,
     File,
@@ -34,16 +32,16 @@ from recollect.selfmod.contracts import (
     TaskContract,
     Verification,
 )
-from recollect.selfmod.controller import Controller
 from recollect.selfmod.development import Review, Stage
+from recollect.selfmod.files import materialize
 from recollect.selfmod.integration import DevelopmentSettings
 from recollect.selfmod.journal import IntegrityError, inspect_archive
 from recollect.selfmod.native_broker import TOKEN_CAP_FIELDS
 from recollect.selfmod.native_history import iter_event_rows
 from recollect.selfmod.native_runtime import NativeDocker, NativeRuntime
-from tests.selfmod_checkpoint_helpers import EVIDENCE, config, through_baseline, values
+from recollect.selfmod.round import ModificationRound
 from tests.selfmod_containment_helpers import spec as containment_spec
-from tests.test_selfmod_integration import checkpoint
+from tests.selfmod_round_helpers import EVIDENCE, round_config, submitted, values
 from tests.test_selfmod_native_admission import admit
 from tests.test_selfmod_native_admission import case as case
 from tests.test_selfmod_roles import settings as role_settings
@@ -383,7 +381,7 @@ async def test_driver_runs_real_checks_and_fresh_review_on_native_candidate(
     assert all(collected for kind, collected in observed if kind == "exec")
     number, _ = dev.submit(dev.authorize("submit"))
     assert number == 1
-    cp2 = checkpoint(controller, "CP2.1")
+    cp2 = submitted(controller)
     assert cp2["candidate/editable.py"] == b"value = 2\n"
     assert any(path.endswith("native/capture.json") for path in cp2)
 
@@ -403,9 +401,8 @@ def pruning_case(tmp_path):
     plan = Plan(contract.sha256, (
         PlannedChange("editable.py", "modify", ("value",), "original task"),
     ), (Verification("value", "unit and independent evaluation"),))
-    controller = Controller.create(tmp_path / "controller", replace(
-        config(), contract=contract, baseline_sha256=baseline.sha256))
-    through_baseline(controller)
+    controller = ModificationRound.create(tmp_path / "controller",
+                                          round_config(contract, baseline.sha256))
     dev = controller.open_development(
         baseline=baseline, policy=policy,
         settings=DevelopmentSettings(source.image_id, source.image_environment,

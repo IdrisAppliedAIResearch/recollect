@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from . import role_worker
+from .clock import current_stamp
 from .containment import FixtureSpec
 from .contracts import (
     ChangePolicy,
@@ -25,7 +26,6 @@ from .contracts import (
     Verification,
     require_tuple,
 )
-from .controller import current_stamp
 from .journal import IntegrityError, encode, sha256
 
 PROMPTS = {

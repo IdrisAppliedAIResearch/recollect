@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from recollect.selfmod.checkpoints import materialize
 from recollect.selfmod.contracts import File, Snapshot
 from recollect.selfmod.deployment import BundleImages, SubagentBundle
+from recollect.selfmod.files import materialize
 from recollect.selfmod.journal import IntegrityError
 from recollect.selfmod.native_runtime import NativeDocker
 

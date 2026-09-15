@@ -25,7 +25,7 @@ from recollect.selfmod.native_runtime import (
     SupervisorChannel,
     _history_result,
 )
-from tests.selfmod_checkpoint_helpers import EVIDENCE, values
+from tests.selfmod_round_helpers import EVIDENCE, values
 from tests.test_selfmod_evidence_segments import tamper
 from tests.test_selfmod_native_admission import Resources, admit
 from tests.test_selfmod_native_admission import case as case
@@ -478,7 +478,7 @@ async def ready_with_segments(case, tmp_path):
     return admission, source
 
 
-async def test_closed_native_journals_bind_as_exact_sidecars_through_cp2(
+async def test_closed_native_journals_bind_as_exact_sidecars_through_submission(
     case, tmp_path,
 ):
     admission, (name, root, head) = await ready_with_segments(case, tmp_path)
@@ -494,7 +494,8 @@ async def test_closed_native_journals_bind_as_exact_sidecars_through_cp2(
 
 
 @pytest.mark.parametrize("fault", ["marker", "record"])
-async def test_tampered_sidecar_blocks_cp2_and_is_accounted(case, tmp_path, fault):
+async def test_tampered_sidecar_blocks_submission_and_fails_round(case, tmp_path,
+                                                                 fault):
     admission, (name, _, head) = await ready_with_segments(case, tmp_path)
     copied = (case.controller.journal.root / "segments" / admission.run.run_id
               / name)
@@ -506,9 +507,8 @@ async def test_tampered_sidecar_blocks_cp2_and_is_accounted(case, tmp_path, faul
     with pytest.raises(IntegrityError):
         case.dev.submit(case.dev.authorize("submit"))
     assert not case.controller._eligible
-    case.controller.account()
-    branch = values(case.controller, "accounting_branch")[-1]
-    assert any("evidence segment" in issue["reason"] for issue in branch["issues"])
+    assert not values(case.controller, "candidate_submitted")
+    assert values(case.controller, "round_failed")
 
 
 async def test_invalid_segment_report_cannot_be_bound(case, tmp_path):

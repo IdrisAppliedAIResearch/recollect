@@ -113,12 +113,9 @@ class OpenCodeRunner:
         config: RecollectConfig,
         *,
         observation_chars: int | None = None,
-        observer: Callable[[dict, str, set[str]], None] | None = None,
     ) -> None:
         self._manager = manager
         self._config = config
-        # Trusted host instrumentation: sees each native event with its session tree.
-        self._observer = observer
         # Amendment 02 profile: history reads and message posts have no timeout;
         # an actual HTTP error, not elapsed time, is what counts as a failure.
         unbounded = bool(getattr(config, "experiment_unbounded", False))
@@ -296,8 +293,6 @@ class OpenCodeRunner:
 
         async def apply(event: dict) -> SubagentStep | None:
             nonlocal waiting_for_input
-            if self._observer is not None:
-                self._observer(event, oc_id, children)
             entry = self._report_from_event(event, oc_id, children)
             if entry is not None:
                 key = (entry.native_session_id, entry.call_id)

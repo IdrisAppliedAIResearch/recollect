@@ -13,8 +13,8 @@ from recollect.selfmod.containment import release_record
 from recollect.selfmod.executor import Deadline
 from recollect.selfmod.journal import IntegrityError, decode, sha256
 from recollect.selfmod.process import PipeCommand
-from tests.selfmod_checkpoint_helpers import FakeClock, config
 from tests.selfmod_containment_helpers import spec
+from tests.selfmod_round_helpers import FakeClock
 
 
 def test_explicit_unbounded_release_is_authenticated():
@@ -41,14 +41,6 @@ def test_explicit_unbounded_release_is_authenticated():
     for remaining in (1, False):
         with pytest.raises((ValueError, IntegrityError)):
             release_record(fixture, "a" * 64, remaining)
-
-
-def test_active_configuration_requires_timing_amendment():
-    frozen = config()
-    with pytest.raises(ValueError, match="timing amendment"):
-        replace(frozen, registrations=tuple(
-            pair for pair in frozen.registrations if pair[0] != "timing_amendment"
-        ))
 
 
 def test_timing_amendment_detached_receipt_matches():

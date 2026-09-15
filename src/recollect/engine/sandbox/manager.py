@@ -141,7 +141,6 @@ class SandboxManager:
         # elapsed-time cutoff. Stop/abort cleanup keeps its own short bounds.
         self._unbounded = bool(getattr(config, "experiment_unbounded", False))
         self._control_timeout = None if self._unbounded else 10.0
-        self._tool_environment: dict[str, str] | None = None
 
     def configure_model(self, base_url: str, api_key: str) -> None:
         """Set the admitted inference endpoint before the sandbox starts."""
@@ -149,19 +148,6 @@ class SandboxManager:
             raise RuntimeError("cannot change the model endpoint of a live sandbox")
         self._model_base_url = base_url
         self._model_api_key = api_key
-
-    def configure_tools(self, relay_url: str, token: str) -> None:
-        """Give the tool server a provider relay before the sandbox starts.
-
-        The loopback relay address is routed through Docker's host gateway; the
-        token is a relay capability, never a provider credential.
-        """
-        if self._handle is not None or self._active is not None:
-            raise RuntimeError("cannot change the tool transport of a live sandbox")
-        url = relay_url if self._commands is not None else container_model_url(
-            relay_url)
-        self._tool_environment = {"RECOLLECT_PROVIDER_URL": url,
-                                  "RECOLLECT_PROVIDER_TOKEN": token}
 
     # -- lifecycle -------------------------------------------------------
 
@@ -402,7 +388,6 @@ class SandboxManager:
             unbounded=self._unbounded,
             bundle_pythonpath=(self.deployment.python_path
                                if self.deployment is not None else None),
-            tool_environment=self._tool_environment,
             **({
                 "context_limit": cfg.generator_context_tokens,
                 "output_limit": cfg.subagent_inference_tokens,

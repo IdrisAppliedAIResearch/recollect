@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from recollect.selfmod.clock import current_stamp
 from recollect.selfmod.containment import verify_ready
 from recollect.selfmod.contracts import (
     File,
@@ -27,21 +28,16 @@ from recollect.selfmod.contracts import (
     TaskContract,
     Verification,
 )
-from recollect.selfmod.controller import (
-    ACTIVATION_CHECKS,
-    OUTCOME_CHECKS,
-    Controller,
-    current_stamp,
-)
 from recollect.selfmod.docker_runtime import DockerFixtureRuntime
 from recollect.selfmod.executor import FixtureExecutor
 from recollect.selfmod.integration import DevelopmentSettings
 from recollect.selfmod.journal import IntegrityError, decode, encode, sha256
 from recollect.selfmod.process import PipeCommand
-from tests.selfmod_checkpoint_helpers import EVIDENCE, config, good, through_baseline
+from recollect.selfmod.round import ModificationRound
 from tests.selfmod_containment_helpers import spec
+from tests.selfmod_round_helpers import round_config, submitted
 from tests.test_selfmod_containment_docker import docker
-from tests.test_selfmod_integration import checkpoint, checks, review
+from tests.test_selfmod_integration import checks, review
 
 pytestmark = [
     pytest.mark.docker,
@@ -466,13 +462,10 @@ def development(live, fixture):
             Requirement("value", "value equals 2", "fixture evaluator"),
         ), ("unit", "regression"), fixture.policy.sha256,
     )
-    controller = Controller.create(
-        live.archive / "controller", replace(
-            config(), contract=contract, baseline_sha256=fixture.baseline.sha256,
-        ),
+    controller = ModificationRound.create(
+        live.archive / "controller", round_config(contract, fixture.baseline.sha256),
     )
     live.controllers.append(controller)
-    through_baseline(controller)  # Explicit simulated CP0/CP1, not Calendar.
     dev = controller.open_development(
         baseline=fixture.baseline, policy=fixture.policy,
         settings=DevelopmentSettings(
@@ -487,7 +480,7 @@ def development(live, fixture):
     return controller, dev
 
 
-async def test_real_executor_bytes_reach_simulated_cp2_and_cp6(live):
+async def test_real_executor_bytes_reach_the_submitted_candidate(live):
     fixture = live.spec()
     controller, dev = development(live, fixture)
     runtime = live.runtime()
@@ -496,18 +489,9 @@ async def test_real_executor_bytes_reach_simulated_cp2_and_cp6(live):
     review(dev)
     number, identity = dev.submit(dev.authorize("submit"))
     assert number == 1 and identity == changed(fixture).sha256
-    cp2 = checkpoint(controller, "CP2.1")
+    cp2 = submitted(controller)
     assert cp2["candidate/editable.py"] == b"value = 2\n"
     assert cp2["candidate/protected.py"] == b"protected original bytes"
-    controller.dispatch("evaluate")
-    controller.evaluate(good(controller.config.evaluation_checks), EVIDENCE)
-    controller.dispatch("activate")
-    controller.activated(identity, good(ACTIVATION_CHECKS), EVIDENCE)
-    controller.dispatch("continue")
-    controller.outcome(good(OUTCOME_CHECKS), EVIDENCE)
-    controller.account()
-    cp6 = checkpoint(controller, "CP6")
-    assert decode(cp6["accounting.json"])["result"] == "simulation_complete"
     executions = [r for r in controller.journal.verify()
                   if r.value["kind"] == "development_execution"]
     assert [r.value["data"]["state"] for r in executions] == ["claimed", "verified"]
@@ -516,11 +500,10 @@ async def test_real_executor_bytes_reach_simulated_cp2_and_cp6(live):
             assert any(f.path.endswith("attachment.stdout") for f in record.files.files)
         for file in record.files.files:
             assert cp2[f"records/{record.anchor.sequence}/{file.path}"] == file.content
-            assert cp6[f"receipts/{record.anchor.sequence}/{file.path}"] == file.content
     assert not await live.ids(runtime._spec)
 
 
-async def test_live_cancel_accounts_cp6_without_candidate(live):
+async def test_live_cancel_fails_round_without_candidate(live):
     controller, dev = development(live, live.spec(WAIT))
     probe, released = TransportProbe(), threading.Event()
     probe.hook = lambda point, _: released.set() if point == "release" else None
@@ -532,18 +515,13 @@ async def test_live_cancel_accounts_cp6_without_candidate(live):
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-    controller.account()
-    cp6 = checkpoint(controller, "CP6")
-    assert decode(cp6["accounting.json"])["result"] == "simulation_failed"
-    with pytest.raises(AssertionError, match="not sealed"):
-        checkpoint(controller, "CP2.1")
+    assert not controller.eligible
+    with pytest.raises(AssertionError, match="no candidate"):
+        submitted(controller)
     failures = [r for r in controller.journal.verify()
                 if r.value["kind"] == "development_failure"]
     assert failures and failures[-1].value["data"]["termination_confirmed"] is True
     assert failures[-1].value["data"]["capture_complete"] is True
     assert any(b'"error_type":"CallerCancelled"' in f.content
                for f in failures[-1].files.files)
-    for record in failures:
-        for file in record.files.files:
-            assert cp6[f"receipts/{record.anchor.sequence}/{file.path}"] == file.content
     assert not await live.ids(runtime._spec)

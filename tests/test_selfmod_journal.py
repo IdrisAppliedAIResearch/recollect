@@ -12,7 +12,7 @@ from recollect.selfmod.journal import (
     inspect_archive,
     read_archive,
 )
-from tests.selfmod_checkpoint_helpers import EVIDENCE, Fault
+from tests.selfmod_round_helpers import EVIDENCE, Fault
 
 
 def test_archive_readback_exact_bytes_and_pinned_head(tmp_path):

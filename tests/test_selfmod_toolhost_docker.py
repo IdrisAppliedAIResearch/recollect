@@ -24,13 +24,13 @@ from recollect.engine import toolhost
 from recollect.engine.sandbox import configgen
 from recollect.engine.sandbox.manager import SandboxDeployment, SandboxManager
 from recollect.selfmod import subagent_tree
-from recollect.selfmod.checkpoints import materialize
 from recollect.selfmod.contracts import File, Snapshot
 from recollect.selfmod.deployment import (
     BundleImages,
     SubagentBundle,
     materialize_skills,
 )
+from recollect.selfmod.files import materialize
 from recollect.selfmod.native_runtime import NativeDocker
 
 pytestmark = [

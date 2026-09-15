@@ -612,7 +612,7 @@ class IntegratedDevelopment:
     def _execution_failed(self, error, lease):
         controller = self._controller
         with controller._lock:
-            if controller._phase == "accounted":
+            if controller._phase == "closed":
                 return
             controller._abort("development_execution_failed:" + type(error).__name__)
             files = Snapshot(())

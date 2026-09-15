@@ -4,19 +4,17 @@ import asyncio
 import json
 import os
 import threading
-from dataclasses import replace
 
 import httpx
 import pytest
 
 from recollect.selfmod.contracts import File, Requirement, TaskContract
-from recollect.selfmod.controller import Controller
 from recollect.selfmod.development import Stage
 from recollect.selfmod.integration import DevelopmentSettings
-from recollect.selfmod.journal import IntegrityError, decode
+from recollect.selfmod.journal import IntegrityError
 from recollect.selfmod.roles import LocalRoleModel
-from tests.selfmod_checkpoint_helpers import config, through_baseline
-from tests.test_selfmod_integration import checkpoint
+from recollect.selfmod.round import ModificationRound
+from tests.selfmod_round_helpers import round_config, submitted
 from tests.test_selfmod_roles import CHECKS, response, settings
 from tests.test_selfmod_runtime_docker import TransportProbe
 from tests.test_selfmod_runtime_docker import live as live
@@ -44,11 +42,9 @@ def development(live):
         (Requirement("value", "editable.py contains value = 2", "unit check"),),
         ("unit", "regression"), fixture.policy.sha256,
     )
-    controller = Controller.create(live.archive / "controller", replace(
-        config(), contract=contract, baseline_sha256=fixture.baseline.sha256,
-    ))
+    controller = ModificationRound.create(
+        live.archive / "controller", round_config(contract, fixture.baseline.sha256))
     live.controllers.append(controller)
-    through_baseline(controller)
     dev = controller.open_development(
         baseline=fixture.baseline, policy=fixture.policy,
         settings=DevelopmentSettings(fixture.image_id, fixture.image_environment,
@@ -97,18 +93,12 @@ async def test_all_roles_use_separate_containers_and_seal_owned_evidence(live):
         assert runtime._spec.policy.modify == runtime._spec.policy.create_under == ()
     number, _ = dev.submit(dev.authorize("submit"))
     assert number == 1
-    cp2 = checkpoint(controller, "CP2.1")
-    assert cp2["candidate/editable.py"] == b"value = 2\n"
-    controller.account()  # No evaluation/activation: this is not the experiment.
-    cp6 = checkpoint(controller, "CP6")
-    assert decode(cp6["accounting.json"])["result"] == "simulation_failed"
+    candidate = submitted(controller)
+    assert candidate["candidate/editable.py"] == b"value = 2\n"
     for record in controller.journal.verify():
         if record.value["kind"] == "development_role":
             for file in record.files.files:
-                assert cp2[f"records/{record.anchor.sequence}/{file.path}"] == (
-                    file.content
-                )
-                assert cp6[f"receipts/{record.anchor.sequence}/{file.path}"] == (
+                assert candidate[f"records/{record.anchor.sequence}/{file.path}"] == (
                     file.content
                 )
 
@@ -142,7 +132,7 @@ async def test_driver_revises_rejections_and_failed_real_checks_without_submitti
     assert any(r["kind"] == "checks" and not r["report"]["results"][0][1]
                for r in contexts[-1]["history"])
     assert dev.submit(dev.authorize("submit"))[0] == 1
-    assert checkpoint(controller, "CP2.1")["candidate/editable.py"] == b"value = 2\n"
+    assert submitted(controller)["candidate/editable.py"] == b"value = 2\n"
 
 
 async def test_failed_check_is_revisable_not_a_success_or_driver_crash(live):
@@ -204,10 +194,10 @@ async def test_check_log_overflow_is_terminal_and_retains_failure(live):
     await implementation(live, dev, profile)
     with pytest.raises(IntegrityError, match="Unusable"):
         await role(live, dev, "checks", profile)
-    controller.account()
-    cp6 = checkpoint(controller, "CP6")
-    assert decode(cp6["accounting.json"])["result"] == "simulation_failed"
-    assert any(p.endswith("report.json") for p in cp6)
+    assert not controller.eligible
+    failures = [f.path for r in controller.journal.verify()
+                if r.value["kind"] == "development_failure" for f in r.files.files]
+    assert any(p.endswith("report.json") for p in failures)
 
 
 async def test_role_revision_recreates_allowed_new_file_from_original_baseline(live):
@@ -225,7 +215,7 @@ async def test_role_revision_recreates_allowed_new_file_from_original_baseline(l
     await role(live, dev, "checks", profile)
     await role(live, dev, "review", profile, REVIEW)
     dev.submit(dev.authorize("submit"))
-    assert checkpoint(dev._controller, "CP2.1")["candidate/generated/new.py"] == (
+    assert submitted(dev._controller)["candidate/generated/new.py"] == (
         b"second revision"
     )
 
@@ -268,12 +258,13 @@ async def test_role_cancellation_accounts_failure_and_never_submits(live, point)
             task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-    controller.account()
-    cp6 = checkpoint(controller, "CP6")
-    assert decode(cp6["accounting.json"])["result"] == "simulation_failed"
-    assert any(p.endswith("model-request.json") for p in cp6)
-    with pytest.raises(AssertionError, match="not sealed"):
-        checkpoint(controller, "CP2.1")
+    assert not controller.eligible
+    archived = [f.path for r in controller.journal.verify()
+                if r.value["kind"] in {"development_role", "development_failure"}
+                for f in r.files.files]
+    assert "model-request.json" in archived
+    with pytest.raises(AssertionError, match="no candidate"):
+        submitted(controller)
     if point == "inference":
         assert runtime._spec is None
     else:

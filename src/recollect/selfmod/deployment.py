@@ -1,4 +1,4 @@
-"""Immutable subagent bundles and journaled A/B routing gated by CP4.
+"""Immutable subagent bundles and journaled A/B routing with rollback to A.
 
 A bundle is the exact accepted candidate tree plus a required dependency lock,
 the pinned base image and launch metadata, all bound by one digest. Images are
@@ -6,10 +6,10 @@ produced by create/copy/commit from the local base image (never pull or rebuild)
 and verified by reading the bundle bytes back out of the image before serving.
 
 The router is harness state, not a worker capability. Existing tasks keep the
-deployment they were bound to; new tasks bind to the serving deployment. B is
-routed only during a CP4 activation whose original-task continuation stays
-blocked until the controller seals CP4. Failure or recovery restores A.
-Blocking methods belong off the event loop.
+deployment they were bound to; new tasks bind to the serving deployment. B
+serves only after its activation is committed, and the original request's
+continuation stays blocked until it is released. Failure, rollback or recovery
+restores A, which is never modified. Blocking methods belong off the event loop.
 """
 
 import io
@@ -19,7 +19,6 @@ import tarfile
 from dataclasses import dataclass
 
 from .contracts import File, Snapshot, require_digest
-from .controller import ACTIVATION_CHECKS
 from .journal import IntegrityError, encode, sha256
 
 BUNDLE_ROOT = "recollect-bundle"
@@ -211,7 +210,7 @@ def bundle_skills(bundle):
 
 def materialize_skills(bundle, destination):
     """Write a verified bundle's skills tree for its read-only config mount."""
-    from .checkpoints import materialize
+    from .files import materialize
 
     skills = bundle_skills(bundle)
     if not skills.files:
@@ -264,7 +263,7 @@ class DeploymentRouter:
         elif kind == "activation_started":
             self._activation, self._serving = data["epoch"], "B"
             self._epoch, self._committed = data["epoch"], False
-        elif kind == "activation_sealed":
+        elif kind == "activation_committed":
             self._committed, self._activation = True, None
         elif kind == "rolled_back":
             self._serving, self._epoch = "A", data["epoch"]
@@ -316,8 +315,9 @@ class DeploymentRouter:
         """Record new work's deployment; binding never starts it and never moves.
 
         During an open activation new work binds to B, but ``route`` refuses to
-        serve any B task until CP4 is sealed. After a rollback that work stays
-        unserved: an unsealed B never runs and nothing is silently moved to A.
+        serve any B task until the activation is committed. After a rollback
+        that work stays unserved: an uncommitted B never runs and nothing is
+        silently moved to A.
         """
         if task_id in self._tasks:
             raise IntegrityError("Task is already bound to a deployment")
@@ -330,7 +330,8 @@ class DeploymentRouter:
     def route(self, task_id):
         role, _ = self._tasks[task_id]
         if role == "B" and not self._committed:
-            raise IntegrityError("B serves only after its CP4 seal (blocked or voided)")
+            raise IntegrityError(
+                "B serves only after activation commit (blocked or voided)")
         if (role == "B" and task_id in self._continuations
                 and task_id not in self._released):
             raise IntegrityError("Original-task continuation awaits release")
@@ -356,50 +357,21 @@ class DeploymentRouter:
             "to": self._deployments["B"].bundle_digest,
         })
 
-    def activation_checks(self, *, b_healthy, a_available, target_quiescent,
-                          baseline_empty):
-        """Router-derived facts plus trusted host observations, exactly CP4's set."""
-        linked = [t for t, parent in self._continuations.items()
-                  if self._tasks.get(t, (None,))[0] == "B"
-                  and self._tasks.get(parent, (None,))[0] == "A"]
-        checks = {
-            "route_changed": self._serving == "B" and self._activation is not None,
-            "health_passed": b_healthy is True,
-            "target_gate_closed": bool(linked) and not (set(linked) & self._released),
-            "target_quiescent": target_quiescent is True,
-            "baseline_empty": baseline_empty is True,
-            "continuation_linked": len(linked) == 1,
-            "a_available": a_available is True and "A" in self._deployments,
-        }
-        if set(checks) != ACTIVATION_CHECKS:
-            raise IntegrityError("Router checks diverged from the frozen CP4 set")
-        return checks
-
     def evidence(self):
         records = self._journal.verify()
         return Snapshot((File("routing.jsonl", b"".join(r.body for r in records)),))
 
-    def seal(self, controller, checks):
-        """Seal CP4 for the exact staged candidate; failure rolls routing back."""
+    def commit(self):
+        """Serve the staged B after it passed its checks and started healthy."""
         if self._activation is None:
-            raise IntegrityError("No open activation to seal")
-        b = self._deployments["B"]
-        controller.dispatch("activate")
-        try:
-            controller.activated(b.candidate_sha256, checks, self.evidence())
-        except BaseException:
-            self.rollback("cp4_seal_failed")
-            raise
-        if controller._phase != "continue":
-            self.rollback("cp4_failed")
-            return False
-        self._record("activation_sealed", {"epoch": self._epoch,
-                                           "bundle_digest": b.bundle_digest})
-        return True
+            raise IntegrityError("No open activation to commit")
+        self._record("activation_committed", {
+            "epoch": self._epoch,
+            "bundle_digest": self._deployments["B"].bundle_digest})
 
     def release_continuation(self, task_id):
         if not self._committed or task_id not in self._continuations:
-            raise IntegrityError("Continuation release requires sealed CP4")
+            raise IntegrityError("Continuation release requires a committed B")
         if task_id in self._released:
             raise IntegrityError("Continuation already released")
         self._record("continuation_released", {"task_id": task_id,
@@ -426,15 +398,14 @@ class DeploymentRouter:
 
     @classmethod
     def recover(cls, journal):
-        """An activation interrupted before its CP4 seal restores A.
+        """An activation interrupted before its commit restores A.
 
-        Work bound to that unsealed B stays unserved. A crash between the
-        controller's CP4 seal and this router's seal record also rolls back and
-        leaves the continuation blocked: it fails closed, never dispatching.
+        Work bound to that uncommitted B stays unserved and the continuation
+        stays blocked: recovery fails closed, never dispatching.
         """
         router = cls(journal)
         if router._activation is not None and not router._committed:
-            router.rollback("recovered_unsealed_activation")
+            router.rollback("recovered_uncommitted_activation")
         return router
 
 
@@ -451,7 +422,7 @@ class DeploymentSandboxes:
 
     def register(self, role, manager, verified):
         """Accept a manager only for the verified image and exact bundle skills."""
-        from .checkpoints import verify_materialized
+        from .files import verify_materialized
 
         recorded = self._router.deployment(role)
         pinned = getattr(manager, "deployment", None)

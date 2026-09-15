@@ -12,7 +12,6 @@ from pathlib import Path
 
 import pytest
 
-from recollect.selfmod.checkpoints import materialize, verify_materialized
 from recollect.selfmod.containment import (
     MAX_WIRE_BYTES,
     attest,
@@ -23,6 +22,7 @@ from recollect.selfmod.containment import (
     verify_ready,
 )
 from recollect.selfmod.contracts import File, Snapshot
+from recollect.selfmod.files import materialize, verify_materialized
 from recollect.selfmod.journal import IntegrityError, Journal, decode, sha256
 from tests.selfmod_containment_helpers import spec
 

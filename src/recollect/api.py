@@ -226,14 +226,12 @@ class AppState:
 
 def create_app(
     config: RecollectConfig | None = None, *, serve_ui: bool = True,
-    state_factory=None,
 ) -> FastAPI:
-    """``state_factory(config)`` lets a trial serve this app over its own state."""
     config = config or RecollectConfig.from_env()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        state = (state_factory or AppState)(config)
+        state = AppState(config)
         app.state.recollect = state
         continuous = (config.subagent_continuous_enabled and config.subagent_enabled
                       and config.subagent_backend == "opencode")

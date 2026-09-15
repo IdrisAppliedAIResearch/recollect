@@ -14,20 +14,19 @@ from recollect.selfmod.contracts import (
     TaskContract,
     Verification,
 )
-from recollect.selfmod.controller import Controller
 from recollect.selfmod.development import Review, Stage
 from recollect.selfmod.integration import DevelopmentSettings
 from recollect.selfmod.journal import IntegrityError, decode, encode, sha256
 from recollect.selfmod.native_admission import NativeStop
-from tests.selfmod_checkpoint_helpers import (
+from recollect.selfmod.round import ModificationRound
+from tests.selfmod_containment_helpers import spec
+from tests.selfmod_round_helpers import (
     EVIDENCE,
     FakeClock,
     Fault,
-    config,
-    through_baseline,
+    round_config,
     values,
 )
-from tests.selfmod_containment_helpers import spec
 
 
 @pytest.fixture
@@ -42,12 +41,10 @@ def case(tmp_path):
         PlannedChange("editable.py", "modify", ("value",), "original task"),
     ), (Verification("value", "unit and independent evaluation"),))
     clock, fault = FakeClock(), Fault()
-    controller = Controller.create(
-        tmp_path / "controller", replace(config(), contract=contract,
-                                        baseline_sha256=source.baseline.sha256),
+    controller = ModificationRound.create(
+        tmp_path / "controller", round_config(contract, source.baseline.sha256),
         clock=clock, fault=fault,
     )
-    through_baseline(controller)
     dev = controller.open_development(
         baseline=source.baseline, policy=source.policy,
         settings=DevelopmentSettings(source.image_id, source.image_environment,
@@ -138,10 +135,7 @@ async def test_context_comes_from_controller_and_cannot_admit_candidate(case):
     assert case.dev._receipt is None and case.dev._development._artifact is None
     assert not hasattr(admission, "accept_receipt")
     assert not hasattr(admission, "refresh")
-    case.controller.account()
-    assert values(case.controller, "accounting_completed")[-1]["result"] == (
-        "simulation_failed"
-    )
+    assert "native_admission_failed" in case.controller.reasons
 
 
 @pytest.mark.parametrize("change", [
@@ -287,7 +281,7 @@ async def test_local_close_or_foreign_stop_cannot_release_ownership(case, wrong)
     assert case.dev._busy and case.controller._development_pending
     assert not admission.settled and not case.controller._eligible
     with pytest.raises(IntegrityError, match="cleanup"):
-        case.controller.account()
+        case.controller.close()
 
 
 async def test_async_close_failure_is_not_retried_or_called_settled(case):
@@ -350,20 +344,17 @@ async def test_late_failure_cannot_release_lease_at_final_delivery(case, monkeyp
     assert case.dev._busy and case.controller._development_pending
 
 
-async def test_native_records_and_authority_survive_cp6_export(case):
+async def test_native_records_and_authority_are_journaled(case):
     admission = admit(case)
     started(admission)
     admission.release()
     await admission.close()
-    case.controller.account()
-    cp6 = [r for r in case.controller.journal.verify()
-           if r.value["kind"] == "checkpoint_prepared"
-           and any(f.path == "manifest.json"
-                   and decode(f.content).get("checkpoint_id") == "CP6"
-                   for f in r.files.files)][0]
-    assert any(f.content == admission.settings.authority for f in cp6.files.files)
-    assert any(f.content == EVIDENCE.files[0].content for f in cp6.files.files)
-    assert any(b'"first_failure"' in f.content for f in cp6.files.files)
+    records = case.controller.journal.verify()
+    files = [f.content for r in records for f in r.files.files]
+    assert admission.settings.authority in files
+    assert EVIDENCE.files[0].content in files
+    assert any("first_failure" in r.value["data"] for r in records
+               if r.value["kind"] == "development_failure")
 
 
 async def test_unbounded_guards_do_not_consume_work_or_call_quotas(case):

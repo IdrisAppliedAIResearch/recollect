@@ -9,8 +9,8 @@ from recollect.selfmod.containment import wire_binding
 from recollect.selfmod.docker_runtime import DockerFixtureRuntime
 from recollect.selfmod.executor import FixtureExecutor
 from recollect.selfmod.journal import IntegrityError, decode, encode, sha256
-from tests.selfmod_checkpoint_helpers import FakeClock
 from tests.selfmod_containment_helpers import CONTAINER_ID, inspection, report, spec
+from tests.selfmod_round_helpers import FakeClock
 
 
 class FakeCommand:
@@ -213,7 +213,7 @@ def test_host_input_drift_prevents_release(setup):
             (daemon.inputs / "spec.json").write_bytes(b"changed")
 
     daemon.hook = drift
-    with pytest.raises(IntegrityError, match="differs"):
+    with pytest.raises(IntegrityError, match="differ"):
         runner.run(runtime)
     assert not hasattr(daemon, "release")
 

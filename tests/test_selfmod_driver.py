@@ -12,9 +12,10 @@ from recollect.selfmod.contracts import File, Snapshot
 from recollect.selfmod.development import Stage
 from recollect.selfmod.journal import IntegrityError, decode, encode
 from recollect.selfmod.roles import LocalRoleModel
+from tests.selfmod_round_helpers import submitted
 from tests.test_selfmod_executor import Runtime
 from tests.test_selfmod_integration import case as case
-from tests.test_selfmod_integration import checkpoint, opened
+from tests.test_selfmod_integration import opened
 from tests.test_selfmod_roles import finding, response, settings
 
 APPROVE = {"approved": True, "findings": [], "rationale": "Reviewed"}
@@ -120,16 +121,13 @@ async def test_rejection_check_failure_and_code_revision_keep_original_evidence(
     assert any(r.get("role_report", {}).get("approved") is False for r in history)
     assert any(r["kind"] == "checks" and not all(v for _, v in r["report"]["results"])
                for r in history)
-    assert case.controller._number == 0  # Readiness is not CP2 or task success.
+    assert case.controller._number == 0  # Readiness is not submission or success.
     assert dev.submit(dev.authorize("submit"))[0] == 1
-    cp2 = checkpoint(case.controller, "CP2.1")
-    assert cp2["candidate/editable.py"] == b"value = 2\n"
-    case.controller.account()
-    cp6 = checkpoint(case.controller, "CP6")
+    candidate = submitted(case.controller)
+    assert candidate["candidate/editable.py"] == b"value = 2\n"
     for record in case.controller.journal.verify():
         if record.value["kind"] == "development_driver":
-            assert cp2[f"records/{record.anchor.sequence}.json"] == record.body
-            assert cp6[f"receipts/{record.anchor.sequence}.json"] == record.body
+            assert candidate[f"records/{record.anchor.sequence}.json"] == record.body
 
 
 async def test_repeated_rejection_has_no_iteration_or_elapsed_quota(case):
@@ -182,13 +180,9 @@ async def test_cancel_at_driver_boundaries_is_terminal_after_settlement(
             await task
     assert not case.controller._eligible and dev._driver is None
     assert not case.controller._development_pending
-    case.controller.account()
-    assert decode(checkpoint(case.controller, "CP6")["accounting.json"])[
-        "result"
-    ] == "simulation_failed"
 
 
-@pytest.mark.parametrize("competitor", ["driver", "grant", "account", "close"])
+@pytest.mark.parametrize("competitor", ["driver", "grant", "reopen", "close"])
 async def test_driver_claim_cannot_be_stolen_or_released_by_competitor(
     case, competitor,
 ):
@@ -209,8 +203,10 @@ async def test_driver_claim_cannot_be_stolen_or_released_by_competitor(
                 await dev.run_until_ready(settings(), factory)
             elif competitor == "grant":
                 dev.authorize("plan")
-            elif competitor == "account":
-                case.controller.account()
+            elif competitor == "reopen":
+                case.controller.open_development(
+                    baseline=case.fixture.baseline, policy=case.fixture.policy,
+                    settings=case.settings)
             else:
                 case.controller.close()
         assert dev._driver is owner and case.controller._development_pending
@@ -259,8 +255,9 @@ async def test_abort_after_ready_record_cannot_deliver_success(case, monkeypatch
     try:
         assert await asyncio.to_thread(entered.wait, 10)
         with pytest.raises(IntegrityError, match="cleanup"):
-            case.controller.account()
+            case.controller.close()
         assert dev._driver is not None and case.controller._development_pending
+        case.controller.fail("host aborted the round")
     finally:
         release.set()
         with pytest.raises(IntegrityError, match="revoked"):
