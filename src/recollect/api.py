@@ -209,6 +209,9 @@ class AppState:
         self.tasks = TaskCoordinator(
             config, self.sessions, self.task_store, self.generator, self.sandboxes,
         )
+        # Built at startup when self-modification is enabled; A serves from its
+        # own verified bundle and its capability-gap reports start the loop.
+        self.selfmod = None
         self.embedder_health: dict = {}
         # A session is an append-only log with a turn counter; two turns
         # racing on one session would interleave episodes and corrupt the
@@ -244,11 +247,21 @@ def create_app(
                     state.model_ingress.base_url, state.model_ingress.token,
                 )
                 await state.tasks.start()
+                if config.selfmod_enabled:
+                    from .selfmod.service import install
+
+                    state.selfmod = await install(
+                        config, state.tasks, model_slot=state.model_slot,
+                        model_base_url=state.model_ingress.base_url,
+                        model_api_key=state.model_ingress.token,
+                    )
             if config.subagent_enabled and config.subagent_backend == "opencode":
                 await state.sandboxes.start_reaper()
             yield
         finally:
             if continuous:
+                if state.selfmod is not None:
+                    await state.selfmod.close()
                 state.model_slot.close()
                 await state.tasks.close()
             await state.sandboxes.close_all()

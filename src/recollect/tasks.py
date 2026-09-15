@@ -884,6 +884,10 @@ class TaskCoordinator:
                         )
                     await asyncio.to_thread(self.store.update, *key, **changes)
 
+            # Work that predates the deployment router binds to A on first run.
+            if (self.deployments is not None
+                    and not self.deployments.is_bound(task_id)):
+                await asyncio.to_thread(self.deployments.bind, task_id)
             # Routing refuses unsealed B work; that failure blocks this task.
             manager = (
                 self.deployments.manager_for(task_id)

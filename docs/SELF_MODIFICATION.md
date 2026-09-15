@@ -53,8 +53,10 @@ the run. Every step is kept in an append-only audit journal.
 | Switch | `loop.DeploymentSwitch`: build and verify B, stage, activate, register B's sandbox, hold the continuation, commit, release, await the resumed task |
 | Bomb shelter | `DeploymentRouter.rollback`; a retry stages a fresh B and work bound to a voided B never serves |
 
-Not yet wired: application startup that builds A's bundle and constructs these
-ports, cancelling A's original task when the gap arrives, and a live run.
+| Wiring | `service.py` `install`: at startup (`RECOLLECT_SELFMOD_ENABLED=1`) builds and registers A, hands the coordinator its gap hook, cancels A's task on a gap and runs one loop at a time |
+
+Not yet qualified live: a real run needs the model server and Docker, and the
+authoring and role calls pin the modifier lane only on a three-slot server.
 
 ## Timing
 

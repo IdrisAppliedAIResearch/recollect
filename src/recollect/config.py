@@ -163,6 +163,9 @@ class RecollectConfig:
     #: timeout or per-response token cap. Cleanup after an observed stop keeps
     #: its short bounds; elapsed or quiet time never ends healthy work.
     experiment_unbounded: bool = False
+    #: Self-modification: A serves from its own verified bundle image, and a
+    #: structured capability-gap report from A runs one loop at a time.
+    selfmod_enabled: bool = False
     # Limits for the opencode backend. The step cap is handed to opencode
     # (it forces a text-only final pass at the cap) and is the run's only
     # bound: there is no client-side wallclock, so a long research pass is
@@ -276,6 +279,8 @@ class RecollectConfig:
             raise ValueError("aspect_enabled must be a boolean")
         if not isinstance(self.experiment_unbounded, bool):
             raise ValueError("experiment_unbounded must be a boolean")
+        if not isinstance(self.selfmod_enabled, bool):
+            raise ValueError("selfmod_enabled must be a boolean")
         # The deployment owns switch on or off; the mechanism constants stay
         # frozen. Frozen dataclass, hence the setattr.
         object.__setattr__(
@@ -440,6 +445,9 @@ class RecollectConfig:
             ),
             experiment_unbounded=_flag(
                 os.environ.get("RECOLLECT_EXPERIMENT_UNBOUNDED", "0")
+            ),
+            selfmod_enabled=_flag(
+                os.environ.get("RECOLLECT_SELFMOD_ENABLED", "0")
             ),
             sandbox_steps=int(os.environ.get("RECOLLECT_SANDBOX_STEPS", 24)),
             sandbox_idle_ttl_s=float(
