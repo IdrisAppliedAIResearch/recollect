@@ -14,12 +14,15 @@ from recollect.selfmod.executor import Deadline
 from recollect.selfmod.journal import IntegrityError, decode
 from recollect.selfmod.role_worker import parse
 from recollect.selfmod.roles import (
+    InvalidRoleReply,
     LocalRoleModel,
     RoleSettings,
     check_result,
     make_context,
     model_payload,
     plan_result,
+    render_history,
+    render_message,
     review_result,
     role_spec,
 )
@@ -109,7 +112,7 @@ async def test_model_fixed_request_and_raw_evidence(case):
         return response({"changes": [], "verification": []})
 
     model = LocalRoleModel(profile, transport=httpx.MockTransport(handle))
-    reply, raw = await model.complete(model_payload(context, profile),
+    reply, raw = await model.complete(model_payload(context, profile, "m"),
                                      Deadline(20_000_000_000, case.clock.boot),
                                      clock=case.clock)
     assert decode(reply) == {"changes": [], "verification": []}
@@ -142,8 +145,11 @@ async def test_model_failures_cannot_supply_a_role_reply(fault):
         return httpx.Response(200, stream=RawStream(json.dumps(value).encode()))
 
     model = LocalRoleModel(settings(), transport=httpx.MockTransport(handle))
-    with pytest.raises((IntegrityError, httpx.HTTPStatusError)):
+    with pytest.raises((IntegrityError, InvalidRoleReply,
+                        httpx.HTTPStatusError)) as raised:
         await model.complete({}, Deadline(20_000_000_000, clock.boot), clock=clock)
+    # A cut-off reply goes back to the step; everything else is an integrity fault.
+    assert (raised.type is InvalidRoleReply) == (fault == "truncated")
     assert len(model.evidence().files[1].content) <= 128 * 1024
 
 
@@ -258,7 +264,7 @@ def test_driver_and_prompt_capture_cannot_drift_during_build(case, monkeypatch):
     fixture = role_spec(dev, context, b"{}\n", profile, 1000)
     assert next(f.content for f in fixture.baseline.files
                 if f.path == "driver.py") == profile.driver
-    assert model_payload(context, profile)["messages"][0]["content"] != (
+    assert model_payload(context, profile, "m")["messages"][0]["content"] != (
         "substituted prompt"
     )
     assert profile.identity == identity
@@ -308,41 +314,108 @@ def test_profile_identity_binds_model_checks_and_driver():
 
 
 def finding(**kwargs):
-    return {"id": "F1", "severity": "blocking", "status": "open",
-            "requirement_id": "value", "path": "editable.py",
-            "detail": "Need a narrower implementation", "resolution": "", **kwargs}
+    return {"severity": "blocking", "target": "editable.py",
+            "issue": "Need a narrower implementation",
+            "fix": "Change only editable.py", **kwargs}
 
 
-@pytest.mark.parametrize("change", ["drop", "retarget", "rewrite", "downgrade"])
-def test_review_must_preserve_blocking_finding_identity(case, change):
+def test_blocking_findings_block_and_malformed_reviews_are_retryable():
+    advisory = {"approved": True, "findings": [finding(severity="advisory")],
+                "rationale": "Fine"}
+    assert review_result(advisory) == ()
+    rejected = {"approved": False, "findings": [finding()], "rationale": "No"}
+    assert review_result(rejected) == ("editable.py: Need a narrower implementation",)
+    for bad in ({"approved": True},
+                {"approved": True, "findings": [{"id": "F1"}], "rationale": "x"},
+                {"approved": True, "findings": [finding(severity="minor")],
+                 "rationale": "x"},
+                {"invalid": "the reply was cut off"}):
+        with pytest.raises(InvalidRoleReply):
+            review_result(bad)
+
+
+def test_each_step_sees_only_its_sections(case):
     dev = planned(case)
-    context = make_context(dev, dev.authorize("execute"), settings())
-    context["history"] = [{"role_report": {"findings": [finding()]}}]
-    updated = finding(status="resolved", resolution="Fixed in the revision")
-    if change == "retarget":
-        updated["path"] = "protected.py"
-    elif change == "rewrite":
-        updated["detail"] = "An unrelated easier issue"
-    elif change == "downgrade":
-        updated["severity"] = "advisory"
-    report = {"approved": True, "findings": [] if change == "drop" else [updated],
-              "rationale": "Review"}
-    with pytest.raises(IntegrityError):
-        review_result(report, context)
+    profile = settings()
+
+    def text(role, stage, history=()):
+        return render_message(dev, {"role": role, "stage": stage,
+                                    "history": list(history)}, profile)
+
+    def tags(message):
+        return {name for name in ("request", "requirements", "checks", "codebase",
+                                  "plan", "files", "previous_edits", "diff",
+                                  "history") if f"<{name}>" in message}
+
+    base = {"request", "requirements", "checks"}
+    assert tags(text("plan", "plan")) == base | {"codebase"}
+    assert tags(text("review", "forward_review")) == base | {"codebase", "plan"}
+    execute = text("execute", "implement")
+    assert tags(execute) == base | {"plan", "files"}
+    assert '<file path="editable.py">' in execute
+    assert '<file path="protected.py">' not in execute
+    dev._previous_edits = (dev._development._plan.sha256, {"edits": []})
+    assert "previous_edits" in tags(text("execute", "implement"))
+    dev._previous_edits = ("0" * 64, {"edits": []})
+    assert "previous_edits" not in tags(text("execute", "implement"))
+    dev._development._artifact = Snapshot(tuple(
+        File(f.path, b"value = 2\n") if f.path == "editable.py" else f
+        for f in case.fixture.baseline.files))
+    review = text("review", "code_review")
+    assert tags(review) == base | {"plan", "diff"}
+    assert "+value = 2" in review
+    for message in (execute, review):
+        assert "request_id" not in message and "runner_sha256" not in message
 
 
-def test_removed_unnecessary_planned_file_can_resolve_original_finding(case):
-    dev = planned(case)
-    context = make_context(dev, dev.authorize("execute"), settings())
-    previous = finding(path="generated/unnecessary.py")
-    context["history"] = [{"role_report": {"findings": [previous]}}]
-    report = {"approved": True, "findings": [
-        {**previous, "status": "resolved", "resolution": "Removed from the plan"},
-    ], "rationale": "The revised plan no longer adds the unnecessary abstraction"}
-    assert review_result(report, context) == ()
-    context["history"] = []
-    with pytest.raises(IntegrityError):
-        review_result(report, context)
+def test_history_is_readable_feedback():
+    history = [
+        {"kind": "review", "report": {"binding": {"artifact_sha256": None},
+                                      "approved": False,
+                                      "unresolved_blockers": ["x"]},
+         "role_report": {"findings": [finding()]}},
+        {"kind": "checks", "role_report": {"checks": [
+            {"name": "unit", "passed": False, "exitcode": 1,
+             "stdout": base64.b64encode(b"boom").decode(), "stderr": ""},
+            {"name": "regression", "passed": True, "exitcode": 0,
+             "stdout": "", "stderr": ""}]}},
+        {"kind": "invalid", "role": "execute", "error": "missing planned edits"},
+    ]
+    assert render_history(history).split("\n\n") == [
+        "forward review rejected\n[blocking] editable.py: Need a narrower "
+        "implementation. Fix: Change only editable.py",
+        "check failed: unit (exit 1)\nboom",
+        "invalid reply from execute: missing planned edits",
+    ]
+
+
+def test_worker_applies_replacements_or_reports_invalid(tmp_path, monkeypatch):
+    from recollect.selfmod import role_worker
+
+    source = tmp_path / "source"
+    source.mkdir()
+    original = "value = 1\nother = 1\n"
+    (source / "editable.py").write_text(original)
+    monkeypatch.chdir(tmp_path)
+    context = {"plan": {"changes": [
+        {"path": "editable.py", "operation": "modify"},
+        {"path": "generated/new.py", "operation": "create"}]}}
+    ambiguous = role_worker.apply_edits(context, {"edits": [
+        {"path": "editable.py", "replace": [{"old": "= 1", "new": "= 2"}]},
+        {"path": "generated/new.py", "text": "x = 1\n"}]})
+    assert "appears 2 times" in ambiguous["invalid"]
+    assert (source / "editable.py").read_text() == original
+    assert not (source / "generated").exists()
+    missing = role_worker.apply_edits(context, {"edits": [
+        {"path": "generated/new.py", "text": "x = 1\n"}]})
+    assert missing == {"invalid": "missing planned edits: editable.py"}
+    assert role_worker.apply_edits(context, {"invalid": "cut off"}) == {
+        "invalid": "cut off"}
+    applied = role_worker.apply_edits(context, {"edits": [
+        {"path": "editable.py", "replace": [{"old": "value = 1", "new": "value = 2"}]},
+        {"path": "generated/new.py", "text": "x = 1\n"}]})
+    assert applied == {"edited": ["editable.py", "generated/new.py"]}
+    assert (source / "editable.py").read_text() == "value = 2\nother = 1\n"
 
 
 def test_revision_modifies_original_baseline_not_previous_created_files(case):

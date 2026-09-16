@@ -2,6 +2,7 @@
 
 from recollect.selfmod.clock import Stamp
 from recollect.selfmod.contracts import File, Snapshot
+from recollect.selfmod.journal import decode
 from recollect.selfmod.round import ModificationRound, RoundConfig
 from tests.test_selfmod_contracts import make_scope
 
@@ -57,3 +58,13 @@ def submitted(owner, number=None):
                 and number in (None, data["candidate_number"])):
             return {f.path: f.content for f in record.files.files}
     raise AssertionError("no candidate was submitted")
+
+
+def role_contexts(owner):
+    """The worker envelopes of model roles, in order, from the audit journal."""
+    contexts = [decode(next(f.content for f in r.files.files
+                            if f.path == "role-request.json"))
+                for r in owner.journal.verify()
+                if r.value["kind"] == "development_role"
+                and r.value["data"].get("state") == "reserved"]
+    return [c for c in contexts if c["role"] != "checks"]

@@ -25,13 +25,11 @@ EDIT = {"edits": [{"path": "editable.py", "text": "value = 2\n"}]}
 class Script:
     def __init__(self, case, replies):
         self.case, self.replies = case, iter(replies)
-        self.requests, self.runtimes = [], []
+        self.requests, self.messages, self.runtimes = [], [], []
 
     def model(self, profile):
         def handle(request):
-            self.requests.append(decode(decode(request.content)["messages"][1][
-                "content"
-            ].encode()))
+            self.messages.append(decode(request.content)["messages"][1]["content"])
             return response(next(self.replies))
 
         return LocalRoleModel(profile, transport=httpx.MockTransport(handle))
@@ -45,7 +43,15 @@ class Script:
         def collect(outer):
             files = {f.path: f.content for f in runtime.config.baseline.files}
             context, reply = decode(files["request.json"]), decode(files["reply.json"])
-            if context["role"] == "execute":
+            if context["role"] != "checks":
+                self.requests.append(context)
+            planned = {c["path"] for c in (context["plan"] or {}).get("changes", [])}
+            if context["role"] == "execute" and "invalid" in reply:
+                result = reply
+            elif context["role"] == "execute" and {
+                    e["path"] for e in reply["edits"]} != planned:
+                result = {"invalid": "edits differ from the planned paths"}
+            elif context["role"] == "execute":
                 for edit in reply["edits"]:
                     files["source/" + edit["path"]] = edit["text"].encode()
                 result = {"edited": [e["path"] for e in reply["edits"]]}
@@ -93,13 +99,9 @@ def plan(case):
 
 async def test_rejection_check_failure_and_code_revision_keep_original_evidence(case):
     rejected = {"approved": False, "findings": [finding()], "rationale": "Narrow it"}
-    resolved = {**APPROVE, "findings": [finding(
-        status="resolved", resolution="Revised plan addresses the issue",
-    )]}
-    code_rejected = {**rejected, "findings": [finding(id="F2")]}
-    code_resolved = {**APPROVE, "findings": [finding(
-        id="F2", status="resolved", resolution="Revised code checked",
-    )]}
+    resolved = {**APPROVE, "findings": [finding(severity="advisory")]}
+    code_rejected = {**rejected, "findings": [finding(issue="Code needs a guard")]}
+    code_resolved = APPROVE
     script = Script(case, [plan(case), rejected, plan(case), resolved,
                           {"edits": [{"path": "editable.py", "text": "value = 3\n"}]},
                           EDIT, code_rejected, EDIT, code_resolved])
@@ -121,6 +123,13 @@ async def test_rejection_check_failure_and_code_revision_keep_original_evidence(
     assert any(r.get("role_report", {}).get("approved") is False for r in history)
     assert any(r["kind"] == "checks" and not all(v for _, v in r["report"]["results"])
                for r in history)
+    messages = script.messages
+    assert "<codebase>" in messages[0] and "<plan>" not in messages[0]
+    assert "forward review rejected" in messages[2]
+    assert "<files>" in messages[4] and "<previous_edits>" not in messages[4]
+    assert "check failed: unit" in messages[5] and "<previous_edits>" in messages[5]
+    assert "<diff>" in messages[6] and "<codebase>" not in messages[6]
+    assert "code review rejected" in messages[7]
     assert case.controller._number == 0  # Readiness is not submission or success.
     assert dev.submit(dev.authorize("submit"))[0] == 1
     candidate = submitted(case.controller)
@@ -267,3 +276,22 @@ async def test_abort_after_ready_record_cannot_deliver_success(case, monkeypatch
     assert [r["state"] for r in records][-2:] == ["ready", "failed"]
     assert not case.controller._eligible and not case.controller._development_pending
     assert case.controller._number == 0
+
+
+async def test_invalid_replies_go_back_to_the_same_step_as_feedback(case):
+    script = Script(case, [
+        {"steps": []}, plan(case),
+        {"approved": "yes"}, APPROVE,
+        {"edits": [{"path": "elsewhere.py", "text": "x"}]}, EDIT,
+        APPROVE,
+    ])
+    dev = opened(case)
+    await dev.run_until_ready(settings(), script.runtime, model_factory=script.model)
+    assert dev.stage == Stage.READY and case.controller.eligible
+    assert [c["role"] for c in script.requests] == [
+        "plan", "plan", "review", "review", "execute", "execute", "review"]
+    invalid = [r for r in script.requests[-1]["history"] if r["kind"] == "invalid"]
+    assert [r["role"] for r in invalid] == ["plan", "forward_review", "execute"]
+    assert "invalid reply from plan" in script.messages[1]
+    assert "invalid reply from forward_review" in script.messages[3]
+    assert "invalid reply from execute" in script.messages[5]

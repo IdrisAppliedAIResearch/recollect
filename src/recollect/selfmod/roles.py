@@ -6,6 +6,8 @@ tool loop. The controller owns their context, identities, limits and receipts.
 
 import asyncio
 import base64
+import difflib
+import json
 import re
 import uuid
 from dataclasses import asdict, dataclass, field, replace
@@ -29,50 +31,99 @@ from .contracts import (
 from .journal import IntegrityError, encode, sha256
 
 PROMPTS = {
-    "plan": (
-        "Plan only the original task within the frozen change policy. Return JSON "
-        "with changes (path, operation, requirement_ids, reason) and verification "
-        "(requirement_id, method). Cover every requirement. prior_attempts says "
-        "why earlier attempts failed; do not repeat those causes. No other keys. "
-        "Output only the raw JSON object, without Markdown fences or commentary."
-    ),
-    "forward_review": (
-        "Independently challenge this prospective plan against the original task. "
-        "This is before implementation: baseline is the unchanged starting source, "
-        "not a failed candidate. Do not require planned code or completed test "
-        "results to exist yet; evaluate whether the proposed changes and checks "
-        "would satisfy the task. Check "
-        "necessity, bloat, unnecessary abstractions, regressions, failure handling "
-        "and tests. Return JSON: approved (boolean), findings (list), rationale "
-        "(string). Each finding has id (stable identifier), severity (blocking or "
-        "advisory), status (open or resolved), requirement_id, path (or empty for "
-        "a global issue), detail (original issue), resolution (empty while open). "
-        "Keep each ID's original issue/target; record its resolution separately. "
-        "Retain previously open blocking IDs with their "
-        "current disposition. Do not implement or redefine done. "
-        "Output only the raw JSON object, without Markdown fences or commentary."
-    ),
-    "execute": (
-        "Implement the reviewed plan and original task, considering recorded "
-        "findings. Return JSON with only edits: a list of path and text fields. "
-        "Provide the complete UTF-8 contents of every planned file. No shell "
-        "commands or extra files. Changes are applied to the ORIGINAL baseline. "
-        "Output only the raw JSON object, without Markdown fences or commentary."
-    ),
-    "code_review": (
-        "Independently review the complete candidate against the original task, "
-        "reviewed plan, baseline and test results. Challenge missing planned work, "
-        "unplanned additions, bloat, regressions and failure handling. Return JSON: "
-        "approved (boolean), findings (list), rationale (string). Each finding "
-        "has id (stable identifier), severity (blocking or advisory), status "
-        "(open or resolved), requirement_id, path (or empty for a global issue), "
-        "detail (original issue), resolution (empty while open). Keep each ID's "
-        "original issue/target; record its resolution separately. "
-        "Retain previously open blocking IDs with their current "
-        "disposition. Do not implement or redefine done. "
-        "Output only the raw JSON object, without Markdown fences or commentary."
-    ),
+    "plan": """<role>
+You plan how to implement a new capability. Its tests are already written and frozen; the plan must make them pass.
+</role>
+
+<steps>
+1. Read the request, the requirements, the checks and the codebase.
+2. List each file to change: path, operation (create or modify), the requirement ids it serves, and why.
+3. For every requirement, say how it will be verified: the check names that cover it, or code review.
+4. If there is history or prior_attempts, don't repeat what failed.
+</steps>
+
+<rules>
+- Only editable paths, or new files under the allowed folders. No deletions.
+- Implement the interface exactly as the interface requirement states, and register the tool in recollect/engine/mcp_research.py.
+- Change as little as possible.
+</rules>
+
+<output>
+Only a JSON object, no Markdown fences:
+{"changes": [{"path": "...", "operation": "create", "requirement_ids": ["..."], "reason": "..."}],
+ "verification": [{"requirement_id": "...", "method": "..."}]}
+Every requirement appears in verification exactly once.
+</output>""",
+    "forward_review": """<role>
+You review an implementation plan before any code is written. You did not write it.
+</role>
+
+<steps>
+1. Read the request, the requirements, the checks, the codebase and the plan.
+2. Would these changes make every check pass and meet every requirement?
+3. Look for missing changes, unnecessary changes, and anything that could break existing tools.
+</steps>
+
+<rules>
+- The code doesn't exist yet. Judge the plan, not results.
+- Blocking: the plan can't meet a requirement or would break something. Everything else is advisory.
+- Approve when there are no blocking findings.
+- Don't write code or change the requirements.
+</rules>
+
+<output>
+Only a JSON object, no Markdown fences:
+{"approved": true, "findings": [{"severity": "blocking", "target": "<path or requirement id>", "issue": "...", "fix": "..."}], "rationale": "..."}
+</output>""",
+    "execute": """<role>
+You implement a reviewed plan. Frozen checks will run on your result.
+</role>
+
+<steps>
+1. Read the plan, the checks, the files you will change, and the history.
+2. Write each planned change. For a new file, give its full text. For an existing file, give replacements; each old text must appear exactly once in that file.
+3. If the history has failed checks or findings, fix their cause.
+</steps>
+
+<rules>
+- Only the planned paths. No other files, no shell.
+- Edits always apply to the original files shown. On a revision, resend every edit, starting from previous_edits.
+- Import only the standard library, the tree, and httpx, mcp and trafilatura.
+</rules>
+
+<output>
+Only a JSON object, no Markdown fences:
+{"edits": [{"path": "...", "text": "..."},
+           {"path": "...", "replace": [{"old": "...", "new": "..."}]}]}
+</output>""",
+    "code_review": """<role>
+You review a finished implementation. You did not write it. All checks passed.
+</role>
+
+<steps>
+1. Read the request, the requirements, the plan, the checks and the diff.
+2. Does the diff meet every requirement? Confirm the interface, and check anything listed as unverified by reading the code.
+3. Look for missing planned work, unplanned changes, weak error handling, and breakage in existing tools.
+</steps>
+
+<rules>
+- Blocking: a requirement isn't met or something breaks. Everything else is advisory.
+- Approve when there are no blocking findings.
+- Don't write code or change the requirements.
+</rules>
+
+<output>
+Only a JSON object, no Markdown fences:
+{"approved": true, "findings": [{"severity": "blocking", "target": "<path or requirement id>", "issue": "...", "fix": "..."}], "rationale": "..."}
+</output>""",
 }
+
+REGISTRY = "recollect/engine/mcp_research.py"
+CHECK_LOG_CHARS = 4000
+
+
+class InvalidRoleReply(ValueError):
+    """A model reply the step can retry with feedback, not an integrity failure."""
 
 
 @dataclass(frozen=True)
@@ -126,12 +177,12 @@ def driver_bytes():
     return Path(role_worker.__file__).read_bytes()
 
 
-def model_payload(context, settings):
+def model_payload(context, settings, message):
     prompt = context["stage"] if context["role"] == "review" else context["role"]
     payload = {
         "model": settings.model,
         "messages": [{"role": "system", "content": dict(settings.prompts)[prompt]},
-                     {"role": "user", "content": encode(context).decode()}],
+                     {"role": "user", "content": message}],
         "temperature": 0, "stream": False,
         "response_format": {"type": "json_object"},
         "chat_template_kwargs": {"enable_thinking": False},
@@ -207,6 +258,9 @@ class LocalRoleModel:
         value = role_worker.parse(bytes(raw))
         choices = value.get("choices")
         usage = value.get("usage", {})
+        if (type(choices) is list and len(choices) == 1
+                and choices[0].get("finish_reason") == "length"):
+            raise InvalidRoleReply("the reply was cut off at the length limit")
         if (
             type(choices) is not list or len(choices) != 1
             or choices[0].get("finish_reason") != "stop"
@@ -219,7 +273,10 @@ class LocalRoleModel:
         content = choices[0]["message"].get("content")
         if type(content) is not str:
             raise IntegrityError("Role inference needs explicit JSON content")
-        reply = encode(role_worker.parse(content.encode()))
+        try:
+            reply = encode(role_worker.parse(content.encode()))
+        except ValueError as error:
+            raise InvalidRoleReply(f"the reply was not a valid JSON object: {error}") from error
         return reply, bytes(raw)
 
 
@@ -229,10 +286,13 @@ def source_context(source):
 
 
 def make_context(dev, grant, settings):
+    """The worker envelope. Models see render_message, not this bookkeeping."""
     history = [r.value["data"] for r in dev._controller.journal.verify()
                if r.value["kind"] == "development_input"
                and r.value["data"].get("cycle_id") == dev._id
-               and r.value["data"].get("kind") in {"plan", "review", "checks"}]
+               and r.value["data"].get("kind") in {"plan", "review", "checks",
+                                                   "invalid"}]
+    artifact = dev._development._artifact
     return {
         "version": 1, "request_id": uuid.uuid4().hex,
         "role": grant.action, "stage": str(grant.stage),
@@ -243,16 +303,134 @@ def make_context(dev, grant, settings):
         "contract": asdict(dev._controller.config.contract),
         "prior_attempts": list(dev._controller.config.feedback),
         "policy": asdict(dev._policy),
-        "baseline": source_context(dev._baseline),
-        "candidate": (source_context(dev._development._artifact)
-                      if dev._development._artifact is not None else []),
-        "candidate_sha256": (dev._development._artifact.sha256
-                             if dev._development._artifact is not None else None),
+        "baseline": sorted(f.path for f in dev._baseline.files),
+        "candidate": (sorted(f.path for f in artifact.files)
+                      if artifact is not None else []),
+        "candidate_sha256": artifact.sha256 if artifact is not None else None,
         "plan": asdict(dev._development._plan) if dev._development._plan else None,
         "history": history,
         "checks": [f.path[:-3] for f in settings.checks],
         "runner_sha256": settings.identity,
     }
+
+
+def _tag(name, body):
+    return f"<{name}>\n{body}\n</{name}>"
+
+
+def _text(content):
+    return content.decode("utf-8", errors="replace")
+
+
+def _codebase(dev):
+    files = sorted(dev._baseline.files, key=lambda f: f.path)
+    policy = dev._policy
+    lines = ["Files:", *(f"{f.path} ({len(f.content)} bytes)" for f in files), "",
+             "Editable: " + ", ".join(policy.modify) + ".",
+             "New files allowed under: "
+             + ", ".join(p + "/" for p in policy.create_under) + ".",
+             "Protected: " + ", ".join(f.path for f in files
+                                       if f.path not in policy.modify) + "."]
+    registry = next((f for f in files if f.path == REGISTRY), None)
+    if registry is not None:
+        lines += ["", f'<file path="{REGISTRY}">\n{_text(registry.content)}\n</file>']
+    return "\n".join(lines)
+
+
+def _planned_files(dev, plan):
+    originals = {f.path: f.content for f in dev._baseline.files}
+    shown = [f'<file path="{c.path}">\n{_text(originals[c.path])}\n</file>'
+             for c in plan.changes
+             if c.operation == "modify" and c.path in originals]
+    return "\n\n".join(shown) or "No existing files change; every planned file is new."
+
+
+def _diff(dev):
+    originals = {f.path: f.content for f in dev._baseline.files}
+    chunks = []
+    for file in sorted(dev._development._artifact.files, key=lambda f: f.path):
+        before = originals.get(file.path)
+        if before == file.content:
+            continue
+        chunks.extend(difflib.unified_diff(
+            _text(before).splitlines(keepends=True) if before is not None else [],
+            _text(file.content).splitlines(keepends=True),
+            fromfile="a/" + file.path if before is not None else "/dev/null",
+            tofile="b/" + file.path))
+    return "".join(chunks).rstrip("\n") or "No changes."
+
+
+def _log(value):
+    try:
+        text = base64.b64decode(value, validate=True).decode("utf-8", "replace")
+    except ValueError:
+        return ""
+    return text
+
+
+def render_history(history):
+    lines = []
+    for item in history:
+        kind = item.get("kind")
+        report = item.get("role_report") or {}
+        if kind == "review":
+            code = (item.get("report", {}).get("binding") or {}).get("artifact_sha256")
+            stage = "code review" if code else "forward review"
+            accepted = (item.get("report", {}).get("approved")
+                        and not item.get("report", {}).get("unresolved_blockers"))
+            block = [f"{stage} {'approved' if accepted else 'rejected'}"]
+            block += [f"[{finding.get('severity')}] {finding.get('target')}: "
+                      f"{finding.get('issue')}. Fix: {finding.get('fix')}"
+                      for finding in report.get("findings", [])]
+            lines.append("\n".join(block))
+        elif kind == "checks":
+            failed = [c for c in report.get("checks", []) if not c.get("passed")]
+            if not failed:
+                lines.append("checks passed")
+            for check in failed:
+                output = (_log(check.get("stdout", "")) + _log(check.get("stderr", "")))
+                lines.append(f"check failed: {check.get('name')} "
+                             f"(exit {check.get('exitcode')})\n"
+                             + output[-CHECK_LOG_CHARS:].rstrip())
+        elif kind == "invalid":
+            lines.append(f"invalid reply from {item.get('role')}: {item.get('error')}")
+    return "\n\n".join(lines)
+
+
+def render_message(dev, context, settings):
+    """The model's user message: tagged sections, only what this step needs."""
+    role, stage = context["role"], context["stage"]
+    step = stage if role == "review" else role
+    contract = dev._controller.config.contract
+    plan = dev._development._plan
+    parts = [
+        _tag("request", contract.original_request),
+        _tag("requirements", "\n".join(f"- {r.id}: {r.acceptance}"
+                                        for r in contract.requirements)),
+        _tag("checks", "\n\n".join(
+            f'<check name="{f.path[:-3]}">\n{_text(f.content)}\n</check>'
+            for f in settings.checks)),
+    ]
+    if step in {"plan", "forward_review"}:
+        parts.append(_tag("codebase", _codebase(dev)))
+    if step != "plan" and plan is not None:
+        parts.append(_tag("plan", json.dumps(asdict(plan), ensure_ascii=False,
+                                            indent=1)))
+    if step == "execute":
+        parts.append(_tag("files", _planned_files(dev, plan)))
+        previous = dev._previous_edits
+        if previous is not None and previous[0] == plan.sha256:
+            parts.append(_tag("previous_edits", json.dumps(
+                previous[1], ensure_ascii=False, indent=1)))
+    if step == "code_review":
+        parts.append(_tag("diff", _diff(dev)))
+    feedback = dev._controller.config.feedback
+    if step in {"plan", "execute"} and feedback:
+        parts.append(_tag("prior_attempts", "\n".join("- " + f for f in feedback)))
+    history = render_history(context["history"])
+    if history:
+        parts.append(_tag("history", history))
+    return "\n\n".join(parts)
 
 
 def role_spec(dev, context, reply, settings, timeout_ms):
@@ -280,72 +458,54 @@ def role_spec(dev, context, reply, settings, timeout_ms):
     )
 
 
+def _invalid_reply(value):
+    if type(value) is dict and set(value) == {"invalid"}:
+        raise InvalidRoleReply(str(value["invalid"]))
+
+
 def plan_result(value, contract, policy):
-    if set(value) != {"changes", "verification"}:
-        raise IntegrityError("Unexpected plan report fields")
-    plan = Plan(
-        contract.sha256,
-        tuple(PlannedChange(item["path"], item["operation"],
-                            tuple(item["requirement_ids"]), item["reason"])
-              for item in value["changes"]),
-        tuple(Verification(item["requirement_id"], item["method"])
-              for item in value["verification"]),
-    )
-    plan.validate(contract, policy)
+    _invalid_reply(value)
+    if type(value) is not dict or set(value) != {"changes", "verification"}:
+        raise InvalidRoleReply("A plan needs exactly changes and verification")
+    try:
+        plan = Plan(
+            contract.sha256,
+            tuple(PlannedChange(item["path"], item["operation"],
+                                tuple(item["requirement_ids"]), item["reason"])
+                  for item in value["changes"]),
+            tuple(Verification(item["requirement_id"], item["method"])
+                  for item in value["verification"]),
+        )
+        plan.validate(contract, policy)
+    except (KeyError, TypeError, ValueError) as error:
+        raise InvalidRoleReply(f"invalid plan: {error}") from error
     return plan
 
 
-def review_result(value, context):
+def review_result(value, context=None):
+    _invalid_reply(value)
     if (
-        set(value) != {"approved", "findings", "rationale"}
+        type(value) is not dict
+        or set(value) != {"approved", "findings", "rationale"}
         or type(value["approved"]) is not bool
         or type(value["findings"]) is not list or len(value["findings"]) > 32
         or type(value["rationale"]) is not str or not value["rationale"].strip()
     ):
-        raise IntegrityError("Invalid independent review report")
-    ids = {r["id"] for r in context["contract"]["requirements"]}
-    paths = {f["path"] for f in context["baseline"] + context["candidate"]}
-    paths.update(c["path"] for c in context["plan"]["changes"])
-    previous = {}
-    for record in context["history"]:
-        for finding in record.get("role_report", {}).get("findings", []):
-            previous[finding["id"]] = finding
-    findings = {}
+        raise InvalidRoleReply(
+            "A review needs approved (boolean), findings (list) and rationale")
+    blockers = []
     for finding in value["findings"]:
-        if (
-            type(finding) is not dict or set(finding) != {
-                "id", "severity", "status", "requirement_id", "path", "detail",
-                "resolution",
-            }
-            or type(finding["id"]) is not str
-            or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", finding["id"])
-            or finding["id"] in findings
-            or finding["severity"] not in {"blocking", "advisory"}
-            or finding["status"] not in {"open", "resolved"}
-            or finding["requirement_id"] not in ids
-            or (finding["path"] not in paths | {""}
-                and finding["id"] not in previous)
-            or type(finding["detail"]) is not str or not finding["detail"].strip()
-            or type(finding["resolution"]) is not str
-            or (finding["status"] == "resolved" and not finding["resolution"].strip())
-            or (finding["status"] == "open" and finding["resolution"] != "")
-        ):
-            raise IntegrityError("Invalid or duplicate review finding")
-        prior = previous.get(finding["id"])
-        if prior and any(finding[k] != prior[k] for k in (
-            "path", "requirement_id", "severity", "detail"
-        )):
-            raise IntegrityError("Review finding identity changed its target")
-        findings[finding["id"]] = finding
-    pending = {key for key, f in previous.items()
-               if f["severity"] == "blocking" and f["status"] == "open"}
-    if not pending <= findings.keys():
-        raise IntegrityError("Review silently dropped a blocking finding")
-    for key in pending:
-        if findings[key]["severity"] != "blocking":
-            raise IntegrityError("Resolve a blocking finding, do not downgrade it")
-    return tuple(key + ": " + f["detail"] for key, f in findings.items()
-                 if f["severity"] == "blocking" and f["status"] == "open")
+        if (type(finding) is not dict
+                or set(finding) != {"severity", "target", "issue", "fix"}
+                or finding["severity"] not in {"blocking", "advisory"}
+                or not all(type(finding[k]) is str for k in ("target", "issue", "fix"))
+                or not finding["issue"].strip()):
+            raise InvalidRoleReply(
+                "Each finding needs severity (blocking or advisory), target, "
+                "issue and fix")
+        if finding["severity"] == "blocking":
+            blockers.append(f"{finding['target']}: {finding['issue']}")
+    return tuple(blockers)
 
 
 def extract_source(snapshot):

@@ -41,7 +41,13 @@ from recollect.selfmod.native_history import iter_event_rows
 from recollect.selfmod.native_runtime import NativeDocker, NativeRuntime
 from recollect.selfmod.round import ModificationRound
 from tests.selfmod_containment_helpers import spec as containment_spec
-from tests.selfmod_round_helpers import EVIDENCE, round_config, submitted, values
+from tests.selfmod_round_helpers import (
+    EVIDENCE,
+    role_contexts,
+    round_config,
+    submitted,
+    values,
+)
 from tests.test_selfmod_native_admission import admit
 from tests.test_selfmod_native_admission import case as case
 from tests.test_selfmod_roles import settings as role_settings
@@ -370,10 +376,10 @@ async def test_driver_runs_real_checks_and_fresh_review_on_native_candidate(
               if v.get("kind") == "checks"]
     assert checks and all(result for _, result in checks[-1]["report"]["results"])
     # The code reviewer is a fresh actor context bound to that exact candidate.
-    code_review = json.loads(calls[2]["messages"][1]["content"])
+    plan_context, code_review = role_contexts(controller)[0], role_contexts(
+        controller)[-1]
     assert code_review["candidate_sha256"] == receipt.snapshot.sha256
-    assert "value = 2" in json.dumps(code_review["candidate"])
-    plan_context = json.loads(calls[0]["messages"][1]["content"])
+    assert "+value = 2" in calls[2]["messages"][1]["content"]
     assert code_review["request_id"] != plan_context["request_id"]
     for runtime in runtimes:
         assert not await live.ids(runtime._spec)

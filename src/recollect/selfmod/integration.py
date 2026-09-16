@@ -122,6 +122,9 @@ class IntegratedDevelopment:
         self._receipt_source_sha256 = None
         self._role_context = None
         self._role_model = None
+        # The last applied execute reply, keyed by the plan it implemented.
+        self._previous_edits = None
+        self._pending_edits = None
         # Validate the frozen execution profile before issuing any capability.
         self._spec(uuid.uuid4().hex, self._initial_binding(controller))
         controller._emit("development_opened", {
@@ -411,7 +414,7 @@ class IntegratedDevelopment:
             self._transition()
 
     def _prepare_role(self, grant, settings, model, lease):
-        from .roles import make_context, model_payload, role_spec
+        from .roles import make_context, model_payload, render_message, role_spec
 
         with self._controller._development_operation(self):
             if grant.action not in {"plan", "review", "execute", "checks"}:
@@ -457,7 +460,8 @@ class IntegratedDevelopment:
                 "model_calls_reserved": controller._role_model_calls,
             }, Snapshot((File("role-request.json", self._role_context),)))
             self._role_guard()
-            return (model_payload(context, settings) if model else None,
+            message = render_message(self, context, settings) if model else None
+            return (model_payload(context, settings, message) if model else None,
                     self._role_deadline)
 
     def _role_guard(self):
@@ -489,8 +493,11 @@ class IntegratedDevelopment:
                                            self._role_model.local_closed),
                 "upstream_termination_confirmed": False,
             }, evidence)
+            context = decode(self._role_context)
+            self._pending_edits = (decode(reply) if context["role"] == "execute"
+                                   else None)
             self._role_spec = role_spec(
-                self, decode(self._role_context), reply, self._role_settings, None,
+                self, context, reply, self._role_settings, None,
             )
             self._executor = FixtureExecutor.create(
                 self._controller.journal.root / ("executor-" + self._role_spec.run_id),
@@ -500,7 +507,13 @@ class IntegratedDevelopment:
             )
 
     def _finish_role(self, receipt):
-        from .roles import check_result, extract_source, plan_result, review_result
+        from .roles import (
+            InvalidRoleReply,
+            check_result,
+            extract_source,
+            plan_result,
+            review_result,
+        )
 
         with self._controller._development_operation(self):
             self._role_guard()
@@ -534,39 +547,52 @@ class IntegratedDevelopment:
             }, evidence)
             value = report["result"]
             action = context["role"]
-            if action == "plan":
-                plan = plan_result(value, self._controller.config.contract,
-                                   self._policy)
+            try:
+                if action == "plan":
+                    plan = plan_result(value, self._controller.config.contract,
+                                       self._policy)
+                    self._controller._emit("development_input", {
+                        "cycle_id": self._id, "kind": "plan",
+                        "plan_sha256": plan.sha256,
+                    }, Snapshot((File("plan.json", encode(asdict(plan))),)))
+                    self._development.propose(self._id, plan)
+                    self._receipt = self._receipt_binding = None
+                    self._receipt_source_sha256 = None
+                elif action == "execute":
+                    if type(value) is dict and set(value) == {"invalid"}:
+                        raise InvalidRoleReply(value["invalid"])
+                    self._development.implementation(self._id, source)
+                    # Preserve the raw envelope receipt. This separately recorded map
+                    # identifies the candidate extracted and reconstructed by the host.
+                    self._receipt, self._receipt_binding = receipt, self.binding
+                    self._receipt_source_sha256 = source.sha256
+                    self._previous_edits = (self._development._plan.sha256,
+                                            self._pending_edits)
+                elif action == "review":
+                    blockers = review_result(value, context)
+                    review = Review(self.binding, self._role_grant.actor_id,
+                                    value["approved"], blockers,
+                                    evidence.sha256)
+                    self._input("review", review, evidence, role_report=value)
+                    self._development.review(self._id, review)
+                else:
+                    checks = CheckResults(self.binding, check_result(value,
+                                          self._role_settings), evidence.sha256)
+                    self._input("checks", checks, evidence, role_report=value)
+                    self._development.checks(self._id, checks)
+            except InvalidRoleReply as error:
+                # The same step retries with this as history.
                 self._controller._emit("development_input", {
-                    "cycle_id": self._id, "kind": "plan", "plan_sha256": plan.sha256,
-                }, Snapshot((File("plan.json", encode(asdict(plan))),)))
-                self._development.propose(self._id, plan)
-                self._receipt = self._receipt_binding = None
-                self._receipt_source_sha256 = None
-            elif action == "execute":
-                self._development.implementation(self._id, source)
-                # Preserve the raw envelope receipt. This separately recorded map
-                # identifies the candidate extracted and reconstructed by the host.
-                self._receipt, self._receipt_binding = receipt, self.binding
-                self._receipt_source_sha256 = source.sha256
-            elif action == "review":
-                blockers = review_result(value, context)
-                review = Review(self.binding, self._role_grant.actor_id,
-                                value["approved"], blockers,
-                                evidence.sha256)
-                self._input("review", review, evidence, role_report=value)
-                self._development.review(self._id, review)
-            else:
-                checks = CheckResults(self.binding, check_result(value,
-                                      self._role_settings), evidence.sha256)
-                self._input("checks", checks, evidence, role_report=value)
-                self._development.checks(self._id, checks)
+                    "cycle_id": self._id, "kind": "invalid",
+                    "role": context["stage"] if action == "review" else action,
+                    "error": str(error)[:2048],
+                })
             self._transition()
             self._role_guard()
 
     async def run_role(self, grant, settings, runtime, *, model=None):
         """Host-owned one-shot actor; no worker RPC or raw receipt import."""
-        from .roles import LocalRoleModel
+        from .roles import InvalidRoleReply, LocalRoleModel
 
         lease, error = object(), None
         try:
@@ -587,6 +613,9 @@ class IntegratedDevelopment:
                 ))
                 try:
                     reply, _ = await asyncio.shield(inference)
+                except InvalidRoleReply as invalid:
+                    # A cut-off or unparsable reply goes back to the step.
+                    reply = encode({"invalid": str(invalid)[:2048]})
                 except asyncio.CancelledError:
                     inference.cancel()
                     # Exactly one cancellation reaches HTTP cleanup. Further

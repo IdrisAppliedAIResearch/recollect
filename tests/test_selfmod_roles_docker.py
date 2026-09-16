@@ -14,7 +14,7 @@ from recollect.selfmod.integration import DevelopmentSettings
 from recollect.selfmod.journal import IntegrityError
 from recollect.selfmod.roles import LocalRoleModel
 from recollect.selfmod.round import ModificationRound
-from tests.selfmod_round_helpers import round_config, submitted
+from tests.selfmod_round_helpers import role_contexts, round_config, submitted
 from tests.test_selfmod_roles import CHECKS, response, settings
 from tests.test_selfmod_runtime_docker import TransportProbe
 from tests.test_selfmod_runtime_docker import live as live
@@ -85,7 +85,7 @@ async def test_all_roles_use_separate_containers_and_seal_owned_evidence(live):
         runtimes.append(await role(live, dev, action, profile, result, calls))
     assert dev.stage == Stage.READY and len(calls) == 4
     assert len({r._worker.container_id for r in runtimes}) == 5
-    contexts = [json.loads(call["messages"][1]["content"]) for call in calls]
+    contexts = role_contexts(controller)
     assert len({c["request_id"] for c in contexts}) == 4
     assert contexts[0]["actor_id"] == contexts[2]["actor_id"]
     assert len({contexts[i]["actor_id"] for i in (0, 1, 3)}) == 3
@@ -125,10 +125,10 @@ async def test_driver_revises_rejections_and_failed_real_checks_without_submitti
     assert len({r._worker.container_id for r in runtimes}) == 12
     for runtime in runtimes:
         assert not await live.ids(runtime._spec)
-    contexts = [json.loads(c["messages"][1]["content"]) for c in calls]
+    contexts = role_contexts(controller)
     assert contexts[1]["candidate"] == []
     assert contexts[1]["candidate_sha256"] is None
-    assert "before implementation" in calls[1]["messages"][0]["content"]
+    assert "before any code is written" in calls[1]["messages"][0]["content"]
     assert any(r["kind"] == "checks" and not r["report"]["results"][0][1]
                for r in contexts[-1]["history"])
     assert dev.submit(dev.authorize("submit"))[0] == 1

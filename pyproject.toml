@@ -95,8 +95,9 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 # FastAPI declares request bodies and dependencies, so it is not a finding
 # here - it is the framework's calling convention.
 "src/recollect/api.py" = ["B008"]
-# The tests-first prompts are reviewed as written; wrapping would change them.
+# Role and tests-first prompts are reviewed as written; wrapping would change them.
 "src/recollect/selfmod/tests_first.py" = ["E501"]
+"src/recollect/selfmod/roles.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
