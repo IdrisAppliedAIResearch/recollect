@@ -107,6 +107,9 @@ class SelfModificationService:
         self._loop_factory = loop_factory or self._build_loop
         self._completer = completer
         self._root.mkdir(parents=True, exist_ok=True)
+        # Each install owns its directories, so a later boot never collides with
+        # the materialized skills or sandbox root an earlier one left behind.
+        self._token = uuid.uuid4().hex
         self._journal = Journal.create(self._root / ("service-" + uuid.uuid4().hex))
         routing = Journal.create(self._root / ("routing-" + uuid.uuid4().hex))
         self._journals = [self._journal, routing]
@@ -120,11 +123,12 @@ class SelfModificationService:
         await asyncio.to_thread(self._journal.append, kind, data)
 
     def _sandbox_manager(self, verified, name):
-        skills = materialize_skills(verified.bundle, self._root / ("skills-" + name))
+        skills = materialize_skills(
+            verified.bundle, self._root / f"skills-{name}-{self._token}")
         manager = SandboxManager(self._config, model_slot=self._model_slot,
                                  deployment=SandboxDeployment(
                                      verified.image_id, skills,
-                                     self._root / ("root-" + name),
+                                     self._root / f"root-{name}-{self._token}",
                                      python_path=BUNDLE_PYTHONPATH))
         if self._model_base_url is not None:
             manager.configure_model(self._model_base_url, self._model_api_key)

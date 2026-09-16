@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import recollect.selfmod.service as service_module
 from recollect.engine.sandbox.manager import SandboxDeployment
 from recollect.selfmod.deployment import TaskDeployments, materialize_skills
 from recollect.selfmod.loop import Outcome
@@ -85,6 +86,25 @@ async def test_prepare_serves_a_from_its_bundle_and_installs_the_gap_hook(servic
     assert service.coordinator.on_gap == service.handle_gap
     assert "a_registered" in kinds(service)
     await service.close()
+
+
+async def test_a_second_install_on_one_root_does_not_collide(tmp_path, monkeypatch):
+    """A later boot must not trip over the directories an earlier one left."""
+    monkeypatch.setattr(
+        service_module, "SandboxManager",
+        lambda config, **kwargs: SimpleNamespace(deployment=kwargs["deployment"]))
+    root = tmp_path / "root"
+    for _ in range(2):
+        value = SelfModificationService(
+            SimpleNamespace(), Coordinator(), repository=REPOSITORY, root=root,
+            images=Images(), base_image_id=BASE, image_environment=(),
+            role_endpoint="http://127.0.0.1:8001/v1", role_model="local",
+            runtime_factory=lambda: None,
+        )
+        assert (await value.prepare()).image_id
+        assert value.router.serving.role == "A"
+        await value.close()
+    assert len(list(root.glob("skills-a-*"))) == 2
 
 
 async def test_gap_cancels_a_task_and_runs_the_loop_on_the_original_request(service):
