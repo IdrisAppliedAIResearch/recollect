@@ -54,7 +54,11 @@ DEFAULT_SYSTEM_PROMPT = (
     "genuinely sustained multi-step work, not for ordinary reasoning or "
     "anything answerable from this conversation. Keep the task brief: what to "
     "do, and what a good result looks like. Mark narrow lookups as focused; "
-    "reserve deep effort for substantial multi-source work."
+    "reserve deep effort for substantial multi-source work. Also delegate a "
+    "request that needs an action or capability none of your tools provides, "
+    "instead of only telling the user you cannot do it: the subagent reports "
+    "exactly which capability is missing. Refusals on safety, privacy or legal "
+    "grounds stay with you and are never delegated."
 )
 
 
