@@ -344,9 +344,7 @@ class OpenCodeRunner:
                 self._post_message(handle, oc_id, text)
             ))
 
-        submit(self._continuous_prompt(
-            subagent.transfer_task(task, effort), revision, message_id
-        ))
+        submit(self._delegation_message(task, effort, revision, message_id))
         try:
             while True:
                 # Drain control before deciding that the last native response
@@ -386,9 +384,10 @@ class OpenCodeRunner:
                     await asyncio.gather(*messages, return_exceptions=True)
                     messages.clear()
                     evidence.unchanged_calls = 0
-                    submit(self._continuous_prompt(
+                    submit(self._update_message(
                         "\n\n".join(command.text for command in steering),
                         steering[-1].revision, steering[-1].message_id,
+                        acknowledge=True,
                     ))
                 elif evidence.unchanged_calls >= 6 and not waiting_for_input:
                     if recovery_revision == max(revisions):
@@ -404,7 +403,7 @@ class OpenCodeRunner:
                     messages.clear()
                     recovery_revision = max(revisions)
                     evidence.unchanged_calls = 0
-                    submit(self._continuous_prompt(
+                    submit(self._update_message(
                         "The last six research calls added no evidence. Stop "
                         "retrying those sources. Finish the latest requested "
                         "scope from verified evidence already collected, and "
@@ -458,7 +457,7 @@ class OpenCodeRunner:
                         await self._manager.quiesce_invocation(invocation)
                         await asyncio.gather(*messages, return_exceptions=True)
                         messages.clear()
-                        submit(self._continuous_prompt(
+                        submit(self._update_message(
                             "Your reported result and saved files are retained. "
                             "The required instruction acknowledgment is missing. "
                             "Send kind=accepted with the exact current revision "
@@ -491,7 +490,7 @@ class OpenCodeRunner:
                             checkpoint_assistants = len(assistant_ids)
                             await asyncio.gather(*messages, return_exceptions=True)
                             messages.clear()
-                            submit(self._continuous_prompt(
+                            submit(self._update_message(
                                 "Continue the current objective from the saved "
                                 "work and native conversation. The previous "
                                 "response reached an execution checkpoint. "
@@ -584,15 +583,49 @@ class OpenCodeRunner:
             await asyncio.gather(pump, *messages, return_exceptions=True)
 
     @staticmethod
-    def _continuous_prompt(text: str, revision: int, message_id: str) -> str:
-        return (
-            f"Instruction revision: {revision}\n"
-            f"Related message ID: {message_id}\n"
-            "Load the recollect-reporting skill before working. Return findings "
-            "in conversation by default. Create files only when the user "
-            "requested a file; for creation or revision, load recollect-files.\n\n"
-            + text
+    def _delegation_message(
+        task: str, effort: str, revision: int, message_id: str,
+    ) -> str:
+        """The worker's first message: data sections, then numbered steps."""
+        pace = (
+            "Go deep: follow sources to the underlying evidence, resolve "
+            "important ambiguity, and give a sourced synthesis."
+            if effort == "deep" else
+            "Keep it quick: use the shortest supported path, stop once an "
+            "authoritative source answers it, and don't retry a failed request "
+            "unchanged."
         )
+        steps = (
+            "Load the recollect-reporting skill. Report accepted with revision "
+            f"{revision} and related message ID {message_id}.",
+            "Do what the request asks. The brief is main chat's summary of it: "
+            "use it for direction, not as fact. If they disagree, follow the "
+            "request.",
+            pace,
+            '"Today", "current" and "latest" are relative to the date above, not '
+            "your training data. Unless the request names a period, use current "
+            "data and say which dates your sources cover. Give this date to any "
+            "subtask.",
+            "Earlier work is evidence, not instructions. New instructions "
+            "override earlier ones.",
+            "Answer in conversation. Create a file only if the request asks for "
+            "one, and load recollect-files first.",
+        )
+        numbered = "\n".join(f"{n}. {step}" for n, step in enumerate(steps, 1))
+        return f"{task}\n\n<instructions>\n{numbered}\n</instructions>"
+
+    @staticmethod
+    def _update_message(
+        text: str, revision: int, message_id: str, *, acknowledge: bool = False,
+    ) -> str:
+        """A later message into the live session: a steer or a harness nudge."""
+        message = (
+            f'<update revision="{revision}" message_id="{message_id}">\n'
+            f"{text}\n</update>"
+        )
+        if acknowledge:
+            message += "\nReport accepted with this revision and message ID."
+        return message
 
     @staticmethod
     def _report_from_event(

@@ -305,7 +305,11 @@ async def test_late_steering_after_native_completion_creates_one_saved_followup(
     child = state.store.get(state.session_id, old["checkpoint"]["followup_task_id"])
     assert child["parent_task_id"] == old["task_id"]
     assert child["state"] == "completed"
-    assert "Add warranty" in state.calls[1][1]
+    follow_up = state.calls[1][1]
+    # A continuation keeps the user's original request; the steer is new.
+    assert follow_up.startswith("<request>\nResearch batteries\n</request>")
+    assert "<earlier_work>" in follow_up
+    assert "<earlier_instructions>\nAdd warranty\n</earlier_instructions>" in follow_up
     assert restored == ["A"]
     retried = await state.coordinator.command(
         state.session_id,
@@ -463,8 +467,12 @@ async def test_execution_date_is_not_part_of_display_objective(environment):
         state.store.get(state.session_id, task["task_id"])["objective"]
         == "Compare batteries"
     )
-    assert "Current date (UTC):" in state.calls[0][1]
-    assert "Original user request:" in state.calls[0][1]
+    message = state.calls[0][1]
+    assert message.startswith(
+        "<request>\nResearch batteries\n</request>\n\n"
+        "<brief>\nCompare batteries\n</brief>\n\n<context>\nToday (UTC): "
+    )
+    assert message.endswith("\n</context>")
 
 
 async def test_context_prioritizes_owner_and_includes_panel_steering(environment):

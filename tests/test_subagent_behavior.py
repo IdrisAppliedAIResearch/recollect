@@ -32,11 +32,11 @@ def test_continuous_skills_are_read_only_config_assets_not_prompt_bodies(tmp_pat
         }
         assert "prompt" not in config["agent"][agent]
     assert {p.parent.name for p in tmp_path.glob("skills/*/SKILL.md")} == names
-    prompt = OpenCodeRunner._continuous_prompt("Research a company", 2, "steer-2")
-    assert "Instruction revision: 2" in prompt
-    assert "Related message ID: steer-2" in prompt
+    prompt = OpenCodeRunner._delegation_message(
+        "<request>\nResearch a company\n</request>", "focused", 2, "steer-2")
+    assert "revision 2 and related message ID steer-2" in prompt
     assert "recollect-reporting" in prompt
-    assert "Create files only when the user requested a file" in prompt
+    assert "Create a file only if the request asks for one" in prompt
     assert "2 MiB" not in prompt
     assert "2 MiB" in (tmp_path / "skills/recollect-files/SKILL.md").read_text()
 

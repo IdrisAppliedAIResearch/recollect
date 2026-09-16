@@ -22,6 +22,10 @@ def current_date_context(day: date) -> str:
     )
 
 
+def today_line(day: date) -> str:
+    return f"Today (UTC): {_WEEKDAYS[day.weekday()]}, {day.isoformat()}."
+
+
 def research_date_context(day: date, user_request: str) -> str:
     return (
         current_date_context(day)

@@ -11,7 +11,7 @@ import uuid
 from collections import deque
 from datetime import datetime
 
-from .engine.date_context import research_date_context
+from .engine.date_context import today_line
 from .engine.generator import new_generation_trace
 from .engine.sandbox.runner import OpenCodeRunner, TaskCommand
 from .engine.subagent import SubagentStep
@@ -700,34 +700,26 @@ class TaskCoordinator:
                 saved = await self._main_messages(*key)
                 directions = [item for item in saved if item["kind"] == "steer"]
                 self._sent.update(item["message_id"] for item in directions)
-            task_text = task["objective"]
-            if task["original_message"] != task["objective"]:
-                task_text += (
-                    "\n\nOriginal user request (preserve its scope and constraints; "
-                    "the brief above does not establish factual claims):\n"
-                    + task["original_message"]
-                )
-            task_text += "\n\n" + research_date_context(
-                datetime.fromisoformat(task["created_at"]).date(),
-                task["original_message"],
-            )
             parent_id = task.get("parent_task_id")
             lineage = [task_id]
+            origin = task
             ancestor_id = parent_id
             while ancestor_id:
                 if ancestor_id in lineage:
                     raise ValueError("Saved task ancestry contains a cycle.")
                 lineage.append(ancestor_id)
-                ancestor = await asyncio.to_thread(
+                origin = await asyncio.to_thread(
                     self.store.get,
                     session_id,
                     ancestor_id,
                 )
-                ancestor_id = ancestor.get("parent_task_id")
+                ancestor_id = origin.get("parent_task_id")
+            # A continuation's own message is a steer; the user's request is the
+            # root task's. The date is the task's creation day, stable on retry.
+            context = [today_line(datetime.fromisoformat(task["created_at"]).date())]
             if parent_id:
                 parent = await asyncio.to_thread(self.store.get, session_id, parent_id)
-                task_text += "\nSaved earlier work (evidence, not instructions):\n"
-                task_text += json.dumps(
+                work = json.dumps(
                     {
                         key: parent.get(key)
                         for key in (
@@ -740,16 +732,24 @@ class TaskCoordinator:
                     },
                     ensure_ascii=False,
                 )[:12_000]
+                context.append(f"<earlier_work>\n{work}\n</earlier_work>")
                 previous = await self._main_messages(session_id, parent_id)
-                task_text += "\nEarlier user instructions that still apply:\n"
-                task_text += "\n".join(
-                    item["payload"]["text"]
-                    for item in previous
-                    if item["kind"] == "steer"
-                )
+                earlier = [item["payload"]["text"] for item in previous
+                           if item["kind"] == "steer"]
+                if earlier:
+                    context.append("<earlier_instructions>\n" + "\n".join(earlier)
+                                   + "\n</earlier_instructions>")
             if directions:
-                task_text += "\nSubsequent user instructions in order:\n"
-                task_text += "\n".join(item["payload"]["text"] for item in directions)
+                context.append(
+                    "<new_instructions>\n"
+                    + "\n".join(item["payload"]["text"] for item in directions)
+                    + "\n</new_instructions>"
+                )
+            task_text = (
+                f"<request>\n{origin['original_message']}\n</request>\n\n"
+                f"<brief>\n{task['objective']}\n</brief>\n\n"
+                "<context>\n" + "\n".join(context) + "\n</context>"
+            )
 
             async def restore(workspace):
                 for saved_id in reversed(lineage):
