@@ -92,6 +92,7 @@ class SelfModificationService:
     def __init__(self, config, coordinator, *, repository, root, images,
                  base_image_id, image_environment, role_endpoint, role_model,
                  runtime_factory, manager_factory=None, role_slot=None,
+                 sandbox_root=None,
                  model_slot=None, model_base_url=None, model_api_key=None,
                  loop_factory=None, completer=model_completer):
         self._config, self._coordinator = config, coordinator
@@ -110,6 +111,11 @@ class SelfModificationService:
         # Each install owns its directories, so a later boot never collides with
         # the materialized skills or sandbox root an earlier one left behind.
         self._token = uuid.uuid4().hex
+        # Sandbox roots must sit outside any git repository: opencode scopes
+        # the project to the enclosing repo root, so a root under the app's
+        # data directory would hand the worker this whole codebase.
+        self._sandbox_root = Path(
+            sandbox_root or getattr(config, "sandbox_root", None) or self._root)
         self._journal = Journal.create(self._root / ("service-" + uuid.uuid4().hex))
         routing = Journal.create(self._root / ("routing-" + uuid.uuid4().hex))
         self._journals = [self._journal, routing]
@@ -123,12 +129,15 @@ class SelfModificationService:
         await asyncio.to_thread(self._journal.append, kind, data)
 
     def _sandbox_manager(self, verified, name):
+        self._sandbox_root.mkdir(parents=True, exist_ok=True)
         skills = materialize_skills(
-            verified.bundle, self._root / f"skills-{name}-{self._token}")
+            verified.bundle,
+            self._sandbox_root / f"skills-{name}-{self._token}")
         manager = SandboxManager(self._config, model_slot=self._model_slot,
                                  deployment=SandboxDeployment(
                                      verified.image_id, skills,
-                                     self._root / f"root-{name}-{self._token}",
+                                     self._sandbox_root
+                                     / f"root-{name}-{self._token}",
                                      python_path=BUNDLE_PYTHONPATH))
         if self._model_base_url is not None:
             manager.configure_model(self._model_base_url, self._model_api_key)
@@ -236,7 +245,9 @@ async def install(config, coordinator, *, repository=None, root=None,
         root / ("cli-" + uuid.uuid4().hex))
     base_image_id, image_environment = await resolve_image(
         docker, config.sandbox_container_image)
-    shared = root / ("runtimes-" + uuid.uuid4().hex)
+    # Role containers bind-mount this root, so it also stays out of the repo.
+    sandbox_root = Path(getattr(config, "sandbox_root", None) or root)
+    shared = sandbox_root / ("runtimes-" + uuid.uuid4().hex)
     shared.mkdir(parents=True, exist_ok=True)
     role_slot = (model_slot.slot_for("modifier")
                  if config.generator_parallel_slots == 3
@@ -247,7 +258,7 @@ async def install(config, coordinator, *, repository=None, root=None,
         image_environment=image_environment,
         role_endpoint=config.generator_base_url, role_model=config.generator_model,
         runtime_factory=lambda: DockerFixtureRuntime(executable, shared, endpoint),
-        role_slot=role_slot, model_slot=model_slot,
+        role_slot=role_slot, model_slot=model_slot, sandbox_root=sandbox_root,
         model_base_url=model_base_url, model_api_key=model_api_key,
     )
     await service.prepare()

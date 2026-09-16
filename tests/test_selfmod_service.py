@@ -94,9 +94,11 @@ async def test_a_second_install_on_one_root_does_not_collide(tmp_path, monkeypat
         service_module, "SandboxManager",
         lambda config, **kwargs: SimpleNamespace(deployment=kwargs["deployment"]))
     root = tmp_path / "root"
+    sandboxes = tmp_path / "sandboxes"
     for _ in range(2):
         value = SelfModificationService(
-            SimpleNamespace(), Coordinator(), repository=REPOSITORY, root=root,
+            SimpleNamespace(sandbox_root=sandboxes), Coordinator(),
+            repository=REPOSITORY, root=root,
             images=Images(), base_image_id=BASE, image_environment=(),
             role_endpoint="http://127.0.0.1:8001/v1", role_model="local",
             runtime_factory=lambda: None,
@@ -104,7 +106,9 @@ async def test_a_second_install_on_one_root_does_not_collide(tmp_path, monkeypat
         assert (await value.prepare()).image_id
         assert value.router.serving.role == "A"
         await value.close()
-    assert len(list(root.glob("skills-a-*"))) == 2
+    # Sandbox trees live outside the app data directory, never in the repo.
+    assert len(list(sandboxes.glob("skills-a-*"))) == 2
+    assert not list(root.glob("skills-a-*"))
 
 
 async def test_gap_cancels_a_task_and_runs_the_loop_on_the_original_request(service):
