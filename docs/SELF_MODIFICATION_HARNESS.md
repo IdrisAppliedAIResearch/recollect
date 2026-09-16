@@ -643,3 +643,42 @@ materialization to `files.py`. Gate after the strip: Ruff clean, 2754 passed,
 Next: the tests-first stage, generic networkless evaluation of frozen tests plus
 a regression suite, build/commit/resume switch, the rollback-and-retry loop, the
 authentication-steps handoff, and live qualification.
+
+## First live plumbing run (2026-09-15)
+
+A real request went through the whole hand-off for the first time: main chat
+delegated, A worked the task in its bundle sandbox, A reported a structured
+`capability_gap` (it had tried writing base64 PNG bytes with its file tool), the
+coordinator hook cancelled A's task, and the service opened a loop journal and
+began authoring tests. Gap-to-loop is qualified live; nothing beyond it is.
+
+Two defects were found and fixed on the way, both in the new wiring:
+
+- The install materialized A's skills into a fixed `skills-a` directory under a
+  stable root, so the second boot with self-modification enabled raised
+  `FileExistsError` and uvicorn exited. Each install now owns token-suffixed
+  directories (`88434cc`).
+- Deployment sandbox roots sat under the app's data directory, inside this
+  repository, which `sandbox_root` exists to prevent: opencode scopes the
+  project to the enclosing repo root. A's sandbox never answered its health
+  probe and the task blocked with `opencode serve not healthy: 'ConnectTimeout'`.
+  With the root outside the repository the same bundle sandbox is healthy in
+  3.6 s (image build 1.0 s), measured standalone (`ab4ad9a`).
+
+Routing also had to change: main chat answered missing-capability requests in
+conversation instead of delegating, so the worker never saw them and no gap
+could exist. Both prompts now delegate a request needing a capability no tool
+provides, with safety, privacy and legal refusals unchanged (`6f773e8`).
+
+The run then stuck in the tests-first stage: seven authoring rounds in 25
+minutes, every one rejected, no frozen tests. The rejections are substantive and
+stable — the reviewer demands the checks actually decode the QR code (unmasking,
+deinterleaving, Reed-Solomon, byte-mode parsing) and unfilter the PNG, because
+the author prompt requires stdlib-only checks. The chosen demonstration request
+is therefore adversarial for this harness: verifying it deterministically without
+dependencies means writing a QR decoder inside the test. Due process behaved as
+designed; the task choice did not. One authoring reply was also truncated mid
+JSON string, which the loop absorbed by re-authoring.
+
+Not qualified live: frozen tests, development under due process, candidate
+submission, B build and activation, the resumed request, and the retry loop.
