@@ -163,8 +163,32 @@ async def test_announcements_receive_latest_scope(environment):
     state.store.steer(*key, "narrow", "Compare ONLY Apollo 11 and 12.")
     state.coordinator._queue_update(key, "finding", "finding", "Verified dates.", 2)
     await state.coordinator._announce_one(key, state.coordinator._notifications[key])
-    evidence = json.loads(state.generator.calls[-1]["user_message"])
-    assert evidence["later_instructions"] == ["Compare ONLY Apollo 11 and 12."]
+    message = state.generator.calls[-1]["user_message"]
+    assert ("<later_instructions>\n- Compare ONLY Apollo 11 and 12.\n"
+            "</later_instructions>") in message
+    assert '<update kind="finding">\nVerified dates.\n</update>' in message
+
+
+async def test_resumed_request_result_is_relayed_without_a_token_cap(environment,
+                                                                    monkeypatch):
+    state = environment
+    task = await task_tests.submit(state)
+    key = (state.session_id, task["task_id"])
+    seen = []
+
+    async def stream(messages, *, trace, max_tokens, uncapped=False):
+        seen.append(uncapped)
+        trace.response_text = "Ready. Step one, step two, step three."
+        yield None
+
+    monkeypatch.setattr(state.generator, "stream", stream)
+    for marked in (False, True):
+        state.store.update(*key, checkpoint={"selfmod_continuation": marked})
+        state.coordinator._queue_update(key, f"result-{marked}", "result",
+                                        "Ready with steps.", 1)
+        await state.coordinator._announce_one(
+            key, state.coordinator._notifications[key])
+    assert seen == [False, True]
 
 
 async def test_notification_challenge_uses_actual_record(make_task_state):

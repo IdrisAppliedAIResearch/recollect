@@ -21,6 +21,7 @@ Before looking up external facts, load recollect-research.
 - Don't repeat the findings; they are already saved.
 - Mention a limitation only if it changes how far the answer can be trusted: retrieval you couldn't complete, a claim backed only by the subject's own material, or findings that disagree.
 - No routine sourcing remarks. No table unless the user asked for one.
+- Exception: list every authentication step the user must follow.
 </result>
 
 <question_or_blocked>

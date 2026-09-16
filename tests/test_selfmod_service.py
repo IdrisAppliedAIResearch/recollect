@@ -22,9 +22,10 @@ GAP = {"task_id": "task-a", "missing_capability": "calendar write",
 class Coordinator:
     def __init__(self):
         self.deployments = self.on_gap = None
-        self.commands = []
+        self.commands, self.notices = [], []
         self.store = SimpleNamespace(
-            get=lambda session_id, task_id: {"original_message": "book the room"})
+            get=lambda session_id, task_id: {"original_message": "book the room"},
+            notify=lambda *args: self.notices.append(args))
 
     async def command(self, session_id, task_id, request_id, operation, *args,
                       **kwargs):
@@ -116,6 +117,8 @@ async def test_gap_cancels_a_task_and_runs_the_loop_on_the_original_request(serv
     outcome = await service.coordinator.on_gap("session", GAP)
     assert outcome == Outcome(True, "done")
     assert service.coordinator.commands == [("task-a", "cancel")]
+    assert service.coordinator.notices == [
+        ("session", "task-a", "selfmod-gap-task-a", service_module.GAP_NOTICE)]
     [loop] = service.loops
     assert loop.runs == [GAP] and loop.request == "book the room"
     assert kinds(service)[-2:] == ["gap_accepted", "loop_finished"]

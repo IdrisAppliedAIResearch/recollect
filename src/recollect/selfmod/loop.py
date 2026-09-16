@@ -19,12 +19,22 @@ from .round import ModificationRound, RoundConfig
 
 FEEDBACK = 8
 TERMINAL = {"completed", "blocked", "canceled", "interrupted"}
-CONTINUE = (
-    "Continue the original request below with the capability that was just added. "
-    "If it needs the user's authorization for an external service, complete "
-    "everything else, then tell the user the feature is ready and the exact steps "
-    "they must take to authenticate.\n\n"
-)
+
+
+def continuation_brief(tests, gap):
+    """B's brief for the resumed request; the request itself is sent separately."""
+    tool = tests.interface["tool_name"]
+    return (
+        f"A new tool was added so this request can be done: {tool}, which "
+        f"provides {gap.get('missing_capability')}.\n"
+        f"1. Use {tool} to complete the request.\n"
+        "2. The earlier work shows the previous worker could not do this. That is "
+        "fixed: don't report the same gap again. If the new tool fails, report "
+        "blocked with its error.\n"
+        "3. If the tool needs the user's authorization for an external service, do "
+        "everything else first, then finish with result: the feature is ready, "
+        "plus the exact steps to authenticate."
+    )
 
 
 @dataclass(frozen=True)
@@ -39,7 +49,8 @@ def _reason(error):
 
 class SelfModificationLoop:
     """Ports: ``author_tests(gap, stopped, record)``, ``develop(attempt, tests,
-    feedback) -> candidate`` and a switch with ``activate(attempt, candidate)``
+    feedback) -> candidate`` and a switch with ``activate(attempt, candidate,
+    tests, gap)``
     and ``reset(reason)``."""
 
     def __init__(self, journal, *, author_tests, develop, switch, retry_pause=1.0):
@@ -81,7 +92,8 @@ class SelfModificationLoop:
             try:
                 candidate = await self._develop(attempt, tests,
                                                 tuple(feedback[-FEEDBACK:]))
-                outcome = await self._switch.activate(attempt, candidate)
+                outcome = await self._switch.activate(
+                    attempt, candidate, tests, gap)
             except asyncio.CancelledError:
                 await self._switch.reset("cancelled")
                 raise
@@ -142,7 +154,7 @@ class DeploymentSwitch:
         self._base_image_id, self._launch = base_image_id, launch
         self._manager_factory, self._poll = manager_factory, poll_seconds
 
-    async def activate(self, attempt, candidate):
+    async def activate(self, attempt, candidate, tests, gap):
         bundle = SubagentBundle(candidate, self._base_image_id, self._launch)
         image_id = await self._images.build(bundle)
         verified = await self._images.verify(bundle, image_id)
@@ -153,7 +165,7 @@ class DeploymentSwitch:
         # The continuation is linked, and held, while the activation is open.
         task = await self._coordinator.submit(
             self._session_id, f"selfmod-{self._parent}-{attempt}",
-            CONTINUE + self._request, self._request,
+            continuation_brief(tests, gap), self._request,
             parent_task_id=self._parent, continuation=True)
         await asyncio.to_thread(self._router.commit)
         await asyncio.to_thread(self._router.release_continuation, task["task_id"])

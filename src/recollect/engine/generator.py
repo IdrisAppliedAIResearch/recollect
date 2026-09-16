@@ -208,6 +208,7 @@ class Generator:
         trace: GenerationTrace,
         tools: list[dict] | None = None,
         max_tokens: int | None = None,
+        uncapped: bool = False,
     ) -> AsyncIterator[StreamChunk]:
         """Wait for the single local-model slot, then stream a completion."""
         queued = time.perf_counter()
@@ -218,6 +219,7 @@ class Generator:
                 trace=trace,
                 tools=tools,
                 max_tokens=max_tokens,
+                uncapped=uncapped,
             )) as stream,
         ):
             trace.model_queue_ms = (time.perf_counter() - queued) * 1_000
@@ -231,6 +233,7 @@ class Generator:
         trace: GenerationTrace,
         tools: list[dict] | None = None,
         max_tokens: int | None = None,
+        uncapped: bool = False,
     ) -> AsyncIterator[StreamChunk]:
         """Stream a completion, filling ``trace`` in place as it goes.
 
@@ -260,8 +263,9 @@ class Generator:
             # leaves `content` empty. See the module docstring.
             "chat_template_kwargs": {"enable_thinking": self.settings.thinking},
         }
-        if self.settings.unbounded:
-            # Amendment 02: the server default, not a harness ceiling, ends output.
+        if self.settings.unbounded or uncapped:
+            # The server default, not a harness ceiling, ends output: Amendment 02,
+            # or a reply that must be complete, such as authentication steps.
             del payload["max_tokens"]
         slot_for = getattr(self._model_slot, "slot_for", None)
         pinned = slot_for("conversation") if slot_for is not None else None

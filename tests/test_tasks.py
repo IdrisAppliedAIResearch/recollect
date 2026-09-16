@@ -36,8 +36,14 @@ class UpdateGenerator:
         self.calls.append(messages)
         self.started.set()
         await self.release.wait()
-        trace.response_text = json.loads(messages["user_message"])["text"]
+        trace.response_text = update_text(messages["user_message"])
         yield None
+
+
+def update_text(message):
+    """The worker's update text inside a relay message."""
+    return message.split('<update kind="', 1)[1].split('">\n', 1)[1].split(
+        "\n</update>", 1)[0]
 
 
 @pytest.fixture

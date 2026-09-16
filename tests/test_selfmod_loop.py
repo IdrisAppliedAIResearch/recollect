@@ -32,7 +32,7 @@ class Switch:
     def __init__(self, results):
         self.results, self.activated, self.resets = list(results), [], []
 
-    async def activate(self, attempt, value):
+    async def activate(self, attempt, value, tests, gap):
         self.activated.append(attempt)
         result = self.results.pop(0)
         if isinstance(result, Exception):
@@ -127,6 +127,8 @@ class Coordinator:
     async def submit(self, session_id, request_id, objective, original_message,
                      effort="focused", parent_task_id=None, *, continuation=False):
         assert continuation and original_message == "the request"
+        assert objective.startswith("A new tool was added so this request can be "
+                                    "done: create_event, which provides calendar")
         task_id = "task-" + request_id
         self.router.link_continuation(task_id, parent_task_id)
         self.calls.append(("submit", task_id))
@@ -158,13 +160,14 @@ async def test_switch_resumes_on_b_and_rolls_back_to_a_for_a_retry(router):
         launch=(("entrypoint", "research"),), manager_factory=lambda receipt: object(),
         poll_seconds=0,
     )
-    failed = await switch.activate(1, candidate("first"))
+    tests, gap = parse_tests(authored()), {"missing_capability": "calendar"}
+    failed = await switch.activate(1, candidate("first"), tests, gap)
     assert not failed.finished and "blocked" in failed.detail
     assert router.serving.role == "B"
     await switch.reset(failed.detail)
     assert router.serving.role == "A" and not router.live_b
     await switch.reset("idempotent")
-    finished = await switch.activate(2, candidate("second"))
+    finished = await switch.activate(2, candidate("second"), tests, gap)
     assert finished.finished and router.serving.role == "B"
     assert coordinator.calls == [
         ("submit", "task-selfmod-task-a-1"), ("release", "task-selfmod-task-a-1"),

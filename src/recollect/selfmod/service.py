@@ -39,6 +39,8 @@ from .tests_first import authoring, model_completer
 
 DOCKER_ENVIRONMENT = {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "PATHEXT"}
 ENTRYPOINT = "driver.py"
+GAP_NOTICE = ("I can't do that yet, so I'm building the capability and will pick "
+              "your request back up when it's ready.")
 
 
 def docker_environment():
@@ -217,6 +219,14 @@ class SelfModificationService:
 
     async def _cancel(self, session_id, task_id):
         """A's own task stops; A's tree and deployment are never touched."""
+        # The loop can run for hours, and a canceled task is silent: say why.
+        try:
+            await asyncio.to_thread(
+                self._coordinator.store.notify, session_id, task_id,
+                "selfmod-gap-" + task_id, GAP_NOTICE)
+        except Exception as error:
+            await self._record("notice_failed", {"task_id": task_id,
+                                                 "reason": str(error)[:2048]})
         try:
             await self._coordinator.command(session_id, task_id,
                                             "selfmod-cancel-" + task_id, "cancel")
