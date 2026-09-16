@@ -45,10 +45,10 @@ _provider_state = SearchProviderState()
 
 @mcp.tool()
 async def web_search(query: str, max_results: int = 8) -> str:
-    """Search the open web and scholarly indexes (arXiv, OpenAlex,
-    Crossref, Europe PMC, Semantic Scholar). Returns a JSON document with
-    a ranked "results" list (title, url, snippet, source tag) and an
-    "errors" list recording any search leg that was unavailable."""
+    """Search the web and scholarly indexes (arXiv, OpenAlex, Crossref, Europe
+    PMC, Semantic Scholar). Returns JSON: results (title, url, snippet, source)
+    and errors (search legs that were unavailable). A snippet is not evidence:
+    fetch the page before relying on it."""
     if not query.strip():
         return json.dumps(
             {"tool": "web_search", "error": "missing 'query'"}, ensure_ascii=False
@@ -75,10 +75,10 @@ async def web_search(query: str, max_results: int = 8) -> str:
 async def web_fetch(
     url: str, max_chars: int = 4_000, view: Literal["article", "page"] = "article",
 ) -> str:
-    """Fetch one public http/https page and reduce it to its article
-    text. Read a search result with this before relying on it. If article view
-    omits a factual label or date, use page view to retain the page's text cards.
-    Repeating an unchanged view does not reveal new evidence."""
+    """Fetch one public http/https page as text. view="article" (default)
+    returns the main article; if a label or date is missing, retry once with
+    view="page". Raise max_chars only if the result says it was truncated.
+    Fetching the same URL and view again returns the same text."""
     if not url.strip():
         return json.dumps(
             {"tool": "web_fetch", "error": "missing 'url'"}, ensure_ascii=False
@@ -101,15 +101,15 @@ async def report_message(
     sources: list[str] | None = None,
     artifacts: list[str] | None = None,
 ) -> str:
-    """Send a concise message to the main conversation's task mailbox.
-
-    Acknowledge each instruction revision with accepted before acting on it,
-    copying its related_message_id exactly. Report useful findings and blockers
-    as work proceeds. Cite public source URLs and relative workspace artifact
-    paths. Tool execution history stays private. This receipt records a local
-    report; the host separately persists it before delivering an update.
-    Text is limited to 4000 characters. Summarize long files and list their paths
-    in artifacts; do not paste a whole document. Split long findings into reports.
+    """Send one report to the main conversation. It sees only these reports, not
+    your tool calls.
+    - kind: accepted | progress | finding | question | blocked | result
+    - text: up to 4000 characters. Summarize long files and put their paths in
+      artifacts.
+    - revision, related_message_id: copy exactly from the instruction you are
+      answering.
+    - sources: public URLs that support the text.
+    - artifacts: relative /workspace paths of files the user asked for.
     """
     if kind not in {"accepted", "progress", "finding", "question", "blocked", "result"}:
         raise ValueError("unsupported report kind")

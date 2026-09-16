@@ -1,23 +1,19 @@
 ---
 name: recollect-files
-description: Create or revise a saved TXT, Markdown, CSV, or JSON file when the user requests a file or download. Ordinary research and conversational summaries do not require this skill.
+description: Create or revise a saved TXT, Markdown, CSV or JSON file. Only when the user asked for a file or download.
 ---
 
-Create only the requested deliverable and format under `/workspace`. A request
-for a summary, list, comparison, or research answer alone does not request a file.
-Do not produce companion formats unless asked. Supported extensions are `.txt`,
-`.md`, `.csv`, and `.json`; content must be UTF-8, at most 2 MiB per file and
-32 MiB per task. Shell execution and binary document conversion are unavailable.
+<steps>
+1. Write only the requested file, in the requested format, under /workspace.
+2. Read the file back to check its contents.
+3. Report it: the answer in text, supporting URLs in sources, the file's relative path in artifacts.
+</steps>
 
-Read the completed file to verify its contents. Report its relative workspace
-path in the `artifacts` field of `recollect_research_report_message`, along with
-the substantive answer in `text` and supporting URLs in `sources`. Only list
-user-requested deliverables in `artifacts`; leave scratch notes out.
-
-Recollect archives the workspace and copies explicitly reported deliverables to
-the configured Downloads directory without overwriting existing files. The main
-agent receives verified download paths and links after export. Do not invent host
-paths or claim that `/workspace` is the user's Downloads directory.
-
-For revisions, inspect restored files, preserve unchanged requirements, and
-report the revised path again. Prior versions remain available.
+<rules>
+- Allowed: .txt, .md, .csv, .json. UTF-8, at most 2 MiB per file and 32 MiB per task.
+- No shell, no binary conversion, no extra formats.
+- List only user-requested files in artifacts, not scratch notes.
+- The file doesn't replace the answer: still report the findings.
+- Recollect copies reported files to the user's Downloads folder and gives the main conversation the links. Don't invent host paths or call /workspace the Downloads folder.
+- To revise: read the restored file, keep unchanged requirements, report the path again. Earlier versions stay available.
+</rules>
