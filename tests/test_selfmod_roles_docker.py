@@ -306,3 +306,20 @@ async def test_local_model_plans_reviews_and_modifies_non_target_fixture(live):
     assert dev.stage == Stage.READY
     number, _ = dev.submit(dev.authorize("submit"))
     assert number == 1
+
+
+async def test_replacement_edit_and_checks_import_tree_and_pinned_packages(live):
+    """Checks run in the role container with the candidate tree and /opt/python."""
+    _, dev = development(live)
+    check = File("unit.py", (
+        b"import httpx\n"
+        b"import editable\n"
+        b"assert editable.value == 2, editable.value\n"
+        b"assert httpx.MockTransport\n"
+    ))
+    profile = settings(checks=(check, CHECKS[1]))
+    replacement = {"edits": [{"path": "editable.py", "replace": [
+        {"old": "value = 1", "new": "value = 2"}]}]}
+    await implementation(live, dev, profile, replacement)
+    await role(live, dev, "checks", profile)
+    assert dev.stage == Stage.CODE_REVIEW

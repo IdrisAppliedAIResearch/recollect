@@ -169,7 +169,7 @@ async def test_continuous_skills_discovered_by_pinned_opencode(docker_root):
             skill = skills[name]
             assert skill["location"].startswith("/config/skills/")
             assert skill["description"]
-        assert "kind=result" in skills["recollect-reporting"]["content"]
+        assert "<capability_gap>" in skills["recollect-reporting"]["content"]
         assert "2 MiB" in skills["recollect-files"]["content"]
         # Listing /skill does not exercise the native tool's supporting-file
         # enumeration. Its executable must work with all scratch mounts noexec.
