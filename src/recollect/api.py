@@ -43,10 +43,10 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import __version__
+from . import __version__, system_prompt
 from .config import RecollectConfig
 from .engine._internals import LIBRARY_VERSION
-from .engine.date_context import current_date_context, research_date_context
+from .engine.date_context import research_date_context
 from .engine.embedder import HarnessEmbedder
 from .engine.generator import (
     GenerationError,
@@ -80,22 +80,19 @@ from .tasks import TaskCoordinator
 from .trace import SubagentTrace, ToolCallTrace, TurnSummary, TurnTrace
 from .voice_api import install_voice_routes
 
-_VOICE_INSTRUCTIONS = (
-    "You are speaking out loud. No Markdown, point labels, or lists, even in "
-    "a detailed answer. Use contractions and varied punctuation where they "
-    "sound natural. Write numbers and symbols as you would say them aloud."
-)
+_VOICE_INSTRUCTIONS = system_prompt.VOICE_INSTRUCTIONS
 
 
 def _turn_system_prompt(
-    config: RecollectConfig, started_at: datetime, input_mode: str = "text",
+    config: RecollectConfig, started_at: datetime, input_mode: str = "text", *,
+    task_mode: bool = False, follow_up: str | None = None,
 ) -> str:
-    prompt = config.system_prompt
-    if input_mode == "voice":
-        prompt += "\n\n" + _VOICE_INSTRUCTIONS
     # A date stays stable throughout the day; seconds would invalidate the
     # memory prefix cache on every turn. Use one timestamp for all phases.
-    return prompt + "\n\n" + current_date_context(started_at.astimezone(UTC).date())
+    return system_prompt.build(
+        started_at.astimezone(UTC).date(), input_mode=input_mode,
+        task_mode=task_mode, follow_up=follow_up,
+    )
 
 
 class ChatRequest(BaseModel):

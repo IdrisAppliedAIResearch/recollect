@@ -13,9 +13,9 @@ from fastapi.testclient import TestClient
 
 from recollect.api import _VOICE_INSTRUCTIONS, AppState, create_app
 from recollect.config import RecollectConfig
-from recollect.engine.date_context import current_date_context
 from recollect.engine.generator import Generator, GeneratorSettings
 from recollect.session import SessionManager
+from recollect.system_prompt import build as build_system_prompt
 from tests.conftest import FakeEmbedder
 
 
@@ -29,7 +29,6 @@ def chat_app(tmp_path):
     config = RecollectConfig(
         embedding_model_path=tmp_path / "unused.gguf",
         data_dir=tmp_path / "var", subagent_enabled=False,
-        system_prompt="Use this configured memory instruction unchanged.",
         generator_max_tokens=4096,
     )
     payloads = []
@@ -98,9 +97,8 @@ def test_voice_guidance_is_before_memory_and_accounted_for_in_persisted_trace(ch
     )
 
     prompt = payloads[0]["messages"]
-    effective_system = (
-        state.config.system_prompt + "\n\n" + _VOICE_INSTRUCTIONS
-        + "\n\n" + current_date_context(state.turn_date.date())
+    effective_system = build_system_prompt(
+        state.turn_date.date(), input_mode="voice",
     )
     assert prompt[0] == {"role": "system", "content": effective_system}
     assert prompt[1]["content"] == (
@@ -120,10 +118,7 @@ def test_voice_guidance_is_before_memory_and_accounted_for_in_persisted_trace(ch
 
 def test_typed_chat_default_and_explicit_text_keep_original_prompt_unchanged(chat_app):
     client, state, payloads = chat_app
-    expected_prompt = (
-        state.config.system_prompt + "\n\n"
-        + current_date_context(state.turn_date.date())
-    )
+    expected_prompt = build_system_prompt(state.turn_date.date())
     for kwargs in ({}, {"input_mode": "text"}):
         session = state.sessions.create_session()
         events = send(client, session.session_id, "Show a detailed table.", **kwargs)
@@ -170,9 +165,8 @@ def test_voice_prefix_is_stable_across_followups_and_typed_turn_does_not_inherit
     assert first["retrieval"]["context_block"]["payload"] != (
         second["retrieval"]["context_block"]["payload"]
     )
-    assert payloads[2]["messages"][0]["content"] == (
-        state.config.system_prompt + "\n\n"
-        + current_date_context(state.turn_date.date())
+    assert payloads[2]["messages"][0]["content"] == build_system_prompt(
+        state.turn_date.date(),
     )
     assert _VOICE_INSTRUCTIONS not in json.dumps(payloads[2])
 
