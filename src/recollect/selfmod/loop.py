@@ -109,7 +109,7 @@ class RoundDeveloper:
         self._runtime_factory, self._model_factory = runtime_factory, model_factory
 
     async def __call__(self, attempt, tests, feedback):
-        contract = TaskContract(self._request, tests.requirements, tests.names,
+        contract = TaskContract(self._request, tests.contract_requirements, tests.names,
                                 self._policy.sha256)
         config = RoundConfig(f"attempt-{attempt}", contract, self._baseline.sha256,
                              feedback)

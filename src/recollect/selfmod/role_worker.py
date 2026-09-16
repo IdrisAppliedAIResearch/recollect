@@ -14,6 +14,13 @@ import tempfile
 from pathlib import Path
 
 MAX_CHECK_LOG_BYTES = 32 * 1024
+# Checks import the candidate tree and the image's pinned packages, nothing
+# ambient: isolated mode ignores PYTHONPATH, so the path is set explicitly.
+CHECK_RUNNER = (
+    "import runpy, sys; path = sys.argv[1]; sys.argv = [path]; "
+    "sys.path[:0] = ['/work/source', '/opt/python']; "
+    "runpy.run_path(path, run_name='__main__')"
+)
 
 
 def pairs(items):
@@ -47,7 +54,8 @@ def run_checks(context):
     for check in context["checks"]:
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
             process = subprocess.run(
-                [sys.executable, "-I", "-S", "-B", "/work/checks/" + check + ".py"],
+                [sys.executable, "-I", "-S", "-B", "-c", CHECK_RUNNER,
+                 "/work/checks/" + check + ".py"],
                 cwd="/work/source", stdin=subprocess.DEVNULL,
                 stdout=stdout, stderr=stderr, check=False,
             )

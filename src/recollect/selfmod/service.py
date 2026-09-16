@@ -182,8 +182,9 @@ class SelfModificationService:
                 receipt, "b-" + receipt.image_id[7:19]),
         )
         return SelfModificationLoop(
-            journal, author_tests=authoring(request, author=author,
-                                            reviewer=reviewer),
+            journal, author_tests=authoring(
+                request, baseline=self.baseline, policy=self.policy,
+                author=author, reviewer=reviewer),
             develop=develop, switch=switch)
 
     async def handle_gap(self, session_id, gap):
