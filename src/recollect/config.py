@@ -136,7 +136,7 @@ class RecollectConfig:
     generator_context_tokens: int = 32_768
     generator_parallel_slots: int = 1
     subagent_inference_tokens: int = 2_048
-    #: Amendment 02 experiment profile: the conversation generator, worker model
+    #: Unbounded profile: the conversation generator, worker model
     #: ingress, task relay and sandbox control transports carry no request
     #: timeout or per-response token cap. Cleanup after an observed stop keeps
     #: its short bounds; elapsed or quiet time never ends healthy work.

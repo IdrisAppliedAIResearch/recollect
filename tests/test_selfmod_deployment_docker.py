@@ -9,11 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from recollect.selfmod.contracts import File, Snapshot
+from recollect.selfmod.contracts import File, IntegrityError, Snapshot
 from recollect.selfmod.deployment import BundleImages, SubagentBundle
-from recollect.selfmod.files import materialize
-from recollect.selfmod.journal import IntegrityError
-from recollect.selfmod.native_runtime import NativeDocker
+from recollect.selfmod.docker import DockerCLI
 
 pytestmark = [
     pytest.mark.docker,
@@ -31,7 +29,8 @@ def images():
            if k.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "PATHEXT"}}
     root = (Path(os.environ["LOCALAPPDATA"]) / "recollect" / "sandboxes"
             / ("selfmod-bundle-cli-" + uuid.uuid4().hex))
-    materialize(root, Snapshot((File("config.json", b'{"auths":{}}\n'),)))
+    root.mkdir(parents=True)
+    (root / "config.json").write_bytes(b'{"auths":{}}\n')
     endpoint = subprocess.run(
         [executable, "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
         env=env, capture_output=True, check=True, text=True).stdout.strip()
@@ -41,7 +40,7 @@ def images():
                           capture_output=True, check=True, text=True).stdout.strip()
     built = []
     try:
-        yield NativeDocker(argv, tuple(env.items())), base, built
+        yield DockerCLI(argv, tuple(env.items())), base, built
     finally:
         for image in built:
             subprocess.run([*argv, "image", "rm", image], env=env,

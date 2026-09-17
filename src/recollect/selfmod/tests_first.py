@@ -16,9 +16,7 @@ from dataclasses import asdict, dataclass, field
 
 import httpx
 
-from . import role_worker
-from .contracts import File, Requirement, Snapshot, digest
-from .journal import IntegrityError, encode
+from .contracts import File, IntegrityError, Requirement, Snapshot, digest, encode
 from .subagent_tree import PROTECTED
 
 ANCHOR = "original_request"
@@ -236,6 +234,25 @@ def parse_review(value):
     return value["approved"] and not value["findings"]
 
 
+def parse_reply(raw):
+    """A model's JSON object reply; duplicate keys and NaN are rejected."""
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("Duplicate JSON field")
+            result[key] = value
+        return result
+
+    def invalid(value):
+        raise ValueError("Nonfinite JSON value")
+
+    result = json.loads(raw, object_pairs_hook=pairs, parse_constant=invalid)
+    if type(result) is not dict:
+        raise ValueError("Expected a JSON object")
+    return result
+
+
 def _tag(name, body):
     return f"<{name}>\n{body}\n</{name}>"
 
@@ -367,5 +384,5 @@ def model_completer(base_url, model, *, slot=None, transport=None,
             raise ValueError("the reply was cut off at the length limit")
         if choices[0].get("finish_reason") != "stop":
             raise IntegrityError("Incomplete test-authoring inference")
-        return role_worker.parse(choices[0]["message"]["content"].encode())
+        return parse_reply(choices[0]["message"]["content"].encode())
     return complete

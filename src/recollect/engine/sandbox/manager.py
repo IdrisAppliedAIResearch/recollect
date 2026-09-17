@@ -143,7 +143,7 @@ class SandboxManager:
         self._commands = command_factory
         self._model_base_url = model_base_url
         self._model_api_key = model_api_key
-        # Amendment 02 profile: sandbox control requests and startup carry no
+        # Unbounded profile: sandbox control requests and startup carry no
         # elapsed-time cutoff. Stop/abort cleanup keeps its own short bounds.
         self._unbounded = bool(getattr(config, "experiment_unbounded", False))
         self._control_timeout = None if self._unbounded else 10.0

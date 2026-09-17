@@ -58,7 +58,7 @@ class GeneratorSettings:
     temperature: float = 0.7
     context_tokens: int | None = None
     require_tools: bool = False
-    #: Amendment 02 experiment profile: no request timeout and no max_tokens.
+    #: Unbounded profile: no request timeout and no max_tokens.
     unbounded: bool = False
 
 
@@ -264,8 +264,9 @@ class Generator:
             "chat_template_kwargs": {"enable_thinking": self.settings.thinking},
         }
         if self.settings.unbounded or uncapped:
-            # The server default, not a harness ceiling, ends output: Amendment 02,
-            # or a reply that must be complete, such as authentication steps.
+            # The server default, not a harness ceiling, ends output: the
+            # unbounded profile, or a reply that must be complete, such as
+            # authentication steps.
             del payload["max_tokens"]
         slot_for = getattr(self._model_slot, "slot_for", None)
         pinned = slot_for("conversation") if slot_for is not None else None

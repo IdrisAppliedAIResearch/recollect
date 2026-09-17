@@ -1,64 +1,56 @@
-# Subagent self-modification: general design
+# Subagent self-modification
 
-Supersedes the calendar-specific trial framing (preregistration, checkpoint
-protocol, amendments and trial runner). Those documents remain as history only.
-The calendar request is one demonstration, not a built-in capability.
-
-## Intent
-
-Main chat delegates a request to subagent A. A reports that it cannot do it. The
-system builds its own fix, tests it, switches over and finishes the same request
-with no human help. The result of interest is whether the model can do that; it
-either figures it out or it does not.
+Main chat delegates a request to subagent A. When A has no tool that can do it,
+Recollect asks the user whether to build one. On a yes it builds the capability,
+proves it on B by finishing the same request, and B becomes A.
 
 ## Flow
 
-1. **Delegation.** Main chat delegates the request to A through the ordinary task
-   coordinator.
-2. **Capability gap.** A sends a structured `capability_gap` report through its
-   generic reporting tool when no available tool can perform the request. The
-   harness stops A's task and keeps A as the last known good deployment.
-3. **Tests first.** Before any implementation, the implementation agent writes
-   deterministic tests. The original request is the source of truth and anchors
-   them; general and edge cases accompany it. External services are exercised
-   through fixtures, never live credentials. An independent reviewer checks that
-   the tests follow the original request; approved tests are frozen by digest and
-   cannot be changed by the rest of the cycle.
-4. **Due process.** Plan, independent plan review, implementation, deterministic
-   checks (the frozen tests plus a fixed regression suite, in a networkless
-   container), independent code review.
-5. **Switch.** The accepted candidate becomes immutable image B. New work routes to
-   B and the original request resumes on B.
-6. **Done.** The resumed request completes. When the capability needs a service
-   the user must authorize, B reports that the feature is ready and the exact
-   authentication steps; the solution itself must already work and pass its tests.
+1. **Gap.** A sends a structured `capability_gap` report instead of a result.
+   Its task stops but stays cancelable, and the chat asks the user to build or
+   skip (by voice, text or the task card buttons).
+2. **Tests first.** An author writes stdlib check scripts anchored on the
+   original request; a reviewer approves them and they are frozen.
+3. **Develop.** A stock OpenCode session plans, gets a JSON plan review, then
+   implements in the same session. Each reply is checked against the change
+   policy, the frozen checks run in a networkless container, and a fresh agent
+   reviews the code. Failures go back into the session.
+4. **Prove on B.** The candidate tree becomes bundle image B and the original
+   request resumes on it. Other new work keeps running on A meanwhile.
+5. **Promote.** When the resumed request completes, B's changed files are
+   committed on a new branch, `selfmod/<feature>-<timestamp>`, which is checked
+   out. B serves all new work, and the replaced A's sandbox, image and
+   directories are removed once its running task settles.
 
-## Bomb shelter
+Any failure discards B (sandbox, image, directories) and retries from A with the
+failure as feedback, until a build finishes or the user stops it. No elapsed-time
+or attempt limit applies.
 
-A is never modified. Candidates are built and tested in sandboxes without
-network access or credentials, and B is an immutable image. If checks fail, B
-fails to start, B crashes, or the resumed request fails, B is discarded, routing
-returns to A, and the cycle restarts automatically from A with the recorded
-failure as feedback. Retries continue until a candidate passes or the user stops
-the run. Every step is kept in an append-only audit journal.
+## Images and restarts
 
-## Implementation
+Only A's bundle image is kept. At start, Recollect builds (or reuses) A's image
+from the checked-out tree, then removes every other `recollect.bundle` image and
+all self-modification directories. A build interrupted by a restart is scrapped.
 
-| Step | Code |
+## Rolling back
+
+```bash
+git switch <previous-branch>
+```
+
+Then restart Recollect. The commit message names the previous branch.
+
+## Code
+
+| Piece | Module |
 |---|---|
-| Gap trigger | `TaskCoordinator(on_gap=...)` calls the hook with `gap_trigger.parse_gap_report` output for A's durable `blocked` report |
-| Tests first | `tests_first.py`: requirements anchored on `original_request`, stdlib check scripts, independent review, frozen digest, fixed `regression.py` check |
-| Loop | `loop.py` `SelfModificationLoop`: freeze tests once, then attempt → reset → feedback until finished or `stop()` |
-| Due process | `loop.RoundDeveloper`: a fresh `ModificationRound` per attempt, `IntegratedDevelopment.run_until_ready` with the frozen checks, submit; earlier failures reach roles as `prior_attempts` |
-| Switch | `loop.DeploymentSwitch`: build and verify B, stage, activate, register B's sandbox, hold the continuation, commit, release, await the resumed task |
-| Bomb shelter | `DeploymentRouter.rollback`; a retry stages a fresh B and work bound to a voided B never serves |
+| Gap parsing | `gap_trigger.py` |
+| Tests first | `tests_first.py` |
+| Agentic development and offline checks | `agents.py` |
+| Retry loop and the switch to B | `loop.py` |
+| Bundle images and A/B routing | `deployment.py` |
+| Saving a build on a branch | `promotion.py` |
+| Served tree and change scope | `subagent_tree.py` |
+| App wiring, notices, cleanup | `service.py` |
 
-| Wiring | `service.py` `install`: at startup (on by default; `RECOLLECT_SELFMOD_ENABLED=0` turns it off) builds and registers A, hands the coordinator its gap hook, cancels A's task on a gap and runs one loop at a time |
-
-Not yet qualified live: a real run needs the model server and Docker, and the
-authoring and role calls pin the modifier lane only on a three-slot server.
-
-## Timing
-
-No elapsed-time limits on agent work. Tool calls stay alive through the tool
-host's progress keepalive, which the pinned OpenCode binary honors.
+Self-modification is on by default; `RECOLLECT_SELFMOD_ENABLED=0` turns it off.

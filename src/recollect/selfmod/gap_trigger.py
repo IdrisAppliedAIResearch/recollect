@@ -11,7 +11,7 @@ structure returns ``None``.
 import json
 import re
 
-from .journal import IntegrityError
+from .contracts import IntegrityError
 
 FENCE = re.compile(r"```capability_gap\s*\n(\{.*?\})\s*\n```", re.DOTALL)
 FIELDS = {"type", "missing_capability", "attempted", "modification_request"}

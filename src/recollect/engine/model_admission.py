@@ -249,7 +249,7 @@ class ModelIngress:
                 # Slot placement is host lane authority, never worker-selected.
                 raise HTTPException(400, "Workers cannot choose a model slot.")
             if self.unbounded:
-                # Amendment 02: no per-response token ceiling on agent inference.
+                # Unbounded profile: no per-response token ceiling on agent inference.
                 for key in ("max_tokens", "max_completion_tokens",
                             "max_output_tokens"):
                     payload.pop(key, None)

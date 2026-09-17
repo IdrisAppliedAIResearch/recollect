@@ -6,7 +6,7 @@ This host therefore runs each tool call on a separate execution thread and event
 loop, while the protocol loop sends an MCP progress notification at a fixed
 cadence for as long as that call is actually running. A slow or quiet tool never
 reaches the timeout; only a host that stops delivering protocol messages can.
-The cadence is transport liveness, never a work deadline (draft amendment 03).
+The cadence is transport liveness, never a work deadline.
 
 The served tools are whatever the subagent's ``recollect.engine.mcp_research``
 module registers, including modifier-generated tools. This file sits outside the

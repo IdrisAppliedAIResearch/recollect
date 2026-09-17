@@ -1,21 +1,16 @@
 """Self-modification loop: from A's capability gap to the finished request.
 
-Tests are authored and frozen first. Each attempt is a fresh round from A's
-unchanged tree under due process, then a switch to an immutable B that resumes
-the same request. Any failure, including an integrity failure, resets routing to
-A, is journaled, and becomes feedback for the next attempt. Attempts continue
-until one finishes the request or the user stops the run; there is no elapsed-time
-or attempt limit. A failed reset is not survivable and ends the loop.
+Tests are authored and frozen first. Each attempt develops from A's unchanged
+tree, then switches to a B image that resumes the same request. Any failure
+discards B and becomes feedback for the next attempt. When B finishes the
+request, B becomes A. Attempts continue until one finishes or the user stops
+the run; there is no elapsed-time or attempt limit.
 """
 
 import asyncio
-import contextlib
 from dataclasses import dataclass
 
-from .contracts import TaskContract
 from .deployment import SubagentBundle
-from .journal import IntegrityError
-from .round import ModificationRound, RoundConfig
 
 FEEDBACK = 8
 #: Longest pause between attempts that keep failing the same way.
@@ -57,10 +52,9 @@ class SelfModificationLoop:
     tests, gap)``
     and ``reset(reason)``."""
 
-    def __init__(self, journal, *, author_tests, develop, switch, retry_pause=1.0,
+    def __init__(self, *, author_tests, develop, switch, retry_pause=1.0,
                  on_event=None):
-        self._journal = journal
-        # Async observer of each journaled event, for user-visible milestones.
+        # Async observer of each event, for user-visible milestones.
         self._on_event = on_event
         self._author_tests, self._develop, self._switch = author_tests, develop, switch
         self._retry_pause = retry_pause
@@ -70,9 +64,7 @@ class SelfModificationLoop:
         """User stop: no new authoring pass or attempt starts."""
         self._stop.set()
 
-    async def _record(self, kind, data, files=None):
-        extra = () if files is None else (files,)
-        await asyncio.to_thread(self._journal.append, kind, data, *extra)
+    async def _record(self, kind, data):
         if self._on_event is not None:
             await self._on_event(kind, data)
 
@@ -131,66 +123,36 @@ class SelfModificationLoop:
         return await self._stopped()
 
 
-class RoundDeveloper:
-    """Each attempt is a fresh round from A's tree driven to one candidate."""
-
-    def __init__(self, root, *, request, baseline, policy, settings, role_settings,
-                 runtime_factory, model_factory=None):
-        self._root, self._request = root, request
-        self._baseline, self._policy, self._settings = baseline, policy, settings
-        self._role_settings = role_settings
-        self._runtime_factory, self._model_factory = runtime_factory, model_factory
-
-    async def __call__(self, attempt, tests, feedback):
-        contract = TaskContract(self._request, tests.contract_requirements, tests.names,
-                                self._policy.sha256)
-        config = RoundConfig(f"attempt-{attempt}", contract, self._baseline.sha256,
-                             feedback)
-        round_ = await asyncio.to_thread(ModificationRound.create,
-                                         self._root / f"attempt-{attempt}", config)
-        try:
-            development = await asyncio.to_thread(lambda: round_.open_development(
-                baseline=self._baseline, policy=self._policy,
-                settings=self._settings))
-            await development.run_until_ready(
-                self._role_settings(tests.checks), self._runtime_factory,
-                model_factory=self._model_factory)
-            await asyncio.to_thread(
-                lambda: development.submit(development.authorize("submit")))
-            return round_.candidate
-        finally:
-            with contextlib.suppress(IntegrityError):
-                await asyncio.to_thread(round_.close)
-
-
 class DeploymentSwitch:
-    """Build B, commit it, resume the original request on B and await its end."""
+    """Build B, resume the original request on it, then promote or discard B.
 
-    def __init__(self, *, router, sandboxes, images, coordinator, session_id,
-                 parent_task_id, request, base_image_id, launch, manager_factory,
-                 poll_seconds=1.0, on_event=None):
-        self._router, self._sandboxes, self._images = router, sandboxes, images
+    ``stage(verified)`` returns B's Deployment with its sandbox manager;
+    ``promote(candidate, tests)`` saves the build and makes B serve as A;
+    ``discard(deployment)`` stops B and removes its image and directories.
+    """
+
+    def __init__(self, *, deployments, images, coordinator, session_id,
+                 parent_task_id, request, base_image_id, launch, stage, promote,
+                 discard, poll_seconds=1.0, on_event=None):
+        self._deployments, self._images = deployments, images
         self._coordinator, self._session_id = coordinator, session_id
         self._parent, self._request = parent_task_id, request
         self._base_image_id, self._launch = base_image_id, launch
-        self._manager_factory, self._poll = manager_factory, poll_seconds
-        self._on_event = on_event
+        self._stage, self._promote, self._discard = stage, promote, discard
+        self._poll, self._on_event = poll_seconds, on_event
+        #: A B image built this attempt that no deployment owns yet.
+        self._unstaged = None
 
     async def activate(self, attempt, candidate, tests, gap):
         bundle = SubagentBundle(candidate, self._base_image_id, self._launch)
-        image_id = await self._images.build(bundle)
-        verified = await self._images.verify(bundle, image_id)
-        await asyncio.to_thread(self._router.stage_b, verified)
-        await asyncio.to_thread(self._router.begin_activation)
-        manager = await asyncio.to_thread(self._manager_factory, verified)
-        await asyncio.to_thread(self._sandboxes.register, "B", manager, verified)
-        # The continuation is linked, and held, while the activation is open.
+        self._unstaged = await self._images.build(bundle)
+        verified = await self._images.verify(bundle, self._unstaged)
+        self._deployments.stage_b(await asyncio.to_thread(self._stage, verified))
+        self._unstaged = None
         task = await self._coordinator.submit(
             self._session_id, f"selfmod-{self._parent}-{attempt}",
             continuation_brief(tests, gap), self._request,
             parent_task_id=self._parent, continuation=True)
-        await asyncio.to_thread(self._router.commit)
-        await asyncio.to_thread(self._router.release_continuation, task["task_id"])
         await self._coordinator.release_held(self._session_id, task["task_id"])
         if self._on_event is not None:
             await self._on_event("resuming", {"attempt": attempt,
@@ -203,6 +165,7 @@ class DeploymentSwitch:
             # Observation cadence only; the resumed request has no deadline.
             await asyncio.sleep(self._poll)
         if final["state"] == "completed":
+            await self._promote(candidate, tests)
             return Outcome(True, "the resumed request completed on B")
         if final["state"] == "canceled":
             return Outcome(False, "the resumed request was canceled", stopped=True)
@@ -210,5 +173,10 @@ class DeploymentSwitch:
                               f"{final.get('progress') or ''}"[:2048])
 
     async def reset(self, reason):
-        if self._router.live_b:
-            await asyncio.to_thread(self._router.rollback, reason[:512])
+        """Scrap this attempt's B: nothing of it outlives the attempt."""
+        image, self._unstaged = self._unstaged, None
+        if image is not None and image != self._deployments.a.image_id:
+            await self._images.remove(image)
+        b = self._deployments.discard_b()
+        if b is not None:
+            await self._discard(b)

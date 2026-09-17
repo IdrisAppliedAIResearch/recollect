@@ -116,7 +116,7 @@ class OpenCodeRunner:
     ) -> None:
         self._manager = manager
         self._config = config
-        # Amendment 02 profile: history reads and message posts have no timeout;
+        # Unbounded profile: history reads and message posts have no timeout;
         # an actual HTTP error, not elapsed time, is what counts as a failure.
         unbounded = bool(getattr(config, "experiment_unbounded", False))
         self._read_timeout = None if unbounded else 10

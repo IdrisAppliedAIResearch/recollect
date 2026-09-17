@@ -30,8 +30,7 @@ from recollect.selfmod.deployment import (
     SubagentBundle,
     materialize_skills,
 )
-from recollect.selfmod.files import materialize
-from recollect.selfmod.native_runtime import NativeDocker
+from recollect.selfmod.docker import DockerCLI
 
 pytestmark = [
     pytest.mark.docker,
@@ -119,7 +118,8 @@ def bundle_image():
                                     "PATHEXT"}}
     share = Path(os.environ["LOCALAPPDATA"]) / "recollect" / "sandboxes"
     cli_root = share / ("selfmod-toolhost-cli-" + uuid.uuid4().hex)
-    materialize(cli_root, Snapshot((File("config.json", b'{"auths":{}}\n'),)))
+    cli_root.mkdir(parents=True)
+    (cli_root / "config.json").write_bytes(b'{"auths":{}}\n')
     endpoint = subprocess.run(
         [executable, "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
         env=environment, capture_output=True, check=True, text=True).stdout.strip()
@@ -137,7 +137,7 @@ def bundle_image():
     assert PROBE in files[[f.path for f in files].index(
         "recollect/engine/mcp_research.py")].content
     bundle = SubagentBundle(Snapshot(files), base, subagent_tree.LAUNCH)
-    images = BundleImages(NativeDocker(argv, tuple(environment.items())))
+    images = BundleImages(DockerCLI(argv, tuple(environment.items())))
     image = asyncio.run(images.build(bundle))
     try:
         yield bundle, image, share

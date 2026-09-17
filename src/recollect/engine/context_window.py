@@ -9,7 +9,7 @@ async def check_context(
     client: httpx.AsyncClient, payload: dict, context_tokens: int,
     *, timeout: float | None = 15,
 ) -> int:
-    """Refuse a prompt that cannot fit; ``timeout=None`` is the amendment 02 profile.
+    """Refuse a prompt that cannot fit; ``timeout=None`` is the unbounded profile.
 
     Without a ``max_tokens`` field no output is reserved: the server's remaining
     context, not a harness ceiling, bounds the reply.

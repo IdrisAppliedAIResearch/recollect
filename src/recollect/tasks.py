@@ -1230,7 +1230,7 @@ class TaskCoordinator:
             user_message=evidence,
         )
         try:
-            # Amendment 02 profile: the captured main-chat reply is never replaced
+            # Unbounded profile: the captured main-chat reply is never replaced
             # by raw worker text merely because generation was slow.
             async with asyncio.timeout(
                 None if getattr(self.config, "experiment_unbounded", False)

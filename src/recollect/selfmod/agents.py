@@ -18,19 +18,24 @@ import difflib
 import io
 import json
 import tarfile
-import uuid
 from pathlib import Path
 
 from ..engine.sandbox.configgen import AGENT_NAME
 from ..engine.sandbox.runner import _last_text
 from .contracts import File, Snapshot
-from .journal import Journal
-from .role_worker import CHECK_RUNNER, MAX_CHECK_LOG_BYTES
 
 SOURCE, CHECKS = "source", "checks"
 #: Interpreter and build caches never count as changes to the tree.
 IGNORED_PARTS = {"__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache"}
-JOURNAL_TEXT = 16 * 1024
+EVENT_TEXT = 16 * 1024
+MAX_CHECK_LOG_BYTES = 32 * 1024
+# Checks import the candidate tree and the image's pinned packages, nothing
+# ambient: isolated mode ignores PYTHONPATH, so the path is set explicitly.
+CHECK_RUNNER = (
+    "import runpy, sys; path = sys.argv[1]; sys.argv = [path]; "
+    "sys.path[:0] = ['/work/source', '/opt/python']; "
+    "runpy.run_path(path, run_name='__main__')"
+)
 VERDICT = ('{"approved": true, "findings": '
            '[{"severity": "blocking", "issue": "...", "fix": "..."}]}')
 #: Unpack the stdin tar into /work, then run one check exactly as role workers do.
@@ -213,9 +218,9 @@ class AgentDeveloper:
     ``run_checks(tree, checks)`` returns one result per frozen check.
     """
 
-    def __init__(self, root, *, request, gap, baseline, policy, protected,
+    def __init__(self, *, request, gap, baseline, policy, protected,
                  manager_factory, run_checks, on_event=None, connections=None):
-        self._root, self._request, self._gap = Path(root), request, gap
+        self._request, self._gap = request, gap
         #: How deployed tools reach connected accounts; agents get no live access.
         self._connections = connections
         self._baseline, self._policy, self._protected = baseline, policy, protected
@@ -223,11 +228,9 @@ class AgentDeveloper:
         self._on_event = on_event
 
     async def __call__(self, attempt, tests, feedback):
-        journal = await asyncio.to_thread(
-            Journal.create, self._root / f"attempt-{attempt}-{uuid.uuid4().hex[:8]}")
         builder = self._manager_factory(f"build-{attempt}")
         reviewer = self._manager_factory(f"review-{attempt}")
-        run = _Attempt(self, journal, attempt, tests, feedback, reviewer)
+        run = _Attempt(self, attempt, tests, feedback, reviewer)
         try:
             async with AgentSession(builder, f"selfmod-build-{attempt}") as session:
                 return await run.develop(session)
@@ -235,19 +238,15 @@ class AgentDeveloper:
             for manager in (builder, reviewer):
                 with contextlib.suppress(Exception):
                     await asyncio.shield(manager.teardown())
-            with contextlib.suppress(Exception):
-                await asyncio.to_thread(journal.close)
 
 
 class _Attempt:
-    def __init__(self, owner, journal, attempt, tests, feedback, reviewer):
-        self._owner, self._journal, self._attempt = owner, journal, attempt
+    def __init__(self, owner, attempt, tests, feedback, reviewer):
+        self._owner, self._attempt = owner, attempt
         self._tests, self._feedback, self._reviewer = tests, feedback, reviewer
 
-    async def _record(self, kind, data, files=None):
+    async def _record(self, kind, data):
         data = {"attempt": self._attempt, **data}
-        extra = () if files is None else (files,)
-        await asyncio.to_thread(self._journal.append, kind, data, *extra)
         if self._owner._on_event is not None:
             await self._owner._on_event(kind, data)
 
@@ -315,7 +314,7 @@ class _Attempt:
                 "3. Reply with a short summary of what you changed."))])
         while True:
             reply = await session.send(message)
-            await self._record("implementation_turn", {"reply": reply[-JOURNAL_TEXT:]})
+            await self._record("implementation_turn", {"reply": reply[-EVENT_TEXT:]})
             files = await asyncio.to_thread(read_tree, session.workspace / SOURCE)
             changed = changes(owner._baseline, files)
             broken = violations(owner._policy, changed)
@@ -351,7 +350,7 @@ class _Attempt:
             if verdict["approved"]:
                 await self._record("candidate", {"sha256": candidate.sha256,
                                                  "changes": [f"{o} {p}" for p, o
-                                                             in changed]}, candidate)
+                                                             in changed]})
                 return candidate
             message = _tag("feedback", (
                 "A reviewer rejected the change:\n"
@@ -380,7 +379,7 @@ class _Attempt:
             reply = await session.send(message)
             plan = final_json(reply, {"changes"})
             if not valid_plan(plan):
-                await self._record("plan_unreadable", {"reply": reply[-JOURNAL_TEXT:]})
+                await self._record("plan_unreadable", {"reply": reply[-EVENT_TEXT:]})
                 message = _tag("feedback", (
                     "Your final message needs the plan as one JSON object, with "
                     "operation modify or create for each change:\n" + PLAN))
@@ -455,7 +454,7 @@ class _Attempt:
                     return {"approved": verdict["approved"],
                             "findings": verdict["findings"]}
                 await self._record(kind + "_unreadable",
-                                   {"reply": reply[-JOURNAL_TEXT:]})
+                                   {"reply": reply[-EVENT_TEXT:]})
                 message = _tag("feedback", (
                     "Your final message needs the verdict as one JSON object:\n"
                     + VERDICT))

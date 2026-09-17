@@ -1,4 +1,4 @@
-"""Amendment 02 experiment profile: no request timeouts or per-response caps."""
+"""Unbounded profile: no request timeouts or per-response caps."""
 
 import asyncio
 import json

@@ -1,18 +1,18 @@
-"""A/B bundle identity and commit-gated routing with rollback to A."""
+"""Bundle identity, image verification and cleanup, and A/B task routing."""
 
 from dataclasses import replace
 
 import pytest
 
-from recollect.selfmod.contracts import File, Snapshot
+from recollect.selfmod.contracts import File, IntegrityError, Snapshot
 from recollect.selfmod.deployment import (
     BundleImages,
-    DeploymentRouter,
+    Deployment,
+    Deployments,
     SubagentBundle,
     bundle_tar,
     read_bundle_tar,
 )
-from recollect.selfmod.journal import IntegrityError, Journal
 from tests.selfmod_fake_images import FakeImages, verified
 
 BASE = "sha256:" + "a" * 64
@@ -30,21 +30,6 @@ def bundle(candidate=None):
 def b_bundle():
     return bundle(Snapshot((File("extension.py", b"generated capability\n"),
                             File("dependencies.lock", b"httpx==0.28.1\n"))))
-
-
-@pytest.fixture
-def router(tmp_path):
-    journal = Journal.create(tmp_path / "routing")
-    value = DeploymentRouter(journal)
-    yield value
-    journal.close()
-
-
-def activating(router):
-    router.register_a(verified(bundle(), IMAGE_A))
-    router.bind("task-original")
-    router.stage_b(verified(b_bundle(), IMAGE_B))
-    router.begin_activation()
 
 
 def test_bundle_digest_binds_candidate_lock_base_and_launch():
@@ -84,140 +69,61 @@ def test_bundle_archive_roundtrip_rejects_links_and_escapes():
             read_bundle_tar(raw.getvalue())
 
 
-def test_existing_work_keeps_a_new_work_waits_for_commit_and_continuation_release(
-    router,
-):
-    router.register_a(verified(bundle(), IMAGE_A))
-    assert router.bind("task-existing").role == "A"
-    assert router.bind("task-original").role == "A"
-    router.stage_b(verified(b_bundle(), IMAGE_B))
-    router.begin_activation()
-    assert router.bind("task-new").role == "B"
-    with pytest.raises(IntegrityError, match="activation commit"):
-        router.route("task-new")
-    router.link_continuation("task-original-continued", "task-original")
-    with pytest.raises(IntegrityError, match="activation commit"):
-        router.route("task-original-continued")
-    with pytest.raises(IntegrityError, match="committed B"):
-        router.release_continuation("task-original-continued")
-    router.commit()
-    assert router.route("task-new").role == "B"
-    with pytest.raises(IntegrityError, match="release"):
-        router.route("task-original-continued")
-    continued = router.release_continuation("task-original-continued")
-    assert continued.role == "B" and continued.image_id == IMAGE_B
-    # Existing A work is not moved; A drains only when it finishes.
-    assert router.route("task-existing").role == "A"
-    assert not router.drained("A")
-    router.finish("task-existing")
-    router.finish("task-original")
-    assert router.drained("A")
+def deployment(role, image_id, value=None):
+    return Deployment(role, verified(value or bundle(), image_id), object())
 
 
-def test_rollback_before_commit_never_serves_b_work_and_blocks_reactivation(router):
-    activating(router)
-    router.bind("task-during")
-    router.link_continuation("task-continued", "task-original")
-    router.rollback("candidate_failed_to_start")
-    assert router.serving.role == "A"
-    assert router.bind("task-after").role == "A"
-    with pytest.raises(IntegrityError, match="activation commit"):
-        router.route("task-during")
-    with pytest.raises(IntegrityError):
-        router.release_continuation("task-continued")
-    with pytest.raises(IntegrityError, match="freshly staged"):
-        router.begin_activation()
+def test_new_work_runs_on_a_and_the_resumed_request_on_b():
+    a = deployment("A", IMAGE_A)
+    routes = Deployments(a)
+    assert routes.bind("task-existing") is a
+    with pytest.raises(IntegrityError, match="already bound"):
+        routes.bind("task-existing")
+    with pytest.raises(IntegrityError, match="staged B"):
+        routes.link_continuation("task-continued", "task-original")
+    b = deployment("B", IMAGE_B, b_bundle())
+    routes.stage_b(b)
+    with pytest.raises(IntegrityError, match="already staged"):
+        routes.stage_b(b)
+    routes.link_continuation("task-continued", "task-original")
+    assert routes.bind("task-new") is a
+    assert routes.manager_for("task-continued") is b.manager
+    assert routes.manager_for("task-new") is a.manager
+    # Work that predates routing runs on A.
+    assert routes.manager_for("task-unbound") is a.manager
 
 
-def test_retry_stages_a_fresh_b_and_voided_b_work_never_serves(router):
-    activating(router)
-    router.bind("task-during")
-    router.rollback("candidate_failed_to_start")
-    retry = bundle(Snapshot((File("extension.py", b"second attempt\n"),
-                             File("dependencies.lock", b"httpx==0.28.1\n"))))
-    image = "sha256:" + "d" * 64
-    router.stage_b(verified(retry, image))
-    assert router.live_b
-    with pytest.raises(IntegrityError, match="no B is live"):
-        router.stage_b(verified(retry, image))
-    router.begin_activation()
-    router.link_continuation("task-retry", "task-original")
-    router.commit()
-    assert router.release_continuation("task-retry").image_id == image
-    with pytest.raises(IntegrityError, match="voided"):
-        router.route("task-during")
-    router.rollback("resumed_request_failed")
-    assert not router.live_b and router.serving.role == "A"
+def test_promoted_b_serves_everything_and_a_discarded_b_serves_nothing():
+    a = deployment("A", IMAGE_A)
+    routes = Deployments(a)
+    routes.bind("task-old")
+    b = deployment("B", IMAGE_B, b_bundle())
+    routes.stage_b(b)
+    routes.link_continuation("task-continued", "task-original")
+    assert routes.promote() is a
+    assert routes.a is b and b.role == "A" and routes.b is None
+    assert routes.manager_for("task-old") is b.manager
+    assert routes.bind("task-later") is b
+    with pytest.raises(IntegrityError, match="promote"):
+        routes.promote()
+    retry = deployment("B", "sha256:" + "d" * 64, b_bundle())
+    routes.stage_b(retry)
+    routes.link_continuation("task-retry", "task-original")
+    assert routes.discard_b() is retry and routes.discard_b() is None
+    assert routes.manager_for("task-retry") is b.manager
 
 
-def test_rollback_after_commit_restores_the_recorded_a_digest(router):
-    activating(router)
-    router.link_continuation("task-continued", "task-original")
-    router.commit()
-    router.rollback("resumed_request_failed")
-    serving = router.serving
-    assert serving.role == "A" and serving.bundle_digest == bundle().digest
-    assert serving.image_id == IMAGE_A
-    assert router.bind("task-later").role == "A"
-
-
-def test_crash_during_uncommitted_activation_recovers_to_a(tmp_path):
-    root = tmp_path / "routing"
-    with Journal.create(root) as journal:
-        router = DeploymentRouter(journal)
-        activating(router)
-        assert router.bind("task-during").role == "B"
-    with Journal.recover(root) as journal:
-        recovered = DeploymentRouter.recover(journal)
-        assert recovered.serving.role == "A"
-        with pytest.raises(IntegrityError, match="activation commit"):
-            recovered.route("task-during")
-        with pytest.raises(IntegrityError, match="freshly staged"):
-            recovered.begin_activation()
-        assert [r.value["data"]["reason"] for r in journal.verify()
-                if r.value["kind"] == "deployment_rolled_back"] == [
-            "recovered_uncommitted_activation"]
-
-
-def test_routing_state_is_replayed_exactly_from_receipts(tmp_path):
-    root = tmp_path / "routing"
-    with Journal.create(root) as journal:
-        router = DeploymentRouter(journal)
-        activating(router)
-        router.link_continuation("task-continued", "task-original")
-        router.commit()
-        router.release_continuation("task-continued")
-        epoch = router.epoch
-    with Journal.recover(root) as journal:
-        replayed = DeploymentRouter(journal)
-        assert replayed.serving.role == "B" and replayed.epoch == epoch
-        assert replayed.route("task-continued").role == "B"
-        with pytest.raises(IntegrityError, match="already"):
-            replayed.release_continuation("task-continued")
-
-
-def test_router_refuses_out_of_order_operations(router):
-    with pytest.raises(IntegrityError):
-        router.stage_b(verified(b_bundle(), IMAGE_B))
-    router.register_a(verified(bundle(), IMAGE_A))
-    with pytest.raises(IntegrityError):
-        router.begin_activation()
-    with pytest.raises(IntegrityError, match="No open activation"):
-        router.commit()
-    with pytest.raises(IntegrityError):
-        router.link_continuation("t", "missing")
-    router.bind("task")
-    with pytest.raises(IntegrityError):
-        router.bind("task")
-
-
-def test_router_accepts_only_verify_receipts(router):
-    from recollect.selfmod.deployment import VerifiedImage
-
-    with pytest.raises(IntegrityError, match="verify"):
-        router.register_a(bundle())
-    with pytest.raises(IntegrityError, match="only from verify"):
-        VerifiedImage(bundle(), IMAGE_A, object())
+async def test_remove_and_sweep_leave_only_the_serving_image():
+    fake, value = FakeImages(), bundle()
+    stale = "sha256:" + "d" * 64
+    for image_id in (IMAGE_A, IMAGE_B, stale):
+        fake.add(value, image_id)
+    images = BundleImages(fake)
+    assert await images.sweep(keep=IMAGE_A) == [IMAGE_B, stale]
+    assert fake.removed == [IMAGE_B, stale]
+    assert IMAGE_A in fake.images and fake.images.keys() >= {BASE}
+    await images.remove(IMAGE_A)
+    assert IMAGE_A not in fake.images
 
 
 @pytest.mark.parametrize("fault", ["labels", "base", "bytes", "missing_layer"])

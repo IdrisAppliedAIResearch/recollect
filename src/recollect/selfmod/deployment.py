@@ -1,16 +1,13 @@
-"""Immutable subagent bundles and journaled A/B routing with rollback to A.
+"""Subagent bundle images and which one serves each task.
 
-A bundle is the exact accepted candidate tree plus a required dependency lock,
-the pinned base image and launch metadata, all bound by one digest. Images are
-produced by create/copy/commit from the local base image (never pull or rebuild)
-and verified by reading the bundle bytes back out of the image before serving.
+A bundle is the exact subagent tree plus a required dependency lock, the pinned
+base image and launch metadata, all bound by one digest. Images are produced by
+create/copy/commit from the local base image (never pull or rebuild) and verified
+by reading the bundle bytes back out of the image before serving.
 
-The router is harness state, not a worker capability. Existing tasks keep the
-deployment they were bound to; new tasks bind to the serving deployment. B
-serves only after its activation is committed, and the original request's
-continuation stays blocked until it is released. Failure, rollback or recovery
-restores A, which is never modified. A retry may then stage a fresh B; work bound
-to a voided B never serves. Blocking methods belong off the event loop.
+A serves new work. While a build is proven, B serves only the resumed request.
+When B finishes it, B becomes A; if it fails or is canceled, B is discarded.
+The only bundle image kept is A's.
 """
 
 import io
@@ -19,8 +16,15 @@ import re
 import tarfile
 from dataclasses import dataclass
 
-from .contracts import File, Snapshot, require_digest
-from .journal import IntegrityError, encode, sha256
+from .contracts import (
+    File,
+    IntegrityError,
+    Snapshot,
+    encode,
+    require_digest,
+    sha256,
+    write_tree,
+)
 
 BUNDLE_ROOT = "recollect-bundle"
 BUNDLE_PARENT = "/opt"
@@ -202,23 +206,40 @@ class BundleImages:
         accepted = {f.path: f.content for f in bundle.candidate.files}
         if served != accepted or manifest != encode(bundle.manifest):
             raise IntegrityError("Served bundle bytes differ from the accepted digest")
-        return VerifiedImage(bundle, image_id, _VERIFIED)
+        return VerifiedImage(bundle, image_id)
 
+    async def remove(self, image_id):
+        """Delete a bundle image and any container still made from it."""
+        containers = (await self._checked(
+            "ps", "--all", "--quiet", "--no-trunc", "--filter", "ancestor=" + image_id,
+        )).decode().split()
+        if containers:
+            await self._docker.run("rm", "--force", *containers)
+        code, _, err = await self._docker.run("rmi", "--force", image_id)
+        if code and b"No such image" not in err:
+            raise IntegrityError("Docker could not remove bundle image: "
+                                 + err.decode(errors="replace")[:512])
 
-_VERIFIED = object()
+    async def sweep(self, keep):
+        """Remove every bundle image except ``keep``: B never outlives its run."""
+        images = (await self._checked(
+            "images", "--all", "--quiet", "--no-trunc", "--filter",
+            "label=recollect.bundle",
+        )).decode().split()
+        removed = []
+        for image_id in dict.fromkeys(images):
+            if image_id != keep and re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+                await self.remove(image_id)
+                removed.append(image_id)
+        return removed
 
 
 @dataclass(frozen=True)
 class VerifiedImage:
-    """Minted only by BundleImages.verify; routing accepts nothing else."""
+    """An image whose served bundle bytes were read back and matched."""
 
     bundle: SubagentBundle
     image_id: str
-    token: object
-
-    def __post_init__(self):
-        if self.token is not _VERIFIED:
-            raise IntegrityError("Image verification receipts come only from verify")
 
 
 def bundle_skills(bundle):
@@ -228,281 +249,70 @@ def bundle_skills(bundle):
 
 
 def materialize_skills(bundle, destination):
-    """Write a verified bundle's skills tree for its read-only config mount."""
-    from .files import materialize
-
+    """Write a bundle's skills tree for its read-only config mount."""
     skills = bundle_skills(bundle)
     if not skills.files:
         raise IntegrityError("Deployment bundle has no skills tree")
-    materialize(destination, skills)
-    return destination
+    return write_tree(destination, skills)
 
 
-@dataclass(frozen=True)
+@dataclass(eq=False)
 class Deployment:
     role: str
-    bundle_digest: str
-    image_id: str
-    candidate_sha256: str | None
-    epoch: int
+    verified: VerifiedImage
+    manager: object
+    #: Host directories this deployment owns and leaves behind when discarded.
+    paths: tuple = ()
+
+    @property
+    def image_id(self):
+        return self.verified.image_id
 
 
-class DeploymentRouter:
-    """Durable A/B routing receipts; state is replayed from the journal."""
+class Deployments:
+    """The coordinator's routing: bind, link and select a sandbox manager.
 
-    def __init__(self, journal):
-        self._journal = journal
-        self._deployments = {}
-        self._serving = None
-        self._epoch = 0
+    New work binds to A. A resumed request is linked to the staged B. Work bound
+    to a replaced or discarded deployment runs on the current A.
+    """
+
+    def __init__(self, a):
+        self.a, self.b = a, None
         self._tasks = {}
-        self._finished = set()
-        self._activation = None
-        self._committed = False
-        self._continuations = {}
-        self._released = set()
-        self._rolled_back = False
-        self._b_epoch = None
-        for record in journal.verify():
-            self._apply(record.value["kind"], record.value["data"])
 
-    def _record(self, kind, data):
-        self._journal.append("deployment_" + kind, data)
-        self._apply("deployment_" + kind, data)
-
-    def _apply(self, kind, data):
-        kind = kind.removeprefix("deployment_")
-        if kind == "registered":
-            self._deployments[data["role"]] = Deployment(
-                data["role"], data["bundle_digest"], data["image_id"],
-                data["candidate_sha256"], data["epoch"])
-            if data["role"] == "A":
-                self._serving, self._epoch = "A", data["epoch"]
-            else:
-                self._rolled_back = False
-        elif kind == "bound":
-            self._tasks[data["task_id"]] = (data["role"], data["epoch"])
-        elif kind == "activation_started":
-            self._activation, self._serving = data["epoch"], "B"
-            self._b_epoch = data["epoch"]
-            self._epoch, self._committed = data["epoch"], False
-        elif kind == "activation_committed":
-            self._committed, self._activation = True, None
-        elif kind == "rolled_back":
-            self._serving, self._epoch = "A", data["epoch"]
-            self._activation, self._committed = None, False
-            self._rolled_back = True
-        elif kind == "continuation_linked":
-            self._continuations[data["task_id"]] = data["parent_task_id"]
-        elif kind == "continuation_released":
-            self._released.add(data["task_id"])
-            self._tasks[data["task_id"]] = ("B", data["epoch"])
-        elif kind == "task_finished":
-            self._finished.add(data["task_id"])
-
-    @property
-    def serving(self):
-        return self._deployments.get(self._serving)
-
-    @property
-    def epoch(self):
-        return self._epoch
-
-    @property
-    def live_b(self):
-        """A B is staged, activating or serving and has not been rolled back."""
-        return "B" in self._deployments and not self._rolled_back
-
-    @staticmethod
-    def _verified(verified):
-        if type(verified) is not VerifiedImage:
-            raise IntegrityError("Register only BundleImages.verify receipts")
-        return verified
-
-    def register_a(self, verified):
-        verified = self._verified(verified)
-        if "A" in self._deployments:
-            raise IntegrityError("Deployment A is registered once")
-        self._record("registered", {"role": "A",
-                                    "bundle_digest": verified.bundle.digest,
-                                    "image_id": verified.image_id,
-                                    "candidate_sha256": None, "epoch": 1})
-
-    def stage_b(self, verified):
-        verified = self._verified(verified)
-        if ("A" not in self._deployments or self._serving != "A"
-                or self._activation is not None or self.live_b):
-            raise IntegrityError("Stage B only while A serves and no B is live")
-        self._record("registered", {
-            "role": "B", "bundle_digest": verified.bundle.digest,
-            "image_id": verified.image_id,
-            "candidate_sha256": verified.bundle.candidate.sha256,
-            "epoch": self._epoch,
-        })
-
-    def bind(self, task_id):
-        """Record new work's deployment; binding never starts it and never moves.
-
-        During an open activation new work binds to B, but ``route`` refuses to
-        serve any B task until the activation is committed. After a rollback
-        that work stays unserved: an uncommitted B never runs and nothing is
-        silently moved to A.
-        """
-        if task_id in self._tasks:
-            raise IntegrityError("Task is already bound to a deployment")
-        if self.serving is None:
-            raise IntegrityError("No serving deployment")
-        self._record("bound", {"task_id": task_id, "role": self._serving,
-                               "epoch": self._epoch})
-        return self._deployments[self._serving]
-
-    def route(self, task_id):
-        role, epoch = self._tasks[task_id]
-        # Work bound to an earlier, rolled-back B stays voided after a retry.
-        if role == "B" and (not self._committed or epoch != self._b_epoch):
-            raise IntegrityError(
-                "B serves only after activation commit (blocked or voided)")
-        if (role == "B" and task_id in self._continuations
-                and task_id not in self._released):
-            raise IntegrityError("Original-task continuation awaits release")
-        return self._deployments[role]
-
-    def link_continuation(self, task_id, parent_task_id):
-        """Bind the original task's continuation to B, blocked until release."""
-        if (self._activation is None or parent_task_id not in self._tasks
-                or task_id in self._tasks):
-            raise IntegrityError("Link a continuation during an open activation")
-        self._record("continuation_linked", {"task_id": task_id,
-                                             "parent_task_id": parent_task_id})
-        self._record("bound", {"task_id": task_id, "role": "B", "epoch": self._epoch})
-
-    def begin_activation(self):
-        if ("B" not in self._deployments or self._serving != "A"
-                or self._activation is not None or self._committed
-                or self._rolled_back):
-            raise IntegrityError("Activation requires a freshly staged B")
-        self._record("activation_started", {
-            "epoch": self._epoch + 1,
-            "from": self._deployments["A"].bundle_digest,
-            "to": self._deployments["B"].bundle_digest,
-        })
-
-    def evidence(self):
-        records = self._journal.verify()
-        return Snapshot((File("routing.jsonl", b"".join(r.body for r in records)),))
-
-    def commit(self):
-        """Serve the staged B after it passed its checks and started healthy."""
-        if self._activation is None:
-            raise IntegrityError("No open activation to commit")
-        self._record("activation_committed", {
-            "epoch": self._epoch,
-            "bundle_digest": self._deployments["B"].bundle_digest})
-
-    def release_continuation(self, task_id):
-        if not self._committed or task_id not in self._continuations:
-            raise IntegrityError("Continuation release requires a committed B")
-        if task_id in self._released:
-            raise IntegrityError("Continuation already released")
-        self._record("continuation_released", {"task_id": task_id,
-                                               "epoch": self._epoch})
-        return self.route(task_id)
-
-    def finish(self, task_id):
-        if task_id not in self._tasks or task_id in self._finished:
-            raise IntegrityError("Unknown or already finished task")
-        self._record("task_finished", {"task_id": task_id})
-
-    def drained(self, role):
-        return not any(r == role and t not in self._finished
-                       for t, (r, _) in self._tasks.items())
-
-    def rollback(self, reason):
-        if "A" not in self._deployments:
-            raise IntegrityError("No A deployment to restore")
-        self._record("rolled_back", {"reason": reason, "epoch": self._epoch + 1,
-                                     "restored": self._deployments["A"].bundle_digest})
-
-    def deployment(self, role):
-        return self._deployments.get(role)
-
-    @classmethod
-    def recover(cls, journal):
-        """An activation interrupted before its commit restores A.
-
-        Work bound to that uncommitted B stays unserved and the continuation
-        stays blocked: recovery fails closed, never dispatching.
-        """
-        router = cls(journal)
-        if router._activation is not None and not router._committed:
-            router.rollback("recovered_uncommitted_activation")
-        return router
-
-
-class DeploymentSandboxes:
-    """Hand each task the sandbox manager of its pinned deployment only.
-
-    A manager is accepted for a role only when it launches exactly the image ID
-    the router recorded for that role. Selection always goes through router
-    routing, so existing tasks keep A and a blocked continuation cannot start.
-    """
-
-    def __init__(self, router):
-        self._router, self._managers = router, {}
-
-    def register(self, role, manager, verified):
-        """Accept a manager only for the verified image and exact bundle skills."""
-        from .files import verify_materialized
-
-        recorded = self._router.deployment(role)
-        pinned = getattr(manager, "deployment", None)
-        current = self._managers.get(role)
-        # A retried B has a new image; the same recorded image never re-registers.
-        if current is not None and (recorded is None or getattr(
-                current, "deployment", None) is None
-                or current.deployment.image_id == recorded.image_id):
-            raise IntegrityError("A deployment's sandbox manager is registered once")
-        if (type(verified) is not VerifiedImage or recorded is None or pinned is None
-                or not (pinned.image_id == recorded.image_id == verified.image_id)
-                or recorded.bundle_digest != verified.bundle.digest):
-            raise IntegrityError("Sandbox manager does not launch the recorded image")
-        try:
-            verify_materialized(pinned.skills_source, bundle_skills(verified.bundle))
-        except (ValueError, OSError) as error:
-            raise IntegrityError("Sandbox skills differ from verified bundle") from (
-                error)
-        self._managers[role] = manager
-
-    def manager_for(self, task_id):
-        deployment = self._router.route(task_id)
-        manager = self._managers.get(deployment.role)
-        if manager is None:
-            raise IntegrityError("No verified sandbox manager for this deployment")
-        return manager
-
-
-class TaskDeployments:
-    """The task coordinator's view of routing: bind, link and select only.
-
-    Binding happens once when the coordinator durably creates a task; a linked
-    continuation is bound to B by the router and is never served before release.
-    Blocking journal writes belong off the event loop.
-    """
-
-    def __init__(self, router, sandboxes):
-        if type(router) is not DeploymentRouter or type(sandboxes) is not (
-                DeploymentSandboxes) or sandboxes._router is not router:
-            raise IntegrityError("Task deployments need one router and its selector")
-        self._router, self._sandboxes = router, sandboxes
+    def stage_b(self, deployment):
+        if self.b is not None:
+            raise IntegrityError("A B deployment is already staged")
+        self.b = deployment
 
     def is_bound(self, task_id):
-        return task_id in self._router._tasks
+        return task_id in self._tasks
 
     def bind(self, task_id):
-        return self._router.bind(task_id)
+        if task_id in self._tasks:
+            raise IntegrityError("Task is already bound to a deployment")
+        self._tasks[task_id] = self.a
+        return self.a
 
     def link_continuation(self, task_id, parent_task_id):
-        self._router.link_continuation(task_id, parent_task_id)
+        if self.b is None or task_id in self._tasks:
+            raise IntegrityError("Link a continuation only to a staged B")
+        self._tasks[task_id] = self.b
 
     def manager_for(self, task_id):
-        return self._sandboxes.manager_for(task_id)
+        deployment = self._tasks.get(task_id)
+        if deployment is None or deployment not in (self.a, self.b):
+            deployment = self._tasks[task_id] = self.a
+        return deployment.manager
+
+    def promote(self):
+        """B becomes A; the replaced A is returned for retirement."""
+        if self.b is None:
+            raise IntegrityError("No B deployment to promote")
+        old, self.a, self.b = self.a, self.b, None
+        self.a.role = "A"
+        return old
+
+    def discard_b(self):
+        old, self.b = self.b, None
+        return old

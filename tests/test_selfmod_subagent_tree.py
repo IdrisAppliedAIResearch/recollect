@@ -8,8 +8,8 @@ from pathlib import Path
 from recollect.engine.sandbox import configgen
 from recollect.engine.sandbox.manager import SandboxDeployment
 from recollect.selfmod import subagent_tree
+from recollect.selfmod.contracts import write_tree
 from recollect.selfmod.deployment import SubagentBundle
-from recollect.selfmod.files import materialize
 
 REPO = Path(__file__).resolve().parents[1]
 BASE = "sha256:" + "a" * 64
@@ -75,7 +75,7 @@ def test_bundle_deployment_launches_its_tool_host_on_the_bundle_path(tmp_path):
 
 def test_materialized_tree_imports_its_own_tool_server_not_the_host_package(tmp_path):
     root = tmp_path / "bundle"
-    materialize(root, subagent_tree.baseline(REPO))
+    write_tree(root, subagent_tree.baseline(REPO))
     env = {**os.environ, "PYTHONPATH": str(root)}
     probe = ("import recollect, recollect.engine.toolhost as host, "
              "recollect.engine.mcp_research as server; "

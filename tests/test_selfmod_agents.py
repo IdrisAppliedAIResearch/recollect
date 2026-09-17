@@ -130,7 +130,7 @@ async def test_agents_plan_review_implement_and_fix_from_feedback(tmp_path):
         events.append(kind)
 
     developer = AgentDeveloper(
-        tmp_path / "rounds", request="post it", gap={"missing_capability": "POST"},
+        request="post it", gap={"missing_capability": "POST"},
         baseline=BASELINE, policy=POLICY, protected=("recollect/__init__.py",),
         manager_factory=lambda name: next(managers), run_checks=run_checks,
         on_event=on_event)
@@ -158,7 +158,6 @@ async def test_agents_plan_review_implement_and_fix_from_feedback(tmp_path):
                       "plan_review", "plan_approved", "implementation_turn",
                       "policy_violations", "implementation_turn", "checks",
                       "implementation_turn", "checks", "code_review", "candidate"]
-    assert len(list((tmp_path / "rounds").iterdir())) == 1
 
 
 async def test_a_cancelled_attempt_quiesces_and_releases_the_sandbox(tmp_path):
@@ -181,7 +180,7 @@ async def test_a_cancelled_attempt_quiesces_and_releases_the_sandbox(tmp_path):
     reviewer = Manager(tmp_path, "reviewer", [])
     managers = iter([builder, reviewer])
     developer = AgentDeveloper(
-        tmp_path / "rounds", request="r", gap={}, baseline=BASELINE, policy=POLICY,
+        request="r", gap={}, baseline=BASELINE, policy=POLICY,
         protected=(), manager_factory=lambda name: next(managers),
         run_checks=None)
     job = asyncio.create_task(developer(1, parse_tests(authored()), ()))

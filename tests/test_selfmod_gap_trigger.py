@@ -4,8 +4,8 @@ import json
 
 import pytest
 
+from recollect.selfmod.contracts import IntegrityError
 from recollect.selfmod.gap_trigger import parse_gap_report
-from recollect.selfmod.journal import IntegrityError
 
 
 def gap_message(kind="blocked", related="start:request-1", **report_changes):

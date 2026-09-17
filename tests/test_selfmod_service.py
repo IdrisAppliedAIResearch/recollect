@@ -8,7 +8,7 @@ import pytest
 
 import recollect.selfmod.service as service_module
 from recollect.engine.sandbox.manager import SandboxDeployment
-from recollect.selfmod.deployment import TaskDeployments, materialize_skills
+from recollect.selfmod.deployment import Deployments, materialize_skills
 from recollect.selfmod.loop import Outcome
 from recollect.selfmod.service import SelfModificationService
 from tests.selfmod_fake_images import BASE
@@ -59,7 +59,7 @@ def service(tmp_path):
         return SimpleNamespace(deployment=SandboxDeployment(
             receipt.image_id, skills, tmp_path / ("root-" + name)))
 
-    def loop_factory(journal, session_id, task_id, request, gap):
+    def loop_factory(session_id, task_id, request, gap):
         if not loops:
             loops.append(Loop(Outcome(True, "done")))
         loops[0].request = request
@@ -67,31 +67,32 @@ def service(tmp_path):
 
     value = SelfModificationService(
         SimpleNamespace(), coordinator, repository=REPOSITORY, root=tmp_path / "root",
-        images=Images(), base_image_id=BASE, image_environment=("PATH=/usr/bin",),
+        images=Images(), base_image_id=BASE,
         role_endpoint="http://127.0.0.1:8001/v1", role_model="local",
-        runtime_factory=lambda: None, manager_factory=manager,
-        loop_factory=loop_factory,
+        manager_factory=manager, loop_factory=loop_factory, retire_poll=0,
     )
     value.coordinator, value.loops = coordinator, loops
+    value.recorded = []
+    value._record = lambda kind, data: value.recorded.append(kind)
     return value
 
 
 def kinds(service):
-    return [r.value["kind"] for r in service._journal.verify()]
+    return service.recorded
 
 
 async def test_prepare_serves_a_from_its_bundle_and_installs_the_gap_hook(service):
     verified = await service.prepare()
-    assert service.router.serving.role == "A"
-    assert service.router.serving.image_id == verified.image_id
-    assert isinstance(service.coordinator.deployments, TaskDeployments)
+    assert service.deployments.a.role == "A"
+    assert service.deployments.a.image_id == verified.image_id
+    assert isinstance(service.coordinator.deployments, Deployments)
     assert service.coordinator.on_gap == service.handle_gap
-    assert "a_registered" in kinds(service)
+    assert "a_serving" in kinds(service)
     await service.close()
 
 
-async def test_a_second_install_on_one_root_does_not_collide(tmp_path, monkeypatch):
-    """A later boot must not trip over the directories an earlier one left."""
+async def test_a_later_start_clears_what_an_earlier_one_left(tmp_path, monkeypatch):
+    """Directories and B images from an earlier run never survive a start."""
     monkeypatch.setattr(
         service_module, "SandboxManager",
         lambda config, **kwargs: SimpleNamespace(deployment=kwargs["deployment"]))
@@ -101,16 +102,15 @@ async def test_a_second_install_on_one_root_does_not_collide(tmp_path, monkeypat
         value = SelfModificationService(
             SimpleNamespace(sandbox_root=sandboxes), Coordinator(),
             repository=REPOSITORY, root=root,
-            images=Images(), base_image_id=BASE, image_environment=(),
+            images=Images(), base_image_id=BASE,
             role_endpoint="http://127.0.0.1:8001/v1", role_model="local",
-            runtime_factory=lambda: None,
         )
         assert (await value.prepare()).image_id
-        assert value.router.serving.role == "A"
+        assert value.deployments.a.role == "A"
         await value.close()
     # Sandbox trees live outside the app data directory, never in the repo.
-    assert len(list(sandboxes.glob("skills-a-*"))) == 2
-    assert not list(root.glob("skills-a-*"))
+    assert len(list((sandboxes / "selfmod").glob("skills-a-*"))) == 1
+    assert not list(root.glob("**/skills-a-*"))
 
 
 async def test_a_gap_asks_the_user_first_and_builds_nothing_until_yes(service):
@@ -266,51 +266,6 @@ async def test_repeated_failures_update_progress_without_new_notices(service):
     await service.close()
 
 
-async def test_service_development_settings_open_a_real_cycle_on_a_tree(service):
-    """The settings the service builds must validate against A's real tree."""
-    from recollect.selfmod.contracts import TaskContract
-    from recollect.selfmod.round import ModificationRound, RoundConfig
-    from recollect.selfmod.tests_first import parse_tests
-    from tests.test_selfmod_tests_first import authored
-
-    await service.prepare()
-    tests = parse_tests(authored())
-    contract = TaskContract("request", tests.contract_requirements, tests.names,
-                            service.policy.sha256)
-    round_ = ModificationRound.create(
-        service._root / "real-cycle",
-        RoundConfig("attempt-1", contract, service.baseline.sha256))
-    try:
-        development = round_.open_development(
-            baseline=service.baseline, policy=service.policy,
-            settings=service.development_settings())
-        assert development.stage == "plan"
-        # Role containers for planning and implementing must also accept the
-        # real tree, the frozen checks and a plan that creates a new tool.
-        from recollect.selfmod.contracts import Plan, PlannedChange, Verification
-        from recollect.selfmod.roles import RoleSettings, make_context, role_spec
-
-        profile = RoleSettings("http://127.0.0.1:8001/v1", "local", tests.checks)
-        context = make_context(development, development.authorize("plan"), profile)
-        role_spec(development, context, b"{}\n", profile, None)
-        development._grants.clear()
-        ids = tuple(r.id for r in contract.requirements)
-        plan = Plan(contract.sha256, (
-            PlannedChange("recollect/engine/subagent_tools/http_post.py", "create",
-                          ids, "new tool"),
-            PlannedChange("recollect/engine/mcp_research.py", "modify", ids,
-                          "register the tool")),
-            tuple(Verification(i, "checks") for i in ids))
-        development._development.propose(development._id, plan)
-        development._development._stage = "implement"
-        context = make_context(development, development.authorize("execute"), profile)
-        spec = role_spec(development, context, b"{}\n", profile, None)
-        assert "source/recollect/engine/subagent_tools" in spec.policy.create_under
-    finally:
-        round_.close()
-        await service.close()
-
-
 async def test_workspace_describes_agent_steps_without_raw_internals(service):
     service.status = {"state": "running", "session_id": "session",
                       "task_id": "task-a", "continuation_task_id": None}
@@ -373,4 +328,97 @@ async def test_an_answer_given_in_chat_updates_the_card_without_a_duplicate_noti
     assert len(service.coordinator.notices) == before
     assert service.coordinator.progress[-1] == service_module.GAP_NOTICE
     await service._runner
+    await service.close()
+
+
+class Manager:
+    def __init__(self, deployment):
+        self.deployment, self.torn_down = deployment, False
+
+    async def teardown(self):
+        self.torn_down = True
+
+
+async def test_prepare_removes_every_other_bundle_image(service):
+    service._images.sweep_calls = []
+
+    async def sweep(keep):
+        service._images.sweep_calls.append(keep)
+        return ["sha256:" + "9" * 64]
+
+    service._images.sweep = sweep
+    stale = service._workspace / "root-b-old"
+    stale.mkdir(parents=True)
+    verified = await service.prepare()
+    assert service._images.sweep_calls == [verified.image_id]
+    assert not stale.exists()
+    await service.close()
+
+
+async def promoted_service(service, tmp_path, saved):
+    from recollect.selfmod.contracts import File, Snapshot
+    from recollect.selfmod.deployment import Deployment
+    from recollect.selfmod.tests_first import parse_tests
+    from tests.test_selfmod_tests_first import authored
+
+    service._promote_files = saved
+    service.status = {"state": "running", "session_id": "session",
+                      "task_id": "task-a", "continuation_task_id": None,
+                      "feature": "create event"}
+    await service.prepare()
+    old = service.deployments.a
+    old.manager = Manager(old.manager.deployment)
+    candidate = Snapshot((*service.baseline.files,
+                          File("recollect/engine/subagent_tools/event.py", b"x\n")))
+    b = Deployment("B", old.verified, Manager(None))
+    service.deployments.stage_b(b)
+    await service._promote(candidate, parse_tests(authored()))
+    await asyncio.gather(*service._retiring)
+    return old, b, candidate
+
+
+async def test_a_finished_b_is_saved_on_a_branch_and_replaces_a(service, tmp_path):
+    from recollect.selfmod.promotion import Promotion
+
+    calls = []
+
+    def saved(repository, baseline, candidate, feature):
+        calls.append((repository, feature))
+        return Promotion("selfmod/create-event-1", "main", "abc", ("src/x.py",))
+
+    removed = []
+
+    async def remove(image_id):
+        removed.append(image_id)
+
+    service._images.remove = remove
+    old, b, candidate = await promoted_service(service, tmp_path, saved)
+    assert calls == [(REPOSITORY, "create event")]
+    assert service.deployments.a is b and b.role == "A"
+    assert service.baseline is candidate
+    assert service.policy.permits("recollect/engine/subagent_tools/event.py",
+                                  "modify")
+    # The replaced A leaves nothing: sandbox, image and directories are gone.
+    assert old.manager.torn_down and removed == [old.image_id]
+    assert not any(path.exists() for path in old.paths)
+    assert service.status["branch"] == "selfmod/create-event-1"
+    assert service.activity[-1]["text"].startswith(
+        "Saved as branch selfmod/create-event-1")
+    await service.close()
+
+
+async def test_a_failed_save_still_serves_b_until_restart(service, tmp_path):
+    from recollect.selfmod.promotion import PromotionError
+
+    def saved(*args):
+        raise PromotionError("git commit failed: no identity")
+
+    async def remove(image_id):
+        pass
+
+    service._images.remove = remove
+    _, b, _ = await promoted_service(service, tmp_path, saved)
+    assert service.deployments.a is b
+    assert "no identity" in service.activity[-1]["text"]
+    assert "branch" not in service.status
     await service.close()

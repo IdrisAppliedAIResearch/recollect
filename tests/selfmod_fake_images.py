@@ -39,10 +39,18 @@ class FakeImages:
             return 0, self.images[self.created]["tar"], b""
         if args[0] == "rm":
             return 0, b"", b""
+        if args[0] == "ps":
+            return 0, b"", b""
+        if args[0] == "rmi":
+            self.removed = [*getattr(self, "removed", []), args[-1]]
+            self.images.pop(args[-1], None)
+            return 0, b"", b""
         if args[0] == "images":
-            key, _, value = args[-1].removeprefix("label=").partition("=")
-            return 0, "".join(image_id + "\n" for image_id, item in self.images.items()
-                              if item["labels"].get(key) == value).encode(), b""
+            key, has_value, value = args[-1].removeprefix("label=").partition("=")
+            return 0, "".join(
+                image_id + "\n" for image_id, item in self.images.items()
+                if key in item["labels"]
+                and (not has_value or item["labels"][key] == value)).encode(), b""
         raise AssertionError(args)
 
 

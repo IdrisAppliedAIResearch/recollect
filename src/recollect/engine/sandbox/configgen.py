@@ -23,7 +23,7 @@ _CONTEXT_LIMIT = 200_000
 _OUTPUT_LIMIT = 32_768
 _CHUNK_TIMEOUT_MS = 600_000
 #: The pinned binary always applies this per-request MCP timeout; a bundle's
-#: tool host keeps healthy calls alive with progress (draft amendment 03).
+#: tool host keeps healthy calls alive with progress.
 MCP_TIMEOUT_MS = 120_000
 TOOL_HOST_MODULE = "recollect.engine.toolhost"
 
