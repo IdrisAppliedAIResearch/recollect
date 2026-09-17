@@ -214,8 +214,10 @@ class AgentDeveloper:
     """
 
     def __init__(self, root, *, request, gap, baseline, policy, protected,
-                 manager_factory, run_checks, on_event=None):
+                 manager_factory, run_checks, on_event=None, connections=None):
         self._root, self._request, self._gap = Path(root), request, gap
+        #: How deployed tools reach connected accounts; agents get no live access.
+        self._connections = connections
         self._baseline, self._policy, self._protected = baseline, policy, protected
         self._manager_factory, self._run_checks = manager_factory, run_checks
         self._on_event = on_event
@@ -278,7 +280,11 @@ class _Attempt:
             f"- In {SOURCE}/ you may modify any existing file except: {protected}. "
             f"You may create files under: {creatable}. Don't delete files.\n"
             "- Import only the standard library, the codebase, and the packages "
-            f"pinned in {SOURCE}/dependencies.lock."))
+            f"pinned in {SOURCE}/dependencies.lock.")) + (
+            "\n\n" + _tag("connected_accounts", self._owner._connections + (
+                "\nThis workspace has no connection service: the tool reaches it "
+                "only once deployed. Test against fakes."))
+            if self._owner._connections else "")
 
     async def _materialize(self, workspace, tree, extra=()):
         files = Snapshot((*(File(f"{SOURCE}/{f.path}", f.content) for f in tree.files),

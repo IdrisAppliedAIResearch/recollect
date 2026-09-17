@@ -109,12 +109,14 @@ def build_config(
     continuous: bool = False,
     unbounded: bool = False,
     bundle_pythonpath: str | None = None,
+    connections: tuple[str, str] | None = None,
 ) -> dict:
     """Return a local-provider-only config using native OpenCode agents.
 
     ``bundle_pythonpath`` serves a verified deployment bundle: its harness-owned
     tool host runs the bundle's own tool server, and the base image's packaged
-    copy is left off the import path.
+    copy is left off the import path. ``connections`` is the connected-account
+    service URL and key, given only to the tool process's environment.
     """
     skill_root = (prompt_dir or str(workdir)).rstrip("/\\") + "/skills"
     environment = {"RECOLLECT_TASK_REPORTING": "1"} if continuous else {}
@@ -122,6 +124,9 @@ def build_config(
     if bundle_pythonpath is not None:
         environment["PYTHONPATH"] = bundle_pythonpath
         module = TOOL_HOST_MODULE
+    if connections is not None:
+        environment["RECOLLECT_CONNECTIONS_URL"] = connections[0]
+        environment["RECOLLECT_CONNECTIONS_TOKEN"] = connections[1]
     model_ref = f"{PROVIDER_ID}/{model}"
     runtime_workdir = runtime_workdir or str(workdir)
     if context_limit <= output_limit or output_limit < 1:
@@ -214,6 +219,7 @@ def write_config(
     unbounded: bool = False,
     bundle_pythonpath: str | None = None,
     development: bool = False,
+    connections: tuple[str, str] | None = None,
 ) -> Path:
     """Write configuration and bundled skills into the read-only config mount.
 
@@ -248,6 +254,7 @@ def write_config(
         continuous=continuous,
         unbounded=unbounded,
         bundle_pythonpath=bundle_pythonpath,
+        connections=connections,
     )
     config_path.write_text(
         json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

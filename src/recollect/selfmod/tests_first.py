@@ -240,7 +240,8 @@ def _tag(name, body):
     return f"<{name}>\n{body}\n</{name}>"
 
 
-def message(request, gap, baseline, policy, *, tests=None, history=()):
+def message(request, gap, baseline, policy, *, tests=None, history=(),
+            connections=None):
     """The user message both roles receive; the reviewer also gets the tests."""
     registry = next(f for f in baseline.files if f.path == REGISTRY)
     files = "\n".join(f"{f.path} ({len(f.content)} bytes)"
@@ -262,6 +263,8 @@ def message(request, gap, baseline, policy, *, tests=None, history=()):
         _tag("codebase", codebase),
         _tag("check_environment", CHECK_ENVIRONMENT),
     ]
+    if connections:
+        parts.append(_tag("connected_accounts", connections))
     if tests is not None:
         parts.append(_tag("tests", json.dumps(tests, ensure_ascii=False, indent=1)))
     if history:
@@ -276,7 +279,7 @@ def _rejected(error):
 
 
 async def freeze_tests(request, gap, *, baseline, policy, author, reviewer, record,
-                       stopped):
+                       stopped, connections=None):
     """Author and review until approved; ``None`` only when the user stopped.
 
     ``author`` and ``reviewer`` are separate one-shot model calls taking
@@ -288,7 +291,8 @@ async def freeze_tests(request, gap, *, baseline, policy, author, reviewer, reco
         recent = history[-HISTORY:]
         try:
             authored = await author(AUTHOR_PROMPT, message(
-                request, gap, baseline, policy, history=recent))
+                request, gap, baseline, policy, history=recent,
+                connections=connections))
             tests = parse_tests(authored)
         except ValueError as error:
             history.append({"stage": "authoring", "findings": [_rejected(error)]})
@@ -301,7 +305,8 @@ async def freeze_tests(request, gap, *, baseline, policy, author, reviewer, reco
         }, Snapshot(tests.checks))
         try:
             report = await reviewer(REVIEW_PROMPT, message(
-                request, gap, baseline, policy, tests=authored, history=recent))
+                request, gap, baseline, policy, tests=authored, history=recent,
+                connections=connections))
             approved = parse_review(report)
         except ValueError as error:
             approved, report = False, {"findings": [_rejected(error)],
@@ -319,12 +324,12 @@ async def freeze_tests(request, gap, *, baseline, policy, author, reviewer, reco
     return None
 
 
-def authoring(request, *, baseline, policy, author, reviewer):
+def authoring(request, *, baseline, policy, author, reviewer, connections=None):
     """Loop port: ``(gap, stopped, record) -> FrozenTests | None``."""
     async def run(gap, stopped, record):
         return await freeze_tests(request, gap, baseline=baseline, policy=policy,
                                   author=author, reviewer=reviewer, record=record,
-                                  stopped=stopped)
+                                  stopped=stopped, connections=connections)
     return run
 
 

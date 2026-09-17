@@ -118,8 +118,11 @@ class SandboxManager:
         model_api_key: str | None = None,
         deployment: SandboxDeployment | None = None,
         development: bool = False,
+        connections: tuple[str, str] | None = None,
     ) -> None:
         self._config = config
+        #: Connected-account service (host URL, key) for worker tool processes.
+        self._connections = connections
         #: Stock OpenCode for self-modification agents (see configgen).
         self._development = development
         # A deployment (A or B bundle) owns its own image, skills and root.
@@ -391,6 +394,10 @@ class SandboxManager:
             unbounded=self._unbounded,
             bundle_pythonpath=(self.deployment.python_path
                                if self.deployment is not None else None),
+            connections=(None if self._connections is None else (
+                container_model_url(self._connections[0])
+                if self._commands is None else self._connections[0],
+                self._connections[1])),
             **({
                 "development": True,
                 "context_limit": cfg.generator_context_tokens,

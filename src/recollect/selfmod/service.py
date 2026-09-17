@@ -21,6 +21,8 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..connections import GUIDE as connection_guide_text
+from ..connections import ConnectionService, GoogleAccount, google_store
 from ..engine.sandbox.manager import SandboxDeployment, SandboxManager
 from .agents import AgentDeveloper, DockerChecks
 from .contracts import File, Snapshot
@@ -148,6 +150,10 @@ def _verdict(data):
 STOPPED_NOTICE = "Stopped building the capability."
 
 
+def connection_guide():
+    return connection_guide_text
+
+
 def docker_environment():
     return {k: v for k, v in os.environ.items()
             if k.upper() in DOCKER_ENVIRONMENT}
@@ -202,7 +208,8 @@ class SelfModificationService:
                  sandbox_root=None,
                  model_slot=None, model_base_url=None, model_api_key=None,
                  loop_factory=None, completer=model_completer, docker=None,
-                 run_checks=None, development_manager_factory=None):
+                 run_checks=None, development_manager_factory=None,
+                 connections=None):
         self._config, self._coordinator = config, coordinator
         self._repository, self._root = Path(repository), Path(root)
         self._images = images
@@ -216,6 +223,8 @@ class SelfModificationService:
         self._loop_factory = loop_factory or self._build_loop
         self._completer = completer
         self._docker, self._run_checks = docker, run_checks
+        #: The connected-account service; worker sandboxes (A and B) get its key.
+        self._connections = connections
         self._development_manager_factory = (development_manager_factory
                                              or self._development_manager)
         self._root.mkdir(parents=True, exist_ok=True)
@@ -257,6 +266,10 @@ class SelfModificationService:
             verified.bundle,
             self._sandbox_root / f"skills-{name}-{self._token}")
         manager = SandboxManager(self._config, model_slot=self._model_slot,
+                                 connections=(
+                                     None if self._connections is None else
+                                     (self._connections.base_url,
+                                      self._connections.key)),
                                  deployment=SandboxDeployment(
                                      verified.image_id, skills,
                                      self._sandbox_root
@@ -298,6 +311,9 @@ class SelfModificationService:
                                             "image_id": verified.image_id})
         return verified
 
+    def _guide(self):
+        return None if self._connections is None else connection_guide()
+
     def development_settings(self):
         return DevelopmentSettings(self._base_image_id, self._image_environment,
                                    ENTRYPOINT)
@@ -314,7 +330,7 @@ class SelfModificationService:
             manager_factory=self._development_manager_factory,
             run_checks=self._run_checks or DockerChecks(
                 self._docker, self._base_image_id),
-            on_event=self._on_event,
+            on_event=self._on_event, connections=self._guide(),
         )
         switch = DeploymentSwitch(
             router=self.router, sandboxes=self.sandboxes, images=self._images,
@@ -328,7 +344,7 @@ class SelfModificationService:
         return SelfModificationLoop(
             journal, author_tests=authoring(
                 request, baseline=self.baseline, policy=self.policy,
-                author=author, reviewer=reviewer),
+                author=author, reviewer=reviewer, connections=self._guide()),
             develop=develop, switch=switch, on_event=self._on_event)
 
     def proposal(self, session_id, task_id):
@@ -558,6 +574,9 @@ class SelfModificationService:
 
     async def close(self):
         self.stop()
+        if self._connections is not None:
+            with contextlib.suppress(Exception):
+                await self._connections.close()
         for journal in self._journals:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(journal.close)
@@ -577,6 +596,11 @@ async def install(config, coordinator, *, repository=None, root=None,
     sandbox_root = Path(getattr(config, "sandbox_root", None) or root)
     shared = sandbox_root / ("runtimes-" + uuid.uuid4().hex)
     shared.mkdir(parents=True, exist_ok=True)
+    # A connected Google account, when the user has authorized one.
+    connections = None
+    if GoogleAccount.available(google_store()):
+        connections = ConnectionService(GoogleAccount(google_store()))
+        await connections.start()
     role_slot = (model_slot.slot_for("modifier")
                  if config.generator_parallel_slots == 3
                  and hasattr(model_slot, "slot_for") else None)
@@ -588,6 +612,7 @@ async def install(config, coordinator, *, repository=None, root=None,
         runtime_factory=lambda: DockerFixtureRuntime(executable, shared, endpoint),
         role_slot=role_slot, model_slot=model_slot, sandbox_root=sandbox_root,
         model_base_url=model_base_url, model_api_key=model_api_key, docker=docker,
+        connections=connections,
     )
     await service.prepare()
     return service
