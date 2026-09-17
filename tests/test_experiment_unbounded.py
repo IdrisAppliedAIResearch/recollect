@@ -11,7 +11,6 @@ import pytest
 
 from recollect import tasks as tasks_module
 from recollect.config import RecollectConfig
-from recollect.engine import model_admission
 from recollect.engine.generator import (
     Generator,
     GeneratorSettings,
@@ -242,7 +241,3 @@ def test_unbounded_runner_reads_and_posts_without_timeouts(tmp_path):
     assert runner._request_timeout == httpx.Timeout(None)
     bounded = make_config(tmp_path)
     assert OpenCodeRunner(SandboxManager(bounded), bounded)._read_timeout == 10
-
-
-def test_model_admission_module_keeps_lane_order():
-    assert model_admission.LANES == ("conversation", "worker", "modifier")

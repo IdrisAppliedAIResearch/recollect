@@ -1,7 +1,7 @@
 """Opt-in real-model evaluation; never collected by the model-free pytest suite.
 
 Run from the repository root with ``uv run --no-sync python -m
-tests.voice_live_evaluation --report docs/voice-evaluation-YYYY-MM-DD.json``.
+evals.voice_live_evaluation --report docs/voice-evaluation-YYYY-MM-DD.json``.
 The default runs all five groups (79 turns). Repeat ``--group`` to select groups;
 ``--group repair`` runs the 12 repair turns. Add ``--acoustics`` for 20 additional
 direct-listener cases. These are opt-in model runs, separate from ordinary pytest.

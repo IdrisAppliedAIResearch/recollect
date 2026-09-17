@@ -229,7 +229,9 @@ def test_continuous_config_reports_real_context_without_changing_legacy():
 
 
 @pytest.mark.asyncio
-async def test_question_keeps_native_session_until_steered(tmp_path):
+async def test_question_keeps_native_session_until_steered(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "recollect.engine.sandbox.runner._RECONCILE_SECONDS", 0.02)
     native = NativeProtocol(tmp_path)
     native.release.set()
     commands = asyncio.Queue()

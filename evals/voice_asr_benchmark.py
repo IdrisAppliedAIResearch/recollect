@@ -1,6 +1,6 @@
 """Opt-in paired dictation evaluation, separate from wake and microphone tests.
 
-Run ``uv run --no-sync python -m tests.voice_asr_benchmark --report PATH``.
+Run ``uv run --no-sync python -m evals.voice_asr_benchmark --report PATH``.
 The report must not exist. Models run sequentially on identical in-memory PCM;
 ordinary pytest only imports the pure metrics and never loads these models.
 """

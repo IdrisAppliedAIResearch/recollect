@@ -24,8 +24,10 @@ async def until(predicate, timeout=2):
             await asyncio.sleep(0.01)
 
 
-async def test_silent_worker_stays_silent_until_it_reports(environment):
+async def test_silent_worker_stays_silent_until_it_reports(environment, monkeypatch):
     state = environment
+    # Several coalescing intervals pass with no report and no timed update.
+    monkeypatch.setattr(tasks_module, "UPDATE_INTERVAL", 0.05)
     report_now = asyncio.Event()
 
     async def working(**kwargs):
@@ -43,7 +45,7 @@ async def test_silent_worker_stays_silent_until_it_reports(environment):
     await until(lambda: state.store.get(
         state.session_id, task["task_id"],
     )["checkpoint"].get("activity"))
-    await asyncio.sleep(7.2)
+    await asyncio.sleep(0.3)
     assert not state.store.notifications(state.session_id)
     assert not state.generator.calls
     report_now.set()

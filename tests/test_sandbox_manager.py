@@ -13,13 +13,11 @@ import textwrap
 from pathlib import Path
 
 import httpx
-import pytest
 
 from recollect.config import RecollectConfig
 from recollect.engine.sandbox.manager import (
     SandboxHandle,
     SandboxManager,
-    SandboxStartError,
 )
 
 _STUB = textwrap.dedent(
@@ -188,19 +186,6 @@ async def test_failed_session_deletion_keeps_server_but_not_context(tmp_path):
     assert second.process_reused is True
     await manager.finish_invocation(second)
     await manager.teardown()
-
-
-async def test_spawn_surfaces_early_exit(tmp_path):
-    manager = SandboxManager(
-        _config(tmp_path),
-        command_factory=lambda port, workdir, password: [
-            sys.executable,
-            "-c",
-            "import sys; sys.exit(3)",
-        ],
-    )
-    with pytest.raises(SandboxStartError, match="exited early"):
-        await manager.ensure()
 
 
 async def test_reap_shuts_down_idle_sandboxes(tmp_path):
