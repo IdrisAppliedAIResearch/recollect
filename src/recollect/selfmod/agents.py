@@ -17,6 +17,7 @@ import contextlib
 import difflib
 import io
 import json
+import shutil
 import tarfile
 from pathlib import Path
 
@@ -238,6 +239,9 @@ class AgentDeveloper:
             for manager in (builder, reviewer):
                 with contextlib.suppress(Exception):
                     await asyncio.shield(manager.teardown())
+                # The workspace outlives the container unless it is removed.
+                for path in getattr(manager, "selfmod_paths", ()):
+                    await asyncio.to_thread(shutil.rmtree, path, ignore_errors=True)
 
 
 class _Attempt:

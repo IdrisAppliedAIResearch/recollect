@@ -28,6 +28,21 @@ class Promotion:
     paths: tuple[str, ...]
 
 
+def _format(repository, paths):
+    """Apply the repository's own mechanical lint fixes to what the build wrote.
+
+    The offline checks cannot run the repository's linter, so a candidate that
+    passes them can still fail the gate on import order alone.
+    """
+    try:
+        subprocess.run(("uv", "run", "--no-sync", "ruff", "check", "--fix",
+                        "--quiet", "--", *paths), cwd=repository,
+                       capture_output=True, text=True, creationflags=NO_WINDOW,
+                       check=False, timeout=300)
+    except (OSError, subprocess.SubprocessError):
+        return  # the build is saved either way; the gate reports the rest
+
+
 def _git(repository, *args):
     result = subprocess.run(("git", *args), cwd=repository, capture_output=True,
                             text=True, encoding="utf-8", errors="replace",
@@ -44,7 +59,8 @@ def branch_name(feature, now=None):
     return f"selfmod/{slug[:40] or 'capability'}-{stamp}"
 
 
-def promote(repository, baseline, candidate, feature, *, now=None):
+def promote(repository, baseline, candidate, feature, *, now=None,
+            format_files=None):
     """Commit B's changed files on a new branch checked out in ``repository``."""
     repository = Path(repository)
     before = {f.path: f.content for f in baseline.files}
@@ -68,6 +84,7 @@ def promote(repository, baseline, candidate, feature, *, now=None):
             target = repository / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(file.content)
+        (format_files or _format)(repository, paths)
         _git(repository, "add", "--", *paths)
         _git(repository, "commit", "--quiet", "-m",
              f"Self-modification: add the {feature or 'new'} capability",

@@ -237,10 +237,12 @@ class SelfModificationService:
         """Stock OpenCode on the base image, in a sandbox root of its own."""
         empty = self._directory("dev-skills-" + name)
         empty.mkdir()
+        root = self._directory("dev-" + name)
         manager = SandboxManager(
             self._config, model_slot=self._model_slot, development=True,
-            deployment=SandboxDeployment(self._base_image_id, empty,
-                                         self._directory("dev-" + name)))
+            deployment=SandboxDeployment(self._base_image_id, empty, root))
+        #: Removed with the manager: a build leaves no workspace behind.
+        manager.selfmod_paths = (empty, root)
         if self._model_base_url is not None:
             manager.configure_model(self._model_base_url, self._model_api_key)
         return manager

@@ -8,7 +8,11 @@ import pytest
 
 from recollect.selfmod import subagent_tree
 from recollect.selfmod.contracts import File, Snapshot
-from recollect.selfmod.promotion import PromotionError, branch_name, promote
+from recollect.selfmod.promotion import (
+    PromotionError,
+    branch_name,
+    promote,
+)
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 NOW = datetime(2026, 9, 17, 12, 30, 5, tzinfo=UTC)
@@ -98,3 +102,23 @@ def test_branch_names_are_safe_git_refs():
     assert subagent_tree.repository_path("dependencies.lock") == LOCK
     with pytest.raises(ValueError):
         subagent_tree.repository_path("recollect/__init__.py")
+
+
+def test_the_repository_lints_what_the_build_wrote_before_it_is_committed(
+    repository,
+):
+    """The offline checks cannot run ruff, so promotion applies its fixes."""
+    tree = subagent_tree.baseline(repository)
+    seen = []
+
+    def format_files(root, paths):
+        seen.append((root, paths))
+        (root / paths[0]).write_bytes(b"sorted\n")
+
+    saved = promote(repository, tree, built(tree), "create event", now=NOW,
+                    format_files=format_files)
+    assert seen and seen[0][0] == repository
+    assert set(seen[0][1]) == set(saved.paths)
+    # What the formatter changed is what landed in the commit.
+    assert git(repository, "status", "--porcelain") == ""
+    assert (repository / saved.paths[0]).read_bytes() == b"sorted\n"

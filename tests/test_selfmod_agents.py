@@ -61,6 +61,10 @@ class Manager:
     async def finish_invocation(self, invocation):
         self.finished += 1
 
+    @property
+    def selfmod_paths(self):
+        return (self.workdir,)
+
     async def quiesce_invocation(self, invocation):
         pass
 
@@ -108,10 +112,17 @@ async def test_agents_plan_review_implement_and_fix_from_feedback(tmp_path):
              write("scratch/__pycache__/x.pyc", "cache")),
         both(write("recollect/engine/subagent_tools/post.py", FIXED)),
     ])
+    diffs = []
+
+    def reviewed(workdir, text):
+        # The diff reaches the reviewer's workspace, which is removed afterwards.
+        diffs.append((workdir / "changes.diff").read_text(encoding="utf-8"))
+        return verdict(True)
+
     reviewer = Manager(tmp_path, "reviewer", [
         "Looks fine?",                       # unreadable verdict, asked again
         verdict(False), verdict(True),       # plan review: reject, then approve
-        verdict(True),                       # code review
+        reviewed,                            # code review
     ])
     managers = iter([builder, reviewer])
     checks_seen = []
@@ -152,7 +163,9 @@ async def test_agents_plan_review_implement_and_fix_from_feedback(tmp_path):
     # Reviews are fresh sessions each time, on their own sandbox.
     assert reviewer.sessions == 3 and reviewer.finished == 3
     assert builder.torn_down and reviewer.torn_down
-    assert (tmp_path / "reviewer" / "changes.diff").exists()
+    # A build leaves no workspace behind, only the candidate it returned.
+    assert not builder.workdir.exists() and not reviewer.workdir.exists()
+    assert "+def post(): return 200" in diffs[0]
     assert len(checks_seen) == 2
     assert events == ["plan_unreadable", "plan_review_unreadable", "plan_review",
                       "plan_review", "plan_approved", "implementation_turn",
