@@ -18,8 +18,10 @@ from recollect.selfmod.roles import (
     LocalRoleModel,
     RoleSettings,
     check_result,
+    edit_blocks,
     make_context,
     model_payload,
+    parse_edit_blocks,
     plan_result,
     render_history,
     render_message,
@@ -53,8 +55,11 @@ class RawStream(httpx.AsyncByteStream):
 
 
 def response_body(content, **kwargs):
+    # Implementation replies are edit blocks; every other role replies with JSON.
+    text = (edit_blocks(content) if isinstance(content, dict)
+            and set(content) == {"edits"} else json.dumps(content))
     value = {"choices": [{"finish_reason": "stop", "message": {
-        "content": json.dumps(content),
+        "content": text,
     }}], "usage": {"completion_tokens": 10}}
     value.update(kwargs)
     return value
@@ -501,3 +506,36 @@ async def test_role_model_queues_through_admission_and_releases_on_failure(case)
     with pytest.raises(httpx.HTTPStatusError):
         await broker.complete({}, Deadline(None, case.clock.boot), clock=case.clock)
     assert admission.calls == [("acquire", "modifier"), ("release", "modifier")]
+
+
+def test_edit_blocks_carry_raw_code_and_ignore_surrounding_prose():
+    content = (
+        "I need to create one file and change another.\n\n"
+        '<edit path="recollect/engine/subagent_tools/http_request.py">\n'
+        'import json\nBODY = "{\\"a\\": 1}"\n'
+        "</edit>\n\nAnd now the registry:\n"
+        '<edit path="recollect/engine/mcp_research.py">\n'
+        "<replace>\n<old>\nmcp.tool()(report_message)\n</old>\n<new>\n"
+        "mcp.tool()(report_message)\nmcp.tool()(http_request)\n</new>\n</replace>\n"
+        "</edit>\nDone."
+    )
+    reply = parse_edit_blocks(content)
+    assert reply == {"edits": [
+        {"path": "recollect/engine/subagent_tools/http_request.py",
+         "text": 'import json\nBODY = "{\\"a\\": 1}"\n'},
+        {"path": "recollect/engine/mcp_research.py", "replace": [
+            {"old": "mcp.tool()(report_message)",
+             "new": "mcp.tool()(report_message)\nmcp.tool()(http_request)"}]},
+    ]}
+    assert parse_edit_blocks(edit_blocks(reply)) == reply
+    for bad in ("Just prose, no blocks.",
+                '<edit path="a.py">\n<replace>\n<old>\nx\n</old>\n</replace>\n</edit>'):
+        with pytest.raises(InvalidRoleReply):
+            parse_edit_blocks(bad)
+
+
+def test_implementation_requests_are_not_forced_into_json_mode():
+    execute = model_payload({"role": "execute", "stage": "implement"}, settings(), "m")
+    plan = model_payload({"role": "plan", "stage": "plan"}, settings(), "m")
+    assert "response_format" not in execute
+    assert plan["response_format"] == {"type": "json_object"}

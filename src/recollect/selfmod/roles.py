@@ -89,12 +89,28 @@ You implement a reviewed plan. Frozen checks will run on your result.
 - Only the planned paths. No other files, no shell.
 - Edits always apply to the original files shown. On a revision, resend every edit, starting from previous_edits.
 - Import only the standard library, the tree, and httpx, mcp and trafilatura.
+- Write code as-is inside the blocks: no JSON, no escaping, no Markdown fences.
 </rules>
 
 <output>
-Only a JSON object, no Markdown fences:
-{"edits": [{"path": "...", "text": "..."},
-           {"path": "...", "replace": [{"old": "...", "new": "..."}]}]}
+One edit block per planned file. Anything outside edit blocks is ignored.
+
+A new file, with its full text:
+<edit path="recollect/engine/subagent_tools/example.py">
+full file text
+</edit>
+
+An existing file, with one or more exact replacements:
+<edit path="recollect/engine/mcp_research.py">
+<replace>
+<old>
+text that appears exactly once in the original file
+</old>
+<new>
+the text to put in its place
+</new>
+</replace>
+</edit>
 </output>""",
     "code_review": """<role>
 You review a finished implementation. You did not write it. All checks passed.
@@ -124,6 +140,44 @@ CHECK_LOG_CHARS = 4000
 
 class InvalidRoleReply(ValueError):
     """A model reply the step can retry with feedback, not an integrity failure."""
+
+
+_EDIT = re.compile(r'<edit path="([^"\n]+)">\n?(.*?)\n?</edit>', re.S)
+_REPLACE = re.compile(
+    r"<replace>\s*<old>\n?(.*?)\n?</old>\s*<new>\n?(.*?)\n?</new>\s*</replace>", re.S)
+
+
+def parse_edit_blocks(content):
+    """Implementation edit blocks to the worker's edit records; prose is ignored."""
+    edits = []
+    for path, body in _EDIT.findall(content):
+        if "<replace>" in body:
+            pairs = _REPLACE.findall(body)
+            if not pairs or body.count("<replace>") != len(pairs):
+                raise InvalidRoleReply(
+                    f"{path}: each <replace> needs one <old> and one <new>")
+            edits.append({"path": path,
+                          "replace": [{"old": old, "new": new} for old, new in pairs]})
+        else:
+            text = body if not body or body.endswith("\n") else body + "\n"
+            edits.append({"path": path, "text": text})
+    if not edits:
+        raise InvalidRoleReply('no <edit path="..."> blocks were found')
+    return {"edits": edits}
+
+
+def edit_blocks(reply):
+    """The inverse of parse_edit_blocks, to show a previous reply as it was written."""
+    blocks = []
+    for edit in reply.get("edits", []):
+        if "replace" in edit:
+            inner = "\n".join(f"<replace>\n<old>\n{item['old']}\n</old>\n<new>\n"
+                              f"{item['new']}\n</new>\n</replace>"
+                              for item in edit["replace"])
+        else:
+            inner = edit.get("text", "").rstrip("\n")
+        blocks.append(f'<edit path="{edit["path"]}">\n{inner}\n</edit>')
+    return "\n\n".join(blocks)
 
 
 @dataclass(frozen=True)
@@ -184,9 +238,11 @@ def model_payload(context, settings, message):
         "messages": [{"role": "system", "content": dict(settings.prompts)[prompt]},
                      {"role": "user", "content": message}],
         "temperature": 0, "stream": False,
-        "response_format": {"type": "json_object"},
         "chat_template_kwargs": {"enable_thinking": False},
     }
+    if prompt != "execute":
+        # Implementation replies are edit blocks of raw code, not JSON.
+        payload["response_format"] = {"type": "json_object"}
     if settings.slot is not None:
         payload["id_slot"] = settings.slot
     return payload
@@ -213,7 +269,9 @@ class LocalRoleModel:
         return Snapshot((File("model-request.json", self._request),
                          File("model-response.bin", self._response)))
 
-    async def complete(self, payload, deadline, *, clock=current_stamp):
+    async def complete(self, payload, deadline, *, clock=current_stamp,
+                       edits=False):
+        """``edits`` parses implementation edit blocks instead of JSON."""
         if self._used:
             raise IntegrityError("Model request is single-use")
         self._used = True
@@ -282,6 +340,8 @@ class LocalRoleModel:
         content = choices[0]["message"].get("content")
         if type(content) is not str:
             raise IntegrityError("Role inference needs explicit JSON content")
+        if edits:
+            return encode(parse_edit_blocks(content)), bytes(raw)
         try:
             reply = encode(role_worker.parse(content.encode()))
         except ValueError as error:
@@ -429,8 +489,7 @@ def render_message(dev, context, settings):
         parts.append(_tag("files", _planned_files(dev, plan)))
         previous = dev._previous_edits
         if previous is not None and previous[0] == plan.sha256:
-            parts.append(_tag("previous_edits", json.dumps(
-                previous[1], ensure_ascii=False, indent=1)))
+            parts.append(_tag("previous_edits", edit_blocks(previous[1])))
     if step == "code_review":
         parts.append(_tag("diff", _diff(dev)))
     feedback = dev._controller.config.feedback

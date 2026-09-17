@@ -610,6 +610,7 @@ class IntegratedDevelopment:
                 await _offload(self._role_dispatch)
                 inference = asyncio.create_task(model.complete(
                     payload, deadline, clock=self._controller._clock,
+                    edits=grant.action == "execute",
                 ))
                 try:
                     reply, _ = await asyncio.shield(inference)
