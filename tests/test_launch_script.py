@@ -226,6 +226,32 @@ ConvertTo-Json -Compress -InputObject $results
     assert result == [True, False, False, False]
 
 
+def test_stop_container_accepts_self_modification_images_under_the_root():
+    base = "sha256:" + "a" * 64
+    bundle = "sha256:" + "b" * 64
+    result = run_script(rf"""
+$c = [pscustomobject]@{{Name='/recollect-subagent-abc123';
+ Config=[pscustomobject]@{{Image='{base}'; Labels=$null}}; Mounts=@(
+ [pscustomobject]@{{Type='bind'; Destination='/workspace';
+     Source='C:\sandboxes\root-a-1\shared\workspace'; RW=$true}},
+ [pscustomobject]@{{Type='bind'; Destination='/config';
+     Source='C:\sandboxes\root-a-1\shared\config'; RW=$false}}
+)}}
+$results = @(Test-RecollectContainer $c 'expected' 'C:\sandboxes' '{base}')
+$c.Config.Image='{bundle}'
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes' '{base}'
+$c.Config.Labels=[pscustomobject]@{{'recollect.bundle'='x'}}
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes' '{base}'
+$c.Config.Image='mutable:tag'
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes' '{base}'
+$c.Config.Image='{bundle}'
+$c.Mounts[0].Source='C:\elsewhere\shared\workspace'
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes' '{base}'
+ConvertTo-Json -Compress -InputObject $results
+""")
+    assert result == [True, False, True, False, False]
+
+
 def test_stop_verified_process_terminates_only_owned_child():
     result = run_script(r"""
 $exe = (Get-Process -Id $PID).Path
