@@ -119,8 +119,9 @@ TASK_TOOLS = "\n\n".join((
 ))
 
 WORK_NOT_STARTED = (
-    "The draft did not start the requested research. Choose the operation "
-    "needed to fulfill the original request now. Use an existing task when "
+    "The draft did not start the requested work. Choose the operation that "
+    "fulfills the original request now: research, and any request that needs a "
+    "capability you don't have, go to run_subagent. Use an existing task when "
     "appropriate."
 )
 

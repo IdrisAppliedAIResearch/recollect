@@ -13,6 +13,7 @@ from .engine.generator import GenerationError, new_generation_trace
 from .engine.subagent import run_subagent_tool
 from .task_replies import (
     artifact_reply,
+    declined_capability,
     status_reply,
     substantive_memory,
     task_question,
@@ -26,8 +27,10 @@ _LOGGER = logging.getLogger(__name__)
 def task_tools() -> list[dict]:
     start = copy.deepcopy(run_subagent_tool())
     start["function"]["description"] = (
-        "Start sustained research or supported file work in the background. "
-        "Returns a durable task ID and queued/running state, not the final answer. "
+        "Start research, supported file work, or a request that needs a capability "
+        "none of your tools provides, in the background. The worker reports exactly "
+        "what is missing. Returns a durable task ID and queued/running state, not "
+        "the final answer. "
         "For ongoing or completed work use task_control instead. Return findings "
         "for a conversational answer; request a file only when the user asked "
         "for one. A summary or list alone does not request a document."
@@ -78,10 +81,10 @@ def task_tools() -> list[dict]:
             "name": "task_reply",
             "description": (
                 "Answer greetings, ordinary questions, and conversation that "
-                "needs no task operation. This does not start work: to fulfill "
-                "a research request, choose run_subagent instead of promising "
-                "to research in text. After an operation returns, use this "
-                "tool for the natural reply."
+                "needs no task operation. This does not start work: for "
+                "research, or a request that needs a capability you don't have, "
+                "choose run_subagent instead of promising or declining in text. "
+                "After an operation returns, use this tool for the natural reply."
             ),
             "parameters": {
                 "type": "object",
@@ -336,8 +339,10 @@ async def stream_task_turn(
                     first = trace.tool_calls[0]
                     initial = json.loads(first.arguments)
                     if (first.name == "task_reply" and isinstance(initial, dict)
-                            and unstarted_work(message, _reply_text(initial))):
-                        # A reply-only promise cannot satisfy a research request.
+                            and (unstarted_work(message, _reply_text(initial))
+                                 or declined_capability(_reply_text(initial)))):
+                        # A reply-only promise or a declined capability starts
+                        # no work; the worker can report what is missing.
                         # Retry once with only operations that actually do work.
                         system = _turn_system_prompt(
                             state.config, prepared.trace.started_at, input_mode,

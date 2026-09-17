@@ -50,6 +50,23 @@ def unstarted_work(message: str, reply: str) -> bool:
     ))
 
 
+_DECLINED = re.compile(
+    r"\bi (?:can't|cannot|can not|am unable to|am not able to|have no way to|"
+    r"don't have (?:the ability|a way|access) to)\s+"
+    r"(?:directly |actually |currently |personally |really )?"
+    r"(?!help\b|assist\b|comply\b|provide\b|share\b|discuss\b|recommend\b|"
+    r"condone\b|support\b|endorse\b|answer\b|say\b|tell\b|guarantee\b|"
+    r"recall\b|remember\b)"
+    r"[a-z]+"
+)
+
+
+def declined_capability(reply: str) -> bool:
+    # A reply that says it cannot perform an action is a missing capability for
+    # the worker to report, unless it is a refusal to help or to say something.
+    return bool(_DECLINED.search(reply.lower().replace("’", "'")))
+
+
 def substantive_memory(text: str) -> str | None:
     # A mixed reply can retain a separate fact sentence, never its work promise.
     sentences = re.split(r"(?<=[.!?;])\s+", text.strip())

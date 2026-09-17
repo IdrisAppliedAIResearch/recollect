@@ -9,7 +9,11 @@ import pytest
 from recollect.engine import webtools
 from recollect.engine.sandbox.evidence import ResearchEvidence
 from recollect.engine.sandbox.runner import TaskCommand
-from recollect.task_replies import substantive_memory, unstarted_work
+from recollect.task_replies import (
+    declined_capability,
+    substantive_memory,
+    unstarted_work,
+)
 from tests import test_task_chat as chat_tests
 from tests.test_continuous_runtime import NativeProtocol, report_part
 from tests.test_subagent import _episode_rows
@@ -431,3 +435,26 @@ async def test_reported_result_recovers_missing_acknowledgment_once(tmp_path):
         assert results[-1].summary == "Verified report"
     finally:
         await native.client.aclose()
+
+
+@pytest.mark.parametrize("reply", [
+    "I can't send network requests from here, so I can't check that endpoint.",
+    "I cannot access your calendar.",
+    "I'm sorry, I am unable to create files in PNG format.",
+    "I don't have the ability to post messages to Slack.",
+    "I can’t actually make phone calls.",
+])
+def test_declined_capabilities_start_work(reply):
+    assert declined_capability(reply)
+
+
+@pytest.mark.parametrize("reply", [
+    "I can't help with that.",
+    "I cannot provide instructions for that.",
+    "I can't recommend one over the other without more detail.",
+    "I don't recall you mentioning that.",
+    "Sure, the capital of France is Paris.",
+    "I can't guarantee the price is current.",
+])
+def test_refusals_and_ordinary_replies_are_not_capability_gaps(reply):
+    assert not declined_capability(reply)
