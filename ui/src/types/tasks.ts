@@ -32,6 +32,7 @@ export interface ResearchTask {
   artifacts: TaskArtifact[]
   /** Set while the task asks whether to build a capability it is missing. */
   build_proposal?: BuildProposal | null
+  checkpoint?: { selfmod_continuation?: boolean }
 }
 
 export interface BuildProposal {

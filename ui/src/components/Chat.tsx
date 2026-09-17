@@ -2,11 +2,11 @@
  * The conversation. Each assistant message is a handle onto its own turn -
  * click it and the inspector rewinds to what memory did for that reply.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 
 import { chars, clock, int, stamp } from '../lib/format.ts'
 import { appendVoiceDraft } from '../lib/voice-draft.ts'
-import { conversationEvents } from '../lib/conversation-events.ts'
+import { conversationBundles } from '../lib/conversation-events.ts'
 import type { SessionInfo } from '../types/api.ts'
 import type { TaskSnapshot } from '../types/tasks.ts'
 import type { Exchange } from '../App.tsx'
@@ -14,6 +14,7 @@ import type { VoiceControl } from '../voice/useVoice.ts'
 import { Markdown } from './Markdown.tsx'
 import { Workspace } from './Workspace.tsx'
 import { Sources, Tasks } from './Tasks.tsx'
+import { Implementation } from './Implementation.tsx'
 
 interface Props {
   exchanges: Exchange[]
@@ -114,61 +115,54 @@ export function Chat({
           </div>
         )}
 
-        {conversationEvents(exchanges, tasks.notifications).map((event) => {
-          if (event.kind === 'notification') {
-            const update = event.notification
-            return <div key={event.id} className="turn task-update">
-              {update.user_message && <div className="msg msg--user"><div className="msg__bubble">
-                <Markdown text={update.user_message} />
-              </div></div>}
-              <div className="msg msg--assistant"><div className="msg__bubble">
-                <div className="task-update__label">Research update · {update.kind}</div>
-                <Markdown text={update.text} />
-                {update.source_refs.length > 0 && <Sources sources={update.source_refs} />}
-              </div><div className="msg__meta">
-                <time dateTime={update.created_at} title={stamp(update.created_at)}>{clock(update.created_at)}</time>
-                <span>{tasks.tasks.find((task) => task.task_id === update.task_id)?.objective ?? 'Saved task'}</span>
-              </div></div>
-            </div>
-          }
-          const exchange = event.exchange
+        {conversationBundles(exchanges, tasks.notifications).map((bundle) => {
+          const exchange = bundle.exchange
           return (
-          <div key={exchange.id} className="turn">
-            <div className="msg msg--user">
+          <div key={bundle.id} className="turn">
+            {bundle.user !== null && <div className="msg msg--user">
               <div className="msg__bubble">
-                <Markdown text={exchange.user} />
+                <Markdown text={bundle.user} />
               </div>
-            </div>
+            </div>}
 
-            {exchange.reasoning && (
+            {exchange?.reasoning && (
               <div className="reasoning">
                 <div className="reasoning__label">thinking</div>
                 <Markdown text={exchange.reasoning} />
               </div>
             )}
 
-            <div
-              className={
-                'msg msg--assistant' + (exchange.id === selectedId ? ' is-selected' : '')
-              }
-              onClick={() => onSelect(exchange.id)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') onSelect(exchange.id)
-              }}
-              title="Inspect this turn"
-            >
-              <div className="msg__bubble">
-                {exchange.assistant ? (
-                  <Markdown text={exchange.assistant} />
-                ) : (
-                  (exchange.streaming ? '…' : '')
-                )}
-                {exchange.error && <div className="callout callout--bad">{exchange.error}</div>}
+            <div className="msg msg--assistant">
+              <div className="msg__bubble bundle"
+                data-selected={exchange !== null && exchange.id === selectedId}
+                {...(exchange ? {
+                  onClick: () => onSelect(exchange.id),
+                  role: 'button',
+                  tabIndex: 0,
+                  onKeyDown: (event: KeyboardEvent) => {
+                    if (event.key === 'Enter' || event.key === ' ') onSelect(exchange.id)
+                  },
+                  title: 'Inspect this turn',
+                } : {})}>
+                {exchange && <div className="bundle__reply">
+                  {exchange.assistant ? (
+                    <Markdown text={exchange.assistant} />
+                  ) : (
+                    (exchange.streaming ? '…' : '')
+                  )}
+                  {exchange.error && <div className="callout callout--bad">{exchange.error}</div>}
+                </div>}
+                {bundle.updates.map((update) => <div key={update.notification_id}
+                  className="bundle__update">
+                  <Markdown text={update.text} />
+                  {update.source_refs.length > 0 && <Sources sources={update.source_refs} />}
+                  <div className="bundle__time faint">
+                    <time dateTime={update.created_at} title={stamp(update.created_at)}>{clock(update.created_at)}</time>
+                  </div>
+                </div>)}
               </div>
 
-              {exchange.trace && (
+              {exchange?.trace && (
                 <div className="msg__meta mono">
                   <span title={stamp(exchange.trace.started_at)}>
                     {clock(exchange.trace.started_at)}
@@ -199,6 +193,7 @@ export function Chat({
 
       {workspace && <Workspace workspace={workspace} />}
       <Tasks snapshot={tasks} error={taskError} />
+      <Implementation sessionId={sessionId} />
 
       <div className="composer">
         <div className="voice" data-active={voice.active}>

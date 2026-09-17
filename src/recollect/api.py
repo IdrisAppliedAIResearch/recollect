@@ -304,7 +304,8 @@ def create_app(
         service = state().selfmod
         if service is None:
             return {"enabled": False}
-        return {"enabled": True, **service.status}
+        return {"enabled": True, **service.status,
+                "activity": list(service.activity)}
 
     @app.post("/api/selfmod/stop")
     async def selfmod_stop() -> dict:

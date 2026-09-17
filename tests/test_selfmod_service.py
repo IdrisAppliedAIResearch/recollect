@@ -225,14 +225,23 @@ async def test_milestones_become_notices_and_task_progress(service):
         ("loop_stopped", {}),
     ):
         await service._on_event(kind, data)
+    # The chat hears failures, resumption and stops; the card shows every step.
     assert [n[3] for n in service.coordinator.notices] == [
-        "Tests are ready: I'll add create_event and check it with 4 tests.",
-        "Attempt 1: building and testing.",
         "Attempt 1 didn't pass: RuntimeError: B crashed. Trying again.",
         "The new capability passed. Resuming your request.",
         service_module.STOPPED_NOTICE,
     ]
-    assert service.coordinator.progress == [n[3] for n in service.coordinator.notices]
+    assert service.coordinator.progress == [
+        "Tests are ready: I'll add create_event and check it with 4 tests.",
+        "Attempt 1: building and testing.",
+        *[n[3] for n in service.coordinator.notices]]
+    assert [a["text"] for a in service.activity] == [
+        "Tests frozen: 4 checks for create_event.",
+        "Attempt 1 started.",
+        "Attempt 1 failed: RuntimeError: B crashed. more",
+        "The new capability passed. Resuming the request.",
+        "Stopped.",
+    ]
     assert service.status["continuation_task_id"] == "task-b"
     assert service.status["milestone"] == service_module.STOPPED_NOTICE
     await service.close()
@@ -294,3 +303,56 @@ async def test_service_development_settings_open_a_real_cycle_on_a_tree(service)
     finally:
         round_.close()
         await service.close()
+
+
+async def test_workspace_describes_agent_steps_without_raw_internals(service):
+    service.status = {"state": "running", "session_id": "session",
+                      "task_id": "task-a", "continuation_task_id": None}
+    plan = {"summary": "add a tool", "changes": [
+        {"path": "recollect/engine/subagent_tools/post.py", "operation": "create"}]}
+    for kind, data in (
+        ("plan_review", {"attempt": 1, "approved": False,
+                         "findings": [{"issue": "no timeout"}]}),
+        ("plan_approved", {"attempt": 1, "plan": plan}),
+        ("checks", {"attempt": 1, "passed": False, "results": [
+            {"name": "a", "passed": True}, {"name": "b", "passed": False}]}),
+        ("code_review", {"attempt": 1, "approved": True, "findings": []}),
+        ("candidate", {"attempt": 1, "changes": ["create x.py"], "sha256": "0"}),
+        ("gap_accepted", {"task_id": "task-a"}),
+    ):
+        await service._on_event(kind, data)
+    assert [a["text"] for a in service.activity] == [
+        "Plan review: changes requested: no timeout",
+        "Plan approved: add a tool (create recollect/engine/subagent_tools/post.py)",
+        "Checks (no network): 1/2 passed; failed: b",
+        "Code review: approved.",
+        "Candidate ready: create x.py",
+    ]
+    assert service.coordinator.notices == []
+    await service.close()
+
+
+async def test_a_finished_build_completes_the_original_task(service):
+    await service.prepare()
+    store = {"task-a": {"state": "blocked", "progress": "p", "result": None},
+             "task-b": {"state": "completed", "progress": "HTTP 200",
+                        "result": "HTTP 200"}}
+    updates = []
+    service.coordinator.store.get = lambda session_id, task_id: {
+        "original_message": "book the room", **store[task_id]}
+    service.coordinator.store.update = (
+        lambda session_id, task_id, **changes: updates.append((task_id, changes)))
+
+    class Resuming(Loop):
+        async def run(self, gap):
+            await service._on_event("resuming", {"attempt": 1, "task_id": "task-b"})
+            return Outcome(True, "done")
+
+    service.loops.append(Resuming(Outcome(True, "done")))
+    await service.handle_gap("session", GAP)
+    await service.decide("session", "task-a", True)
+    assert (await service._runner).finished
+    assert ("task-a", {"state": "completed", "progress": "HTTP 200",
+                       "result": "HTTP 200"}) in updates
+    assert [a["kind"] for a in service.activity][:2] == ["proposed", "decision"]
+    await service.close()

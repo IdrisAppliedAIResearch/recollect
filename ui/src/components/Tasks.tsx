@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { artifactUrl, decideBuild, deleteSavedTask, resetSavedTasks, sendTaskMessage } from '../api/tasks.ts'
 import { safeSourceUrl } from '../lib/task-notifications.ts'
 import { canDeleteSavedWork } from '../lib/task-retention.ts'
+import { taskTitle } from '../lib/task-title.ts'
 import { clock, stamp } from '../lib/format.ts'
 import type { ResearchTask, TaskCommand, TaskNotification, TaskSnapshot } from '../types/tasks.ts'
 import { Markdown } from './Markdown.tsx'
@@ -103,7 +104,7 @@ function TaskCard({ task, enabled, notifications, dependents }: {
   return (
     <article className="task">
       <div className="task__head">
-        <strong>{task.objective}</strong>
+        <strong>{taskTitle(task)}</strong>
         <span className={'badge' + (task.state === 'blocked' || task.state === 'interrupted'
           ? ' badge--warn' : task.state === 'completed' ? ' badge--ok' : '')}>
           {task.state.replaceAll('-', ' ')}{task.partial ? ' · partial findings' : ''}

@@ -54,17 +54,87 @@ GAP_NOTICE = ("Building the capability now. I'll pick your request back up when 
               "it's ready.")
 
 
+def _capability(gap):
+    text = str(gap.get("missing_capability") or "a capability this request needs")
+    text = text.strip().rstrip(".")
+    # "Issue an HTTP request" reads as "issue an HTTP request" mid-sentence.
+    if len(text) > 1 and text[0].isupper() and text[1].islower():
+        text = text[0].lower() + text[1:]
+    return text
+
+
 def proposal_notice(gap):
-    missing = str(gap.get("missing_capability") or "a capability this request needs")
-    return (f"I can't do that yet. Missing: {missing.rstrip('.')}. Want me to build "
-            "that capability? If you say yes, I'll pick your request back up once "
-            "it works.")
+    return (f"I can't do that yet. The missing capability: {_capability(gap)}. "
+            "Want me to build it? If you say yes, I'll pick your request back up "
+            "once it works.")
 
 
 def declined_notice(gap):
-    missing = str(gap.get("missing_capability") or "a missing capability")
-    return (f"Okay, I won't build it. This request stays blocked: "
-            f"{missing.rstrip('.')}.")
+    return (f"Okay, I won't build it. This request stays blocked without "
+            f"this capability: {_capability(gap)}.")
+
+
+def describe(kind, data):
+    """One line for the implementation workspace, or None for internal events."""
+    attempt = data.get("attempt")
+    if kind == "tests_frozen":
+        return (f"Tests frozen: {data.get('checks')} checks for "
+                f"{data.get('tool_name')}.")
+    if kind == "tests_failed":
+        return f"Writing tests failed, retrying: {_line(data.get('reason'))}"
+    if kind == "attempt_started":
+        return f"Attempt {attempt} started."
+    if kind == "plan_unreadable":
+        return "The planner's reply had no readable plan; asked again."
+    if kind == "plan_outside_policy":
+        return ("The plan changes files it may not touch; asked to revise: "
+                + ", ".join(data.get("changes", [])))
+    if kind == "plan_review":
+        return "Plan review: " + _verdict(data)
+    if kind == "plan_approved":
+        plan = data.get("plan") or {}
+        files = ", ".join(f"{c.get('operation')} {c.get('path')}"
+                          for c in plan.get("changes", []))
+        return f"Plan approved: {_line(plan.get('summary'))} ({files})"
+    if kind == "implementation_turn":
+        return "Implementer: " + _line(data.get("reply"), 400)
+    if kind == "no_changes":
+        return "The implementer changed nothing; asked again."
+    if kind == "policy_violations":
+        return ("Changes outside the allowed files, sent back: "
+                + ", ".join(data.get("changes", [])))
+    if kind == "checks":
+        results = data.get("results", [])
+        passed = sum(1 for r in results if r.get("passed"))
+        failed = [r.get("name") for r in results if not r.get("passed")]
+        return (f"Checks (no network): {passed}/{len(results)} passed"
+                + (f"; failed: {', '.join(failed)}" if failed else "."))
+    if kind == "code_review":
+        return "Code review: " + _verdict(data)
+    if kind == "candidate":
+        return "Candidate ready: " + ", ".join(data.get("changes", []))
+    if kind == "attempt_failed":
+        return f"Attempt {attempt} failed: {_line(data.get('reason'))}"
+    if kind == "resuming":
+        return "The new capability passed. Resuming the request."
+    if kind == "attempt_finished":
+        return "The resumed request finished."
+    if kind == "loop_stopped":
+        return "Stopped."
+    return None
+
+
+def _line(value, limit=240):
+    text = " ".join(str(value or "").split())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def _verdict(data):
+    if data.get("approved"):
+        return "approved."
+    issues = [_line(f.get("issue"), 160) for f in data.get("findings", [])
+              if isinstance(f, dict)]
+    return "changes requested: " + ("; ".join(issues) or "no details")
 
 
 STOPPED_NOTICE = "Stopped building the capability."
@@ -163,6 +233,8 @@ class SelfModificationService:
         self._notices = 0
         #: What the running or last loop is doing, for the status API.
         self.status = {"state": "idle"}
+        #: What the implementation workspace shows for the latest build.
+        self.activity = []
         # On one model slot the loop queues behind conversation turns; with
         # three it takes the modifier lane.
         self._admission = model_slot if hasattr(model_slot, "slot_for") else None
@@ -273,6 +345,7 @@ class SelfModificationService:
                 return None
             self._proposal = {"session_id": session_id, "task_id": task_id,
                               "gap": gap}
+            self.activity = []
             now = datetime.now(UTC).isoformat()
             self.status = {"state": "awaiting_approval", "session_id": session_id,
                            "task_id": task_id, "continuation_task_id": None,
@@ -283,6 +356,8 @@ class SelfModificationService:
             "task_id": task_id,
             "missing_capability": gap.get("missing_capability")})
         text = proposal_notice(gap)
+        self._log("proposed", "Waiting for your go-ahead to build: "
+                  + _capability(gap) + ".")
         await self._interrupt(session_id, task_id, text,
                               message_id="selfmod-proposal-" + task_id)
         return None
@@ -302,6 +377,8 @@ class SelfModificationService:
                                    updated_at=datetime.now(UTC).isoformat())
         await self._record("gap_decision", {"task_id": task_id,
                                             "approved": bool(approve)})
+        self._log("decision", "You approved the build." if approve
+                  else "You declined the build.")
         if not approve:
             await self._notice(declined_notice(gap))
             return {"task_id": task_id, "build": "declined"}
@@ -333,6 +410,9 @@ class SelfModificationService:
             await self._notice(STOPPED_NOTICE)
         finally:
             self._loop = self._job = None
+        if outcome.finished and self.status.get("continuation_task_id"):
+            await self._complete_original(session_id, task_id,
+                                          self.status["continuation_task_id"])
         self.status.update(
             state=("stopped" if outcome.stopped
                    else "finished" if outcome.finished else "failed"),
@@ -342,6 +422,27 @@ class SelfModificationService:
                                              "stopped": outcome.stopped,
                                              "detail": outcome.detail})
         return outcome
+
+    def _log(self, kind, text):
+        self.activity.append({"at": datetime.now(UTC).isoformat(), "kind": kind,
+                              "text": text})
+        del self.activity[:-200]
+
+    async def _complete_original(self, session_id, task_id, continuation_id):
+        """The original task takes the resumed request's answer and finishes."""
+        store = self._coordinator.store
+
+        def complete():
+            resumed = store.get(session_id, continuation_id)
+            if resumed["state"] == "completed":
+                store.update(session_id, task_id, state="completed",
+                             progress=resumed["progress"], result=resumed["result"])
+
+        try:
+            await asyncio.to_thread(complete)
+        except Exception as error:
+            await self._record("complete_original_failed", {
+                "task_id": task_id, "reason": str(error)[:2048]})
 
     async def _interrupt(self, session_id, task_id, text, *, message_id):
         """A's execution stops; its task stays active so its card can cancel."""
@@ -372,12 +473,19 @@ class SelfModificationService:
 
     async def _on_event(self, kind, data):
         attempt = data.get("attempt")
+        line = describe(kind, data)
+        if line is not None:
+            self._log(kind, line)
+        # Step-by-step detail lives in the implementation workspace; the chat
+        # hears only the moments that change what the user should know.
         if kind == "tests_frozen":
             await self._notice(f"Tests are ready: I'll add {data.get('tool_name')} "
-                               f"and check it with {data.get('checks')} tests.")
+                               f"and check it with {data.get('checks')} tests.",
+                               notify=False)
         elif kind == "attempt_started":
             self.status["attempt"] = attempt
-            await self._notice(f"Attempt {attempt}: building and testing.")
+            await self._notice(f"Attempt {attempt}: building and testing.",
+                               notify=False)
         elif kind == "attempt_failed":
             reason = (str(data.get("reason") or "no reason recorded")
                       .splitlines()[0][:200].rstrip("."))
