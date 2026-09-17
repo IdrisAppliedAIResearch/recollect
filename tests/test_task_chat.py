@@ -680,3 +680,102 @@ async def test_status_control_requires_an_explicit_boolean_memory_decision(
     route = next(item for item in offered
                  if item["function"]["name"] == "task_control")
     assert route["function"]["parameters"]["required"] == ["operation", "status_only"]
+
+
+class BuildQuestions:
+    """A self-modification service with one pending go/no-go question."""
+
+    def __init__(self, session_id, task_id):
+        self.pending = (session_id, task_id)
+        self.decisions = []
+
+    def proposal(self, session_id, task_id):
+        if (session_id, task_id) == self.pending:
+            return {"missing_capability": "send HTTP POST requests",
+                    "modification_request": "add an HTTP request tool"}
+        return None
+
+    async def decide(self, session_id, task_id, approve, *, announce=True):
+        if (session_id, task_id) != self.pending:
+            raise ValueError("No capability build is waiting for approval.")
+        self.pending = None
+        self.decisions.append((session_id, task_id, approve))
+        self.announced = announce
+        return {"task_id": task_id, "build": "started" if approve else "declined"}
+
+
+def with_build_question(state, session_id):
+    task = seed_task(state, session_id)
+    state.task_store.update(session_id, task["task_id"], state="blocked",
+                            progress="Want me to build that capability?")
+    state.selfmod = BuildQuestions(session_id, task["task_id"])
+    state.tasks.build_proposal = state.selfmod.proposal
+    return task
+
+
+@pytest.mark.parametrize("operation,approve", [("build", True), ("skip_build", False)])
+async def test_the_users_answer_in_chat_decides_the_pending_build(
+    make_task_state, operation, approve,
+):
+    state = make_task_state([], ["Got it."])
+    session_id = state.sessions.create_session().session_id
+    task = with_build_question(state, session_id)
+    snapshot = await state.tasks.snapshot(session_id)
+    assert snapshot["tasks"][0]["build_proposal"]["missing_capability"] == (
+        "send HTTP POST requests")
+    context, _ = await state.tasks.context(session_id)
+    assert "build_proposal" in context and "send HTTP POST requests" in context
+    state.generator.scripts["main"].append(tool(
+        "task_control", operation=operation, status_only=True))
+    events = await chat(state, session_id, "Yes, go ahead." if approve else "No.")
+    assert "error" not in events
+    assert state.selfmod.decisions == [(session_id, task["task_id"], approve)]
+    # The chat's own reply is the announcement, so no duplicate notice.
+    assert state.selfmod.announced is False
+    handoff = json.loads(state.generator.calls[-1]["messages"][-1]["content"])
+    assert handoff["task_id"] == task["task_id"]
+
+
+async def test_build_without_a_pending_question_changes_nothing(make_task_state):
+    state = make_task_state([
+        tool("task_control", operation="build", status_only=True),
+    ], ["Nothing is waiting."])
+    session_id = state.sessions.create_session().session_id
+    with_build_question(state, session_id)
+    state.selfmod.pending = None
+    await chat(state, session_id, "Build it.")
+    handoff = json.loads(state.generator.calls[-1]["messages"][-1]["content"])
+    assert "No capability build is waiting" in handoff["error"]
+    assert state.selfmod.decisions == []
+
+
+async def test_the_task_card_buttons_decide_through_the_api(make_task_state):
+    state = make_task_state([])
+    session_id = state.sessions.create_session().session_id
+    task = with_build_question(state, session_id)
+    body = {"session_id": session_id, "task_id": task["task_id"], "approve": False}
+    async with client_for(state) as client:
+        response = await client.post("/api/selfmod/decide", json=body)
+        assert response.status_code == 200
+        assert response.json() == {"task_id": task["task_id"], "build": "declined"}
+        assert state.selfmod.announced is True
+        again = await client.post("/api/selfmod/decide", json=body)
+        assert again.status_code == 409
+        state.selfmod = None
+        assert (await client.post("/api/selfmod/decide", json=body)).status_code == 404
+    assert state.selfmod is None
+
+
+def test_build_operations_are_offered_only_while_a_question_waits():
+    def operations(tools):
+        control = next(t for t in tools if t["function"]["name"] == "task_control")
+        return control["function"]["parameters"]["properties"]["operation"]["enum"]
+
+    assert "build" not in operations(api_task_tools())
+    assert {"build", "skip_build"} <= set(operations(api_task_tools(True)))
+
+
+def api_task_tools(build_question=False):
+    from recollect.task_chat import task_tools
+
+    return task_tools(build_question)

@@ -36,27 +36,6 @@ DEFAULT_BUDGET_CHARS = 32_000
 #: claim on every open, so a wrong assumption here fails loudly.
 DEFAULT_EMBEDDING_THREADS = 8
 
-DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful assistant with a long-term episodic memory.\n\n"
-    "Before each reply you are given two blocks. <recent_context> holds the "
-    "most recent exchanges in order. <retrieved_stm> holds older exchanges "
-    "that were retrieved because they may bear on what was just asked. Both "
-    "are drawn from your own earlier conversation with this user. Treat them "
-    "as your memory, not as documents: do not mention the blocks or say that "
-    "something was retrieved. If they do not contain what you need, say you "
-    "do not recall it rather than inventing a memory.\n\n"
-    "You are talking with the user. Default to the shortest answer that "
-    "satisfies the question, and say more only when they ask for more. Use "
-    "plain spoken prose, not headings or bullet lists.\n\n"
-    "The run_subagent tool delegates a self-contained task to an autonomous "
-    "subagent with research tools and a scratch workspace, which returns a "
-    "result you then answer from. Use it for current or external research and "
-    "genuinely sustained multi-step work, not for ordinary reasoning or "
-    "anything answerable from this conversation. Keep the task brief: what to "
-    "do, and what a good result looks like. Mark narrow lookups as focused; "
-    "reserve deep effort for substantial multi-source work."
-)
-
 
 def _default_sandbox_root() -> Path:
     """The default sandbox workdir root: machine-local, outside any tree."""
@@ -127,7 +106,6 @@ class RecollectConfig:
 
     # -- memory -------------------------------------------------------------
     budget_chars: int = DEFAULT_BUDGET_CHARS
-    system_prompt: str = DEFAULT_SYSTEM_PROMPT
     episodic: EpisodicConfig = field(default_factory=EpisodicConfig)
     #: Deployment choice (D1, locked 2026-08-25): the protected static
     #: ASPECT spread runs by default here, so the base dependency carries
@@ -158,6 +136,14 @@ class RecollectConfig:
     generator_context_tokens: int = 32_768
     generator_parallel_slots: int = 1
     subagent_inference_tokens: int = 2_048
+    #: Unbounded profile: the conversation generator, worker model
+    #: ingress, task relay and sandbox control transports carry no request
+    #: timeout or per-response token cap. Cleanup after an observed stop keeps
+    #: its short bounds; elapsed or quiet time never ends healthy work.
+    experiment_unbounded: bool = False
+    #: Self-modification: A serves from its own verified bundle image, and a
+    #: structured capability-gap report from A runs one loop at a time.
+    selfmod_enabled: bool = False
     # Limits for the opencode backend. The step cap is handed to opencode
     # (it forces a text-only final pass at the cap) and is the run's only
     # bound: there is no client-side wallclock, so a long research pass is
@@ -248,8 +234,9 @@ class RecollectConfig:
         if not 4_096 <= self.generator_context_tokens <= 131_072:
             raise ValueError("generator_context_tokens must be 4096..131072")
         if (type(self.generator_parallel_slots) is not int
-                or self.generator_parallel_slots not in {1, 2}):
-            raise ValueError("generator_parallel_slots must be 1 or 2")
+                or self.generator_parallel_slots not in {1, 2, 3}):
+            # Three slots are the registered conversation/worker/modifier lanes.
+            raise ValueError("generator_parallel_slots must be 1, 2 or 3")
         if not 128 <= self.subagent_inference_tokens < self.generator_context_tokens:
             raise ValueError("subagent inference output must fit the model context")
         if self.sandbox_steps < 1:
@@ -268,6 +255,10 @@ class RecollectConfig:
             raise ValueError("sandbox_container_cpus must be positive")
         if not isinstance(self.aspect_enabled, bool):
             raise ValueError("aspect_enabled must be a boolean")
+        if not isinstance(self.experiment_unbounded, bool):
+            raise ValueError("experiment_unbounded must be a boolean")
+        if not isinstance(self.selfmod_enabled, bool):
+            raise ValueError("selfmod_enabled must be a boolean")
         # The deployment owns switch on or off; the mechanism constants stay
         # frozen. Frozen dataclass, hence the setattr.
         object.__setattr__(
@@ -429,6 +420,13 @@ class RecollectConfig:
             ),
             subagent_inference_tokens=int(
                 os.environ.get("RECOLLECT_SUBAGENT_INFERENCE_TOKENS", 2_048)
+            ),
+            experiment_unbounded=_flag(
+                os.environ.get("RECOLLECT_EXPERIMENT_UNBOUNDED", "0")
+            ),
+            # On by default for the app; RECOLLECT_SELFMOD_ENABLED=0 turns it off.
+            selfmod_enabled=_flag(
+                os.environ.get("RECOLLECT_SELFMOD_ENABLED", "1")
             ),
             sandbox_steps=int(os.environ.get("RECOLLECT_SANDBOX_STEPS", 24)),
             sandbox_idle_ttl_s=float(

@@ -19,39 +19,68 @@ from fastapi.responses import Response, StreamingResponse
 from ..limits import ResourceLimitsMiddleware
 from .context_window import check_context
 
+LANES = ("conversation", "worker", "modifier")
+
 
 class ModelAdmission:
-    """Fair single-slot access, or one conversation and one worker lane."""
+    """Fair single-slot access, two lanes, or three exclusive pinned lanes.
+
+    Three slots give main conversation, the worker (A or B research) and the
+    modifier one server slot each, in LANES order. No lane borrows another's
+    slot: A and B share the worker lane, so no fourth generation is assumed.
+    """
 
     def __init__(self, slots: int = 1) -> None:
-        if type(slots) is not int or slots not in {1, 2}:
-            raise ValueError("Model admission supports one or two slots.")
+        if type(slots) is not int or slots not in {1, 2, 3}:
+            raise ValueError("Model admission supports one, two or three slots.")
         self.slots = slots
         self._foreground: deque[asyncio.Future] = deque()
         self._background: deque[asyncio.Future] = deque()
+        self._modifier: deque[asyncio.Future] = deque()
         self._busy = False
         self._foreground_busy = False
         self._background_busy = False
+        self._modifier_busy = False
         self._foreground_streak = 0
         self._closed = False
 
     def locked(self) -> bool:
-        return self._busy or self._foreground_busy or self._background_busy
+        return (self._busy or self._foreground_busy or self._background_busy
+                or self._modifier_busy)
 
-    async def acquire(self, *, background: bool = False) -> bool:
+    def _lane(self, background: bool, lane: str | None) -> str:
+        if lane is None:
+            return "worker" if background else "conversation"
+        if (lane not in LANES or (background and lane != "worker")
+                or (lane == "modifier" and self.slots != 3)):
+            raise ValueError("Unknown model lane for this slot profile.")
+        return lane
+
+    def slot_for(self, lane: str) -> int | None:
+        """Server slot pinned to a lane; only three-lane profiles pin slots."""
+        name = self._lane(False, lane)
+        return LANES.index(name) if self.slots == 3 else None
+
+    def _queue(self, lane: str) -> deque[asyncio.Future]:
+        return {"conversation": self._foreground, "worker": self._background,
+                "modifier": self._modifier}[lane]
+
+    async def acquire(self, *, background: bool = False,
+                      lane: str | None = None) -> bool:
+        name = self._lane(background, lane)
         if self._closed:
             raise RuntimeError("Model admission is closing.")
-        if len(self._foreground) + len(self._background) >= 32:
+        if len(self._foreground) + len(self._background) + len(self._modifier) >= 32:
             raise RuntimeError("The model request queue is full. Try again shortly.")
         waiter = asyncio.get_running_loop().create_future()
-        queue = self._background if background else self._foreground
+        queue = self._queue(name)
         queue.append(waiter)
         self._wake()
         try:
             await waiter
         except BaseException:
             if waiter.done() and not waiter.cancelled() and waiter.exception() is None:
-                self.release(background=background)
+                self.release(lane=name)
             else:
                 with contextlib.suppress(ValueError):
                     queue.remove(waiter)
@@ -61,31 +90,35 @@ class ModelAdmission:
 
     def close(self) -> None:
         self._closed = True
-        for queue in (self._foreground, self._background):
+        for queue in (self._foreground, self._background, self._modifier):
             while queue:
                 waiter = queue.popleft()
                 if not waiter.done():
                     waiter.set_exception(RuntimeError("Model admission is closing."))
 
-    def release(self, *, background: bool = False) -> None:
-        field = (
-            "_background_busy" if background else "_foreground_busy"
-        ) if self.slots == 2 else "_busy"
+    def release(self, *, background: bool = False, lane: str | None = None) -> None:
+        name = self._lane(background, lane)
+        field = {"conversation": "_foreground_busy", "worker": "_background_busy",
+                 "modifier": "_modifier_busy"}[name] if self.slots >= 2 else "_busy"
         if not getattr(self, field):
             raise RuntimeError("The model lease is not held.")
         setattr(self, field, False)
         self._wake()
 
     def _wake(self) -> None:
-        for queue in (self._foreground, self._background):
+        for queue in (self._foreground, self._background, self._modifier):
             while queue and queue[0].cancelled():
                 queue.popleft()
-        if self.slots == 2:
-            # Native child fan-out cannot occupy the conversational lane.
-            for queue, field in (
+        if self.slots >= 2:
+            # Native child fan-out cannot occupy the conversational lane, and
+            # with three slots neither lane can occupy the modifier's.
+            lanes = [
                 (self._foreground, "_foreground_busy"),
                 (self._background, "_background_busy"),
-            ):
+            ]
+            if self.slots == 3:
+                lanes.append((self._modifier, "_modifier_busy"))
+            for queue, field in lanes:
                 if queue and not getattr(self, field):
                     setattr(self, field, True)
                     queue.popleft().set_result(True)
@@ -139,17 +172,30 @@ class _ModelStream(StreamingResponse):
 
 
 class ModelIngress:
-    """Only the configured model's completions are reachable with this token."""
+    """Only the configured model's completions are reachable with this token.
 
-    def __init__(self, config, admission: ModelAdmission) -> None:
+    Each ingress serves one background lane: the worker (A or B research) or,
+    for independent candidate evaluation, the modifier's pinned lane.
+    """
+
+    def __init__(self, config, admission: ModelAdmission, *,
+                 lane: str = "worker", owns_admission: bool = True) -> None:
+        if lane not in {"worker", "modifier"}:
+            raise ValueError("Model ingress serves the worker or modifier lane.")
+        admission.slot_for(lane)  # Rejects a modifier lane without three slots.
         self.config = config
         self.admission = admission
+        self.lane = lane
+        # An evaluation ingress borrows the app's admission and must not close it.
+        self.owns_admission = owns_admission
+        self.unbounded = bool(getattr(config, "experiment_unbounded", False))
         self.token = secrets.token_urlsafe(32)
         self.base_url = ""
         self.client = httpx.AsyncClient(
             base_url=config.generator_base_url.rstrip("/"),
             headers={"Authorization": f"Bearer {config.generator_api_key}"},
-            timeout=httpx.Timeout(config.generator_timeout_s, connect=10),
+            timeout=(httpx.Timeout(None) if self.unbounded
+                     else httpx.Timeout(config.generator_timeout_s, connect=10)),
             trust_env=False,
         )
         self.app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -199,16 +245,26 @@ class ModelIngress:
                 raise HTTPException(400, "Only the configured chat model is allowed.")
             if not isinstance(payload.get("messages"), list):
                 raise HTTPException(400, "Messages must be a list.")
-            # Bound each inference, never the duration of the delegated task.
-            limits = [self.config.subagent_inference_tokens]
-            for key in ("max_tokens", "max_completion_tokens"):
-                if key in payload:
-                    value = payload[key]
-                    if type(value) is not int or value < 1:
-                        raise HTTPException(400, f"{key} must be a positive integer.")
-                    limits.append(value)
-            payload["max_tokens"] = min(limits)
-            payload.pop("max_completion_tokens", None)
+            if "id_slot" in payload:
+                # Slot placement is host lane authority, never worker-selected.
+                raise HTTPException(400, "Workers cannot choose a model slot.")
+            if self.unbounded:
+                # Unbounded profile: no per-response token ceiling on agent inference.
+                for key in ("max_tokens", "max_completion_tokens",
+                            "max_output_tokens"):
+                    payload.pop(key, None)
+            else:
+                # Bound each inference, never the duration of the delegated task.
+                limits = [self.config.subagent_inference_tokens]
+                for key in ("max_tokens", "max_completion_tokens"):
+                    if key in payload:
+                        value = payload[key]
+                        if type(value) is not int or value < 1:
+                            raise HTTPException(
+                                400, f"{key} must be a positive integer.")
+                        limits.append(value)
+                payload["max_tokens"] = min(limits)
+                payload.pop("max_completion_tokens", None)
             if payload.get("n", 1) != 1:
                 raise HTTPException(
                     400, "Only one completion per request is supported."
@@ -216,6 +272,9 @@ class ModelIngress:
             if type(payload.get("stream", False)) is not bool:
                 raise HTTPException(400, "stream must be a boolean.")
             payload["chat_template_kwargs"] = {"enable_thinking": False}
+            pinned = self.admission.slot_for(self.lane)
+            if pinned is not None:
+                payload["id_slot"] = pinned
             owner = asyncio.current_task()
             if owner is not None:
                 self._requests.add(owner)
@@ -233,7 +292,7 @@ class ModelIngress:
                 finally:
                     if lease:
                         lease = False
-                        self.admission.release(background=True)
+                        self.admission.release(lane=self.lane)
                         self.measurements.append({
                             "queue_ms": (started - queued) * 1_000,
                             "inference_ms": (time.perf_counter() - started) * 1_000,
@@ -245,10 +304,11 @@ class ModelIngress:
             async def connect():
                 nonlocal lease, started, queued, prompt_tokens, response
                 prompt_tokens = await check_context(
-                    self.client, payload, self.config.generator_context_tokens
+                    self.client, payload, self.config.generator_context_tokens,
+                    timeout=None if self.unbounded else 15,
                 )
                 queued = time.perf_counter()
-                await self.admission.acquire(background=True)
+                await self.admission.acquire(lane=self.lane)
                 lease = True
                 started = time.perf_counter()
                 response = await self.client.send(
@@ -371,7 +431,8 @@ class ModelIngress:
 
     async def close(self) -> None:
         self._closing = True
-        self.admission.close()
+        if self.owns_admission:
+            self.admission.close()
         active = [task for task in self._requests if task is not asyncio.current_task()]
         for task in active:
             task.cancel()

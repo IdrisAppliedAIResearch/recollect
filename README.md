@@ -18,40 +18,46 @@ it while it runs.
 
 ---
 
-## The architecture in one picture: two modes
+## The architecture in one picture: three modes
 
-Recollect runs in two modes, and they are deliberately different from each
+Recollect runs in three modes, and they are deliberately different from each
 other.
 
 ```
                           you
                            |
-            +--------------+--------------+
-            |                             |
-   MODE 1: conversation          MODE 2: delegated work
-   the main assistant            a sandboxed worker agent
-            |                             |
-   episodic memory store          task store + scratch files
-   (this conversation)            (thrown away when done)
-            |                             |
-            +--------------+--------------+
+       +-------------------+-------------------+
+       |                   |                   |
+  MODE 1:             MODE 2:             MODE 3:
+  conversation        delegated work      building a capability
+  the main            a sandboxed         agents that write
+  assistant           worker agent        Recollect's own code
+       |                   |                   |
+  episodic memory     task store +        frozen tests, a
+  store (this         scratch files       candidate, a git
+  conversation)       (thrown away)       commit
+       |                   |                   |
+       +-------------------+-------------------+
                            |
                   one local model
 ```
 
-| | **Mode 1 — conversation** | **Mode 2 — delegated work** |
-|---|---|---|
-| What it is | The assistant you talk to | A background agent it hands jobs to |
-| Good at | Answering, recalling, deciding | Web research, multi-step work, producing files |
-| Where it runs | Inside the Recollect server | Inside a locked-down Docker container |
-| What it can reach | Your stored conversation | The internet and an empty scratch folder |
-| How long it takes | Seconds | Minutes |
-| What it remembers | Everything you actually said | Nothing, once the job ends |
+| | **Mode 1 — conversation** | **Mode 2 — delegated work** | **Mode 3 — building a capability** |
+|---|---|---|---|
+| What it is | The assistant you talk to | A background agent it hands jobs to | Agents that add a tool the worker is missing |
+| Good at | Answering, recalling, deciding | Web research, multi-step work, producing files | Turning "I can't do that yet" into code that can |
+| Where it runs | Inside the Recollect server | Inside a locked-down Docker container | In its own containers, one per agent |
+| What it can reach | Your stored conversation | The internet and an empty scratch folder | A copy of the worker's own source code |
+| How long it takes | Seconds | Minutes | Minutes to hours |
+| What it remembers | Everything you actually said | Nothing, once the job ends | Nothing; what it keeps is a git commit |
 
 Mode 1 is the only thing that owns memory. Mode 2 is a tool that Mode 1 picks
 up, uses, and puts down. Keeping that line sharp is the point of the design:
 if a worker's tool calls and internal chatter leaked into the conversation
 memory, the memory would stop being a conversation and become a log file.
+
+Mode 3 only starts when Mode 2 hits a wall and you say yes. It never touches
+your memory either. What it changes is the worker's own toolbox.
 
 ---
 
@@ -226,7 +232,63 @@ about it again next week.
 
 Main chat and the worker share the **same** local model server, with a single
 slot (`--parallel 1`). They take turns. There is no second chat model, and the
-container never gets its own.
+container never gets its own. (With three slots configured, building agents get
+a lane of their own so a long build does not block your conversation.)
+
+---
+
+## Mode 3: building a capability it does not have
+
+### When it happens
+
+Sometimes a job needs something no tool can do — send a POST request, speak a
+protocol nobody wrote a client for. The worker is required to say so in a
+structured "capability gap" report rather than guess or work around it. Its
+task pauses, and the assistant asks you a plain question: want me to build it?
+
+Nothing is built without a yes. You can answer by voice, in chat, or with the
+buttons on the task card.
+
+### What happens after you say yes
+
+1. **Tests first.** One agent writes the tests that define done, anchored on
+   your original request. A second agent reviews them. They are frozen before
+   any code exists, and nothing later is allowed to change them.
+2. **Plan, review, write.** A third agent plans the change and a reviewer
+   checks the plan — including whether the new tool can actually be called the
+   way a model calls tools. Then the same agent writes the code.
+3. **Prove it offline.** The frozen tests run in a container with **no
+   network** and nothing of your machine mounted. A fresh reviewer reads the
+   finished change.
+4. **Prove it on the real request.** The new code becomes a second deployment,
+   B. Your original request resumes there, with the new tool. Meanwhile your
+   other work keeps running on the old one.
+5. **Keep it.** Only if B actually finishes your request does the change get
+   committed to the repository, on the branch you are already on. B becomes
+   the deployment that serves everything.
+
+If any step fails, B is thrown away — container, image and folders — and the
+next attempt starts over from the unchanged original, told what went wrong,
+including the errors the worker itself hit. Attempts continue until one works
+or you stop it.
+
+### What it is allowed to touch
+
+Only the worker's own tree: its tool server, its research tools, its skills,
+and new tool files. Its tool host, the package markers and the dependency lock
+are off limits, so a build can add a tool but cannot pull in a new third-party
+package. Any change outside that list is rejected before the code even runs.
+
+### Undoing it
+
+Every build tags the commit it started from, so one command puts the code back:
+
+```bash
+git reset --hard selfmod-before-<feature>-<timestamp>
+```
+
+Restart Recollect and the old toolbox is back. The full mechanism is in
+**[docs/SELF_MODIFICATION.md](docs/SELF_MODIFICATION.md)**.
 
 ---
 
@@ -277,6 +339,7 @@ The short version:
 | Hands-free "Hey Idris" voice conversation | [docs/VOICE.md](docs/VOICE.md) |
 | The pinned embedder, and why it is pinned | [docs/EMBEDDER.md](docs/EMBEDDER.md) |
 | Container isolation profile | [deploy/opencode-sandbox/README.md](deploy/opencode-sandbox/README.md) |
+| Building a missing capability, and how to undo one | [docs/SELF_MODIFICATION.md](docs/SELF_MODIFICATION.md) |
 | Network hardening and pairing | [docs/SECURITY_HARDENING_2026-09-08.md](docs/SECURITY_HARDENING_2026-09-08.md) |
 
 ---
@@ -292,6 +355,7 @@ src/recollect/
   cli.py              serve · doctor · chat
   tasks.py            delegated tasks and their mailbox
   task_chat.py        the conversation path that can delegate
+  selfmod/            building a missing capability: tests, agents, A/B, commit
   engine/
     _internals.py     the single seam into the library's private modules
     shadow.py         the verified shadow trace
@@ -300,6 +364,7 @@ src/recollect/
     sandbox/          container isolation, attestation, and the worker runner
 ui/                   Vite + React inspector
 tests/                shadow-vs-library verification, swept over sizes and budgets
+evals/                live evaluation scripts, run by hand rather than in CI
 docs/
 ```
 
@@ -340,8 +405,9 @@ uv run pytest
 The suite sweeps store sizes against budgets — including the silly ones: zero
 characters, one character, and exactly the cost of an empty block — and
 asserts byte equality between the library and the reconstruction every time.
-It uses a deterministic fake embedder, so it needs no model file and runs in
-about ten seconds.
+It uses a deterministic fake embedder, so it needs no model file and needs
+neither Docker nor a chat model. Tests that do want a real container are opt-in
+behind a `docker` marker.
 
 ## Licence
 

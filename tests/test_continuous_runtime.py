@@ -189,6 +189,30 @@ async def test_report_tool_bounds_and_receipt():
         await report_message("finding", "x" * 4001, 1)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", [
+    "I could not complete the POST request. My available tooling does not support "
+    "sending HTTP POST requests.",
+    "The web fetch tool only supports GET, so I have no status code.",
+    "I cannot report the status code without a tool capable of sending POST.",
+    "None of my tools can write to a calendar.",
+])
+async def test_a_result_blaming_the_tools_must_be_a_capability_gap(text):
+    with pytest.raises(ValueError, match="capability_gap"):
+        await report_message("result", text, 1)
+    assert json.loads(await report_message("blocked", text, 1))["kind"] == "blocked"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", [
+    "The fund returned 7% last year. I could not verify the 2019 figure.",
+    "Use the tool in the settings page to export your data.",
+    "No tool release notes mention this change.",
+])
+async def test_ordinary_results_with_caveats_still_pass(text):
+    assert json.loads(await report_message("result", text, 1))["kind"] == "result"
+
+
 def test_continuous_config_reports_real_context_without_changing_legacy():
     kwargs = dict(base_url="http://model/v1", model="qwen", api_key="test", steps=24)
     old = build_config(Path("."), **kwargs)
@@ -205,7 +229,9 @@ def test_continuous_config_reports_real_context_without_changing_legacy():
 
 
 @pytest.mark.asyncio
-async def test_question_keeps_native_session_until_steered(tmp_path):
+async def test_question_keeps_native_session_until_steered(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "recollect.engine.sandbox.runner._RECONCILE_SECONDS", 0.02)
     native = NativeProtocol(tmp_path)
     native.release.set()
     commands = asyncio.Queue()

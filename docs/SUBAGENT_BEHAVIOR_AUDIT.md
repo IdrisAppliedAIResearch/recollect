@@ -65,12 +65,12 @@ float16 and Kokoro CUDAExecutionProvider. The audit feeds voice-mode text, not
 microphone audio; live ASR/TTS playback is outside its assertions.
 
 ```powershell
-uv run --no-sync python tests/live_subagent_audit.py --case replay
-uv run --no-sync python tests/live_subagent_audit.py --case supervision
-uv run --no-sync python tests/live_subagent_audit.py --case cases
-uv run --no-sync python tests/live_subagent_audit.py --case files
-uv run --no-sync python tests/live_subagent_audit.py --case evidence
-uv run --no-sync python tests/live_subagent_audit.py --case routing
+uv run --no-sync python evals/live_subagent_audit.py --case replay
+uv run --no-sync python evals/live_subagent_audit.py --case supervision
+uv run --no-sync python evals/live_subagent_audit.py --case cases
+uv run --no-sync python evals/live_subagent_audit.py --case files
+uv run --no-sync python evals/live_subagent_audit.py --case evidence
+uv run --no-sync python evals/live_subagent_audit.py --case routing
 ```
 
 Inspect the printed directory's `results.json`, worker messages and actual files.

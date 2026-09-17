@@ -1,6 +1,6 @@
 """Opt-in real-model conversation audit; never writes to the user's chat store.
 
-Run with ``uv run --no-sync python tests/live_subagent_audit.py --case replay``.
+Run with ``uv run --no-sync python evals/live_subagent_audit.py --case replay``.
 Outputs are deliberately retained for review; remove the printed audit directory
 after recording the findings. The owned Docker sandbox is removed on exit.
 """

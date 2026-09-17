@@ -32,11 +32,11 @@ def test_continuous_skills_are_read_only_config_assets_not_prompt_bodies(tmp_pat
         }
         assert "prompt" not in config["agent"][agent]
     assert {p.parent.name for p in tmp_path.glob("skills/*/SKILL.md")} == names
-    prompt = OpenCodeRunner._continuous_prompt("Research a company", 2, "steer-2")
-    assert "Instruction revision: 2" in prompt
-    assert "Related message ID: steer-2" in prompt
+    prompt = OpenCodeRunner._delegation_message(
+        "<request>\nResearch a company\n</request>", "focused", 2, "steer-2")
+    assert "revision 2 and related message ID steer-2" in prompt
     assert "recollect-reporting" in prompt
-    assert "Create files only when the user requested a file" in prompt
+    assert "Create a file only if the request asks for one" in prompt
     assert "2 MiB" not in prompt
     assert "2 MiB" in (tmp_path / "skills/recollect-files/SKILL.md").read_text()
 
@@ -108,12 +108,11 @@ async def test_worker_report_reaches_main_reply_and_only_reported_files_download
     assert answer in notice["text"]
     assert "scratch.md" not in notice["text"]
     assert notice["source_refs"] == [source]
-    evidence = json.loads(state.generator.calls[-1]["user_message"])
-    assert evidence["text"] == answer
+    evidence = state.generator.calls[-1]["user_message"]
+    assert f'<update kind="result">\n{answer}\n</update>' in evidence
     # A result narrates the worker's overview. Sending the findings corpus
     # too is what made the relay recite every fact instead of summarizing.
-    assert "findings" not in evidence
-    assert evidence["sources"] == [source]
+    assert "<findings>" not in evidence and source not in evidence
     if file_requested:
         assert "requested.md" in notice["text"]
         assert (downloads / "requested.md").read_text() == answer
@@ -143,11 +142,12 @@ async def test_completion_synthesis_keeps_detail_beyond_old_700_character_cutoff
     key = (state.session_id, task["task_id"])
     answer = "Detailed finding. " * 70 + "Final specific comparison."
 
-    async def stream(messages, *, trace, max_tokens):
+    async def stream(messages, *, trace, max_tokens, uncapped=False):
         # Not a bare literal: _announce_one swallows exceptions into the
         # verbatim-report fallback, so a stale number here would pass by
         # taking that path rather than by checking the budget.
         assert max_tokens == state.coordinator.config.task_relay_max_tokens
+        assert not uncapped
         trace.response_text = answer
         yield None
 

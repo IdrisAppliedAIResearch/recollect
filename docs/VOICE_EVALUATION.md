@@ -61,7 +61,7 @@ Ordinary pytest does not collect the live runner. Run from the repository root
 and choose a new report filename to preserve existing evidence.
 
 ```bash
-uv run --no-sync python -m tests.voice_live_evaluation --report docs/voice-evaluation-YYYY-MM-DD.json --acoustics
+uv run --no-sync python -m evals.voice_live_evaluation --report docs/voice-evaluation-YYYY-MM-DD.json --acoustics
 ```
 
 The current default includes **79 conversation turns across five groups**
@@ -70,14 +70,14 @@ adds 20 direct-listener cases; it does not add 20 chat turns. To reproduce the
 original 67-turn baseline selection or run only the repair prompts:
 
 ```bash
-uv run --no-sync python -m tests.voice_live_evaluation --group memory --group precision --group clarification --group research --report docs/voice-baseline-YYYY-MM-DD.json --acoustics
-uv run --no-sync python -m tests.voice_live_evaluation --group repair --report docs/voice-repair-YYYY-MM-DD.json
+uv run --no-sync python -m evals.voice_live_evaluation --group memory --group precision --group clarification --group research --report docs/voice-baseline-YYYY-MM-DD.json --acoustics
+uv run --no-sync python -m evals.voice_live_evaluation --group repair --report docs/voice-repair-YYYY-MM-DD.json
 ```
 
 The separate three-repetition prompt comparison uses a completed baseline report:
 
 ```bash
-uv run --no-sync python -m tests.voice_prompt_comparison --baseline docs/voice-baseline-YYYY-MM-DD.json --report docs/voice-prompt-comparison-YYYY-MM-DD.json
+uv run --no-sync python -m evals.voice_prompt_comparison --baseline docs/voice-baseline-YYYY-MM-DD.json --report docs/voice-prompt-comparison-YYYY-MM-DD.json
 ```
 
 ## Measurements
@@ -158,7 +158,7 @@ do not replace the full repository verification or a browser microphone test.
 
 The [saved baseline report](voice-evaluation-2026-09-08.json) completed from
 17:04:13 to 17:14:32 UTC using the opt-in
-[live evaluator](../tests/voice_live_evaluation.py). It contains **67 completed
+[live evaluator](../evals/voice_live_evaluation.py). It contains **67 completed
 speech round trips across four isolated conversations**, plus 20 acoustic cases.
 This is a pipeline completion count, not 67 correct answers.
 
@@ -352,7 +352,7 @@ The [saved prompt comparison](voice-prompt-comparison-2026-09-08.json) ran from
 17:16:07 to 17:18:14 UTC: **11 cases × three interleaved repetitions × two
 instruction variants = 66 generations**. Each pair used the same recognized
 input and captured, verified context. The
-[comparison runner](../tests/voice_prompt_comparison.py) kept model sampling and
+[comparison runner](../evals/voice_prompt_comparison.py) kept model sampling and
 the token budget unchanged. It did not rerun ASR, retrieval, or TTS, so these are
 prompt-generation observations rather than new end-to-end voice trials.
 

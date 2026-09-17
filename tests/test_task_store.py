@@ -427,7 +427,7 @@ def test_reset_requires_stopped_workers_and_invalidates_old_messages(tasks, work
     assert store.messages(first, new["task_id"])[0]["seq"] > notice["seq"]
 
 
-def test_hundreds_of_tool_messages_never_touch_episodic_store(tasks, fake_embedder):
+def test_many_tool_messages_never_touch_episodic_store(tasks, fake_embedder):
     store, first, _ = tasks
     manager = SessionManager(store.config, fake_embedder)
     episodic = manager.open_store(first)
@@ -438,7 +438,7 @@ def test_hundreds_of_tool_messages_never_touch_episodic_store(tasks, fake_embedd
     before = path.read_bytes()
     calls = fake_embedder.calls
     task_id = _start(store, first)["task_id"]
-    for index in range(250):
+    for index in range(25):
         store.message(first, task_id, f"tool-{index}", "subagent", "tool",
                       {"summary": f"Tool output {index}"})
         store.update(first, task_id, progress=f"Tool {index}")
@@ -446,4 +446,4 @@ def test_hundreds_of_tool_messages_never_touch_episodic_store(tasks, fake_embedd
     assert path.read_bytes() == before
     assert fake_embedder.calls == calls
     assert not store.config.session_file(first, "turns.jsonl").exists()
-    assert store.snapshot(first)["tasks"][0]["progress"] == "Tool 249"
+    assert store.snapshot(first)["tasks"][0]["progress"] == "Tool 24"

@@ -160,8 +160,13 @@ def attest_container(
     memory_mb: int,
     pids: int,
     cpus: float,
+    image_id: str | None = None,
 ) -> None:
-    """Reject a running container whose effective policy drifted."""
+    """Reject a running container whose effective policy drifted.
+
+    ``image_id`` additionally pins the resolved image of a verified deployment
+    bundle, so a retargeted reference can never serve in its place.
+    """
     if not isinstance(inspection, list) or len(inspection) != 1:
         raise IsolationError("container inspection returned an unexpected shape")
     item = inspection[0]
@@ -172,6 +177,8 @@ def attest_container(
         raise IsolationError("sandbox container identity or running state mismatched")
     if config.get("Image") != image:
         raise IsolationError("sandbox container image mismatched")
+    if image_id is not None and item.get("Image") != image_id:
+        raise IsolationError("sandbox container resolved image mismatched")
     if not config.get("User") or config.get("User") in {"0", "0:0", "root"}:
         raise IsolationError("sandbox container must not run as root")
     if host.get("Privileged") or not host.get("ReadonlyRootfs"):

@@ -36,8 +36,14 @@ class UpdateGenerator:
         self.calls.append(messages)
         self.started.set()
         await self.release.wait()
-        trace.response_text = json.loads(messages["user_message"])["text"]
+        trace.response_text = update_text(messages["user_message"])
         yield None
+
+
+def update_text(message):
+    """The worker's update text inside a relay message."""
+    return message.split('<update kind="', 1)[1].split('">\n', 1)[1].split(
+        "\n</update>", 1)[0]
 
 
 @pytest.fixture
@@ -305,7 +311,11 @@ async def test_late_steering_after_native_completion_creates_one_saved_followup(
     child = state.store.get(state.session_id, old["checkpoint"]["followup_task_id"])
     assert child["parent_task_id"] == old["task_id"]
     assert child["state"] == "completed"
-    assert "Add warranty" in state.calls[1][1]
+    follow_up = state.calls[1][1]
+    # A continuation keeps the user's original request; the steer is new.
+    assert follow_up.startswith("<request>\nResearch batteries\n</request>")
+    assert "<earlier_work>" in follow_up
+    assert "<earlier_instructions>\nAdd warranty\n</earlier_instructions>" in follow_up
     assert restored == ["A"]
     retried = await state.coordinator.command(
         state.session_id,
@@ -463,8 +473,12 @@ async def test_execution_date_is_not_part_of_display_objective(environment):
         state.store.get(state.session_id, task["task_id"])["objective"]
         == "Compare batteries"
     )
-    assert "Current date (UTC):" in state.calls[0][1]
-    assert "Original user request:" in state.calls[0][1]
+    message = state.calls[0][1]
+    assert message.startswith(
+        "<request>\nResearch batteries\n</request>\n\n"
+        "<brief>\nCompare batteries\n</brief>\n\n<context>\nToday (UTC): "
+    )
+    assert message.endswith("\n</context>")
 
 
 async def test_context_prioritizes_owner_and_includes_panel_steering(environment):
@@ -687,3 +701,33 @@ async def test_instruction_replay_reads_beyond_first_mailbox_page(
         finished = state.store.get(state.session_id, task["task_id"])
         assert finished["state"] == "completed"
         assert finished["accepted_revision"] == 2
+
+
+async def test_selfmod_interrupt_keeps_the_task_cancelable_and_cancel_notifies(
+    environment,
+):
+    state = environment
+    running = asyncio.Event()
+    canceled = []
+
+    async def behavior(**kwargs):
+        await kwargs["report"](TaskReport("accepted", "Accepted", 1, call_id="a"))
+        running.set()
+        await asyncio.Event().wait()
+        yield SubagentResult("task", "ok", "{}", "never")
+
+    state.behavior = behavior
+    state.coordinator.on_cancel = lambda session_id, task_id: canceled.append(task_id)
+    task = await submit(state)
+    await state.coordinator.start()
+    await asyncio.wait_for(running.wait(), 2)
+    await state.coordinator.interrupt_for_selfmod(
+        state.session_id, task["task_id"], "Building the capability.")
+    await wait_idle(state)
+    current = state.store.get(state.session_id, task["task_id"])
+    assert current["state"] == "blocked"
+    assert current["progress"] == "Building the capability."
+    await state.coordinator.command(state.session_id, task["task_id"], "stop",
+                                    "cancel")
+    assert canceled == [task["task_id"]]
+    assert state.store.get(state.session_id, task["task_id"])["state"] == "canceled"

@@ -226,6 +226,32 @@ ConvertTo-Json -Compress -InputObject $results
     assert result == [True, False, False, False]
 
 
+def test_stop_container_accepts_self_modification_images_under_the_root():
+    base = "sha256:" + "a" * 64
+    bundle = "sha256:" + "b" * 64
+    result = run_script(rf"""
+$c = [pscustomobject]@{{Name='/recollect-subagent-abc123';
+ Config=[pscustomobject]@{{Image='{base}'; Labels=$null}}; Mounts=@(
+ [pscustomobject]@{{Type='bind'; Destination='/workspace';
+     Source='C:\sandboxes\root-a-1\shared\workspace'; RW=$true}},
+ [pscustomobject]@{{Type='bind'; Destination='/config';
+     Source='C:\sandboxes\root-a-1\shared\config'; RW=$false}}
+)}}
+$results = @(Test-RecollectContainer $c 'expected' 'C:\sandboxes' '{base}')
+$c.Config.Image='{bundle}'
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes' '{base}'
+$c.Config.Labels=[pscustomobject]@{{'recollect.bundle'='x'}}
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes' '{base}'
+$c.Config.Image='mutable:tag'
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes' '{base}'
+$c.Config.Image='{bundle}'
+$c.Mounts[0].Source='C:\elsewhere\shared\workspace'
+$results += Test-RecollectContainer $c 'expected' 'C:\sandboxes' '{base}'
+ConvertTo-Json -Compress -InputObject $results
+""")
+    assert result == [True, False, True, False, False]
+
+
 def test_stop_verified_process_terminates_only_owned_child():
     result = run_script(r"""
 $exe = (Get-Process -Id $PID).Path
@@ -242,3 +268,81 @@ try {
 }
 """)
     assert result is True
+
+
+def test_two_slot_reuse_requires_doubled_total_context():
+    result = run_script(r'''
+$process = [pscustomobject]@{
+    ExecutablePath = 'C:\models\llama-server.exe'
+    CommandLine = 'llama-server --model "C:\models\chat.gguf" ' +
+        '--host 127.0.0.1 --port 8000 --ctx-size 65536 --parallel 2 ' +
+        '--n-gpu-layers 999 --cache-type-k q8_0 --cache-type-v q8_0 ' +
+        '--flash-attn on --jinja --no-webui'
+}
+$model = 'C:\models\chat.gguf'
+$matches = @(Test-QwenProcess $process $process.ExecutablePath $model 2 32768)
+$matches += Test-QwenProcess $process $process.ExecutablePath $model
+$process.CommandLine = $process.CommandLine.Replace(
+    '--ctx-size 65536', '--ctx-size 32768')
+$matches += Test-QwenProcess $process $process.ExecutablePath $model 2 32768
+ConvertTo-Json -Compress -InputObject $matches
+''')
+    assert result == [True, False, False]
+
+
+def test_separate_network_listener_does_not_block_loopback():
+    result = run_script(r'''
+function Get-NetTCPConnection {
+    [pscustomobject]@{LocalAddress='100.113.91.124'; OwningProcess=7616}
+    [pscustomobject]@{LocalAddress='fd7a:115c:a1e0::1'; OwningProcess=7616}
+}
+function Get-CimInstance { throw 'Must not inspect unrelated process' }
+ConvertTo-Json -Compress -InputObject ($null -eq (Get-PortProcess 8000))
+''')
+    assert result is True
+
+
+@pytest.mark.parametrize("address", ["127.0.0.1", "0.0.0.0", "::"])
+def test_overlapping_listener_still_requires_identity(address):
+    result = run_script(r'''
+function Get-NetTCPConnection {
+    [pscustomobject]@{LocalAddress='ADDRESS'; OwningProcess=123}
+}
+function Get-CimInstance { [pscustomobject]@{CommandLine=$null} }
+try { Get-PortProcess 8000; $message='incorrectly accepted' }
+catch { $message=$_.Exception.Message }
+ConvertTo-Json -Compress -InputObject $message
+'''.replace("ADDRESS", address))
+    assert result == "Cannot verify the process owning port 8000."
+
+
+@pytest.mark.parametrize("binding", ["100.113.91.124", "0.0.0.0"])
+def test_host_binding_checks_relevant_network_listener(binding):
+    result = run_script(r'''
+function Get-NetTCPConnection {
+    [pscustomobject]@{LocalAddress='100.113.91.124'; OwningProcess=123}
+}
+function Get-CimInstance {
+    [pscustomobject]@{ProcessId=123; CommandLine='verified command'}
+}
+ConvertTo-Json -Compress -InputObject (Get-PortProcess 8080 'BINDING').ProcessId
+'''.replace("BINDING", binding))
+    assert result == 123
+
+
+def test_dedicated_qwen_port_rejects_normal_local_model():
+    result = run_script(r'''
+$process = [pscustomobject]@{
+    ExecutablePath = 'C:\models\llama-server.exe'
+    CommandLine = 'llama-server --model "C:\models\chat.gguf" ' +
+        '--host 127.0.0.1 --port 8001 --ctx-size 32768 --parallel 1 ' +
+        '--n-gpu-layers 999 --cache-type-k q8_0 --cache-type-v q8_0 ' +
+        '--flash-attn on --jinja --no-webui'
+}
+$model = 'C:\models\chat.gguf'
+$matches = @(Test-QwenProcess $process $process.ExecutablePath $model 1 32768 8001)
+$process.CommandLine = $process.CommandLine.Replace('--port 8001', '--port 8000')
+$matches += Test-QwenProcess $process $process.ExecutablePath $model 1 32768 8001
+ConvertTo-Json -Compress -InputObject $matches
+''')
+    assert result == [True, False]

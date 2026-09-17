@@ -58,6 +58,8 @@ class GeneratorSettings:
     temperature: float = 0.7
     context_tokens: int | None = None
     require_tools: bool = False
+    #: Unbounded profile: no request timeout and no max_tokens.
+    unbounded: bool = False
 
 
 @dataclass
@@ -159,7 +161,8 @@ class Generator:
         self._model_slot = model_slot or asyncio.Lock()
         self._client = httpx.AsyncClient(
             base_url=settings.base_url.rstrip("/"),
-            timeout=httpx.Timeout(settings.timeout_s, connect=10.0),
+            timeout=(httpx.Timeout(None) if settings.unbounded
+                     else httpx.Timeout(settings.timeout_s, connect=10.0)),
             headers={"Authorization": f"Bearer {settings.api_key}"},
         )
 
@@ -205,6 +208,7 @@ class Generator:
         trace: GenerationTrace,
         tools: list[dict] | None = None,
         max_tokens: int | None = None,
+        uncapped: bool = False,
     ) -> AsyncIterator[StreamChunk]:
         """Wait for the single local-model slot, then stream a completion."""
         queued = time.perf_counter()
@@ -215,6 +219,7 @@ class Generator:
                 trace=trace,
                 tools=tools,
                 max_tokens=max_tokens,
+                uncapped=uncapped,
             )) as stream,
         ):
             trace.model_queue_ms = (time.perf_counter() - queued) * 1_000
@@ -228,6 +233,7 @@ class Generator:
         trace: GenerationTrace,
         tools: list[dict] | None = None,
         max_tokens: int | None = None,
+        uncapped: bool = False,
     ) -> AsyncIterator[StreamChunk]:
         """Stream a completion, filling ``trace`` in place as it goes.
 
@@ -257,6 +263,16 @@ class Generator:
             # leaves `content` empty. See the module docstring.
             "chat_template_kwargs": {"enable_thinking": self.settings.thinking},
         }
+        if self.settings.unbounded or uncapped:
+            # The server default, not a harness ceiling, ends output: the
+            # unbounded profile, or a reply that must be complete, such as
+            # authentication steps.
+            del payload["max_tokens"]
+        slot_for = getattr(self._model_slot, "slot_for", None)
+        pinned = slot_for("conversation") if slot_for is not None else None
+        if pinned is not None:
+            # Three-lane profiles give conversation its own server slot.
+            payload["id_slot"] = pinned
         structured_tools = bool(tools and self.settings.require_tools)
         if structured_tools:
             # The deployed Qwen template allows prose before a required native
@@ -319,6 +335,7 @@ class Generator:
                 try:
                     await check_context(
                         self._client, payload, self.settings.context_tokens,
+                        timeout=None if self.settings.unbounded else 15,
                     )
                 except ValueError as error:
                     trace.error = str(error)

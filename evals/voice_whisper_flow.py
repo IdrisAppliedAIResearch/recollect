@@ -1,6 +1,6 @@
 """Opt-in, paced WebSocket conversation checks; no model-free pytest collection.
 
-Run ``uv run --no-sync python -m tests.voice_whisper_flow --backend whisper
+Run ``uv run --no-sync python -m evals.voice_whisper_flow --backend whisper
 --report docs/voice-whisper-flow-YYYY-MM-DD.json``. Select ``--backend vosk`` for
 the same ordinary PCM flow; held-Whisper-result probes are then explicitly skipped.
 """

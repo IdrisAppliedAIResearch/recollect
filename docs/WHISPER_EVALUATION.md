@@ -14,7 +14,7 @@ human turn comfort, room-noise tolerance, or speaker echo cancellation.
 |---|---|
 | [Runtime smoke](whisper-runtime-2026-09-08.json) | Actual CUDA model readiness, warm decoding, and GPU memory snapshot |
 | [Paired recognition benchmark](voice-asr-comparison-2026-09-08.json) | 52 identical input fixtures, two repeats, two recognizers: 208 offline decodes |
-| [Paced flow runner](../tests/voice_whisper_flow.py) | Real HTTP/WebSocket conversation, independent event collection, and continuously paced PCM |
+| [Paced flow runner](../evals/voice_whisper_flow.py) | Real HTTP/WebSocket conversation, independent event collection, and continuously paced PCM |
 | [Completed Whisper flow](voice-whisper-flow-2026-09-08.json) | 14 full speech turns, 11 additional flow probes, and temporary-data cleanup |
 | [Completed Vosk flow](voice-vosk-flow-2026-09-08.json) | 13 full speech turns, eight applicable flow probes, and temporary-data cleanup |
 | [Production readiness](voice-production-ready-2026-09-08.json) | Restarted application, warmed CUDA recognizer/synthesis, and unchanged generator identity |
@@ -112,8 +112,8 @@ speech quality. Those require the intended microphone and output device.
 Run these opt-in commands from the repository root with new report filenames:
 
 ```bash
-uv run --no-sync python -m tests.voice_whisper_flow --backend whisper --report docs/voice-whisper-flow-YYYY-MM-DD.json
-uv run --no-sync python -m tests.voice_whisper_flow --backend vosk --report docs/voice-vosk-flow-YYYY-MM-DD.json
+uv run --no-sync python -m evals.voice_whisper_flow --backend whisper --report docs/voice-whisper-flow-YYYY-MM-DD.json
+uv run --no-sync python -m evals.voice_whisper_flow --backend vosk --report docs/voice-vosk-flow-YYYY-MM-DD.json
 ```
 
 Vosk executes the same ordinary paced conversation, nonspeech, and hard-limit

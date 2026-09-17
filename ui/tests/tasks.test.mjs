@@ -2,9 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { liveSource } from '../src/api/live.ts'
-import { artifactUrl, deleteSavedTask, resetSavedTasks, sendTaskMessage, taskSnapshot } from '../src/api/tasks.ts'
+import { artifactUrl, decideBuild, deleteSavedTask, resetSavedTasks, sendTaskMessage, taskSnapshot } from '../src/api/tasks.ts'
 import { pendingNotifications, safeSourceUrl } from '../src/lib/task-notifications.ts'
-import { conversationEvents } from '../src/lib/conversation-events.ts'
+import { conversationBundles, conversationEvents } from '../src/lib/conversation-events.ts'
+import { taskTitle } from '../src/lib/task-title.ts'
 import { canDeleteSavedWork } from '../src/lib/task-retention.ts'
 
 test('task polling and commands use conversation scoped paths and cancelable fetches', async (t) => {
@@ -28,6 +29,25 @@ test('task polling and commands use conversation scoped paths and cancelable fet
   assert.equal(requests[1].options.body, requests[2].options.body)
   assert.equal(artifactUrl('chat /1', 'task /2', 'file /3'),
     '/api/sessions/chat%20%2F1/tasks/task%20%2F2/artifacts/file%20%2F3')
+})
+
+test('build buttons send the user decision for the exact task', async (t) => {
+  const requests = []
+  const original = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return Response.json({ task_id: 'task /2', build: 'started' })
+  }
+  t.after(() => { globalThis.fetch = original })
+  assert.deepEqual(await decideBuild('chat /1', 'task /2', true),
+    { task_id: 'task /2', build: 'started' })
+  await decideBuild('chat /1', 'task /2', false)
+  assert.equal(requests[0].url, '/api/selfmod/decide')
+  assert.equal(requests[0].options.method, 'POST')
+  assert.deepEqual(requests.map((r) => JSON.parse(r.options.body)), [
+    { session_id: 'chat /1', task_id: 'task /2', approve: true },
+    { session_id: 'chat /1', task_id: 'task /2', approve: false },
+  ])
 })
 
 test('task errors preserve a specific server explanation', async (t) => {
@@ -136,4 +156,34 @@ test('confirmed deletion addresses only the selected task or conversation', asyn
   ])
   assert.equal(requests[0].options.signal, abort.signal)
   assert.equal(requests[1].options.signal, abort.signal)
+})
+
+test('assistant replies and later updates share one bundle until the user speaks', () => {
+  const exchanges = [
+    { id: 'ask', user: 'Send a POST', startedAt: '2026-09-09T11:59:00Z' },
+    { id: 'joke', user: 'Tell me a joke', startedAt: '2026-09-09T12:03:00Z' },
+  ]
+  const at = (minute) => `2026-09-09T12:0${minute}:00Z`
+  const notes = [
+    notice(1, { created_at: at(1), text: 'Want me to build it?' }),
+    notice(2, { created_at: at(2), text: 'Building.' }),
+    notice(3, { created_at: at(4), text: 'HTTP 200' }),
+    notice(4, { created_at: at(5), text: 'Direction accepted', user_message: 'Use JSON' }),
+    notice(5, { created_at: at(6), text: 'Done' }),
+  ]
+  const bundles = conversationBundles(exchanges, notes)
+  assert.deepEqual(bundles.map((b) => [b.user, b.exchange?.id ?? null, b.updates.map((u) => u.text)]), [
+    ['Send a POST', 'ask', ['Want me to build it?', 'Building.']],
+    ['Tell me a joke', 'joke', ['HTTP 200']],
+    ['Use JSON', null, ['Direction accepted', 'Done']],
+  ])
+  assert.deepEqual(conversationBundles([], [notice(1)]).map((b) => [b.user, b.updates.length]), [[null, 1]])
+})
+
+test('a resumed request is titled with the user words, not its internal brief', () => {
+  const brief = 'A new tool was added so this request can be done: http_request'
+  assert.equal(taskTitle({ objective: brief, original_message: 'Send a POST',
+    checkpoint: { selfmod_continuation: true } }), 'Resumed: Send a POST')
+  assert.equal(taskTitle({ objective: 'Compare warranties', original_message: 'x',
+    checkpoint: {} }), 'Compare warranties')
 })

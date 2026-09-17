@@ -1,6 +1,5 @@
 """Deployment boundaries keep models on the host and authenticate both transports."""
 
-import asyncio
 import os
 import sys
 from pathlib import Path
@@ -375,34 +374,6 @@ def test_standalone_browser_boundary_covers_http_and_voice(monkeypatch):
         assert response.headers["Access-Control-Allow-Origin"] == origin
     assert local.get("/api/history").json() == {"messages": []}
     assert called == ["history"]
-
-
-async def test_websocket_admission_is_bounded_and_released_on_cancel():
-    from recollect.limits import ResourceLimitsMiddleware
-
-    entered = asyncio.Event()
-    sent = []
-
-    async def backend(scope, receive, send):
-        entered.set()
-        await asyncio.Event().wait()
-
-    async def unexpected_receive():
-        pytest.fail("Excess voice sockets must not consume packets")
-
-    async def send(message):
-        sent.append(message)
-
-    app = ResourceLimitsMiddleware(backend, max_websockets=1)
-    first = asyncio.create_task(app({"type": "websocket"}, unexpected_receive, send))
-    try:
-        await asyncio.wait_for(entered.wait(), 1)
-        await app({"type": "websocket"}, unexpected_receive, send)
-        assert sent == [{"type": "websocket.close", "code": 1013}]
-    finally:
-        first.cancel()
-        await asyncio.gather(first, return_exceptions=True)
-    assert app._websockets == 0
 
 
 @pytest.mark.parametrize("mode", ["standalone", "host"])

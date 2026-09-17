@@ -28,6 +28,15 @@ export async function sendTaskMessage(
   }))
 }
 
+export async function decideBuild(
+  sessionId: string, taskId: string, approve: boolean, signal?: AbortSignal,
+): Promise<{ task_id: string; build: 'started' | 'declined' }> {
+  return responseJson(await fetch('/api/selfmod/decide', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, task_id: taskId, approve }), signal,
+  }))
+}
+
 export function artifactUrl(sessionId: string, taskId: string, artifactId: string): string {
   return `${taskPath(sessionId)}/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(artifactId)}`
 }

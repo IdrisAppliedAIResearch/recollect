@@ -43,10 +43,10 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import __version__
+from . import __version__, system_prompt
 from .config import RecollectConfig
 from .engine._internals import LIBRARY_VERSION
-from .engine.date_context import current_date_context, research_date_context
+from .engine.date_context import research_date_context
 from .engine.embedder import HarnessEmbedder
 from .engine.generator import (
     GenerationError,
@@ -80,22 +80,19 @@ from .tasks import TaskCoordinator
 from .trace import SubagentTrace, ToolCallTrace, TurnSummary, TurnTrace
 from .voice_api import install_voice_routes
 
-_VOICE_INSTRUCTIONS = (
-    "You are speaking out loud. No Markdown, point labels, or lists, even in "
-    "a detailed answer. Use contractions and varied punctuation where they "
-    "sound natural. Write numbers and symbols as you would say them aloud."
-)
+_VOICE_INSTRUCTIONS = system_prompt.VOICE_INSTRUCTIONS
 
 
 def _turn_system_prompt(
-    config: RecollectConfig, started_at: datetime, input_mode: str = "text",
+    config: RecollectConfig, started_at: datetime, input_mode: str = "text", *,
+    task_mode: bool = False, follow_up: str | None = None,
 ) -> str:
-    prompt = config.system_prompt
-    if input_mode == "voice":
-        prompt += "\n\n" + _VOICE_INSTRUCTIONS
     # A date stays stable throughout the day; seconds would invalidate the
     # memory prefix cache on every turn. Use one timestamp for all phases.
-    return prompt + "\n\n" + current_date_context(started_at.astimezone(UTC).date())
+    return system_prompt.build(
+        started_at.astimezone(UTC).date(), input_mode=input_mode,
+        task_mode=task_mode, follow_up=follow_up,
+    )
 
 
 class ChatRequest(BaseModel):
@@ -112,6 +109,14 @@ class ChatRequest(BaseModel):
 
 class CreateSession(BaseModel):
     title: str | None = Field(default=None, max_length=MAX_TITLE_CHARS)
+
+
+class BuildDecision(BaseModel):
+    """The user's go/no-go on building a capability a task is missing."""
+
+    session_id: str = Field(min_length=1, max_length=200)
+    task_id: str = Field(min_length=1, max_length=200)
+    approve: bool
 
 
 class _ChatResponse(StreamingResponse):
@@ -186,6 +191,7 @@ class AppState:
                 temperature=config.generator_temperature,
                 context_tokens=config.generator_context_tokens if continuous else None,
                 require_tools=continuous,
+                unbounded=config.experiment_unbounded,
             ),
             model_slot=self.model_slot,
         )
@@ -208,6 +214,9 @@ class AppState:
         self.tasks = TaskCoordinator(
             config, self.sessions, self.task_store, self.generator, self.sandboxes,
         )
+        # Built at startup when self-modification is enabled; A serves from its
+        # own verified bundle and its capability-gap reports start the loop.
+        self.selfmod = None
         self.embedder_health: dict = {}
         # A session is an append-only log with a turn counter; two turns
         # racing on one session would interleave episodes and corrupt the
@@ -243,11 +252,21 @@ def create_app(
                     state.model_ingress.base_url, state.model_ingress.token,
                 )
                 await state.tasks.start()
+                if config.selfmod_enabled:
+                    from .selfmod.service import install
+
+                    state.selfmod = await install(
+                        config, state.tasks, model_slot=state.model_slot,
+                        model_base_url=state.model_ingress.base_url,
+                        model_api_key=state.model_ingress.token,
+                    )
             if config.subagent_enabled and config.subagent_backend == "opencode":
                 await state.sandboxes.start_reaper()
             yield
         finally:
             if continuous:
+                if state.selfmod is not None:
+                    await state.selfmod.close()
                 state.model_slot.close()
                 await state.tasks.close()
             await state.sandboxes.close_all()
@@ -279,6 +298,32 @@ def create_app(
     from .task_api import install_task_routes
 
     install_task_routes(app, state)
+
+    @app.get("/api/selfmod/status")
+    async def selfmod_status() -> dict:
+        service = state().selfmod
+        if service is None:
+            return {"enabled": False}
+        return {"enabled": True, **service.status,
+                "activity": list(service.activity)}
+
+    @app.post("/api/selfmod/stop")
+    async def selfmod_stop() -> dict:
+        service = state().selfmod
+        if service is None:
+            raise HTTPException(404, "Self-modification is not enabled.")
+        return {"stopped": service.stop()}
+
+    @app.post("/api/selfmod/decide")
+    async def selfmod_decide(decision: BuildDecision) -> dict:
+        service = state().selfmod
+        if service is None:
+            raise HTTPException(404, "Self-modification is not enabled.")
+        try:
+            return await service.decide(decision.session_id, decision.task_id,
+                                        decision.approve)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
 
     # -- inspector API -----------------------------------------------------
 

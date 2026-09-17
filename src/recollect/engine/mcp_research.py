@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Annotated, Literal
 
 import httpx
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from .subagent_tools.http_request import http_request as _http_request
 from .webtools import (
     PublicWebTransport,
     SearchProviderState,
@@ -45,10 +47,10 @@ _provider_state = SearchProviderState()
 
 @mcp.tool()
 async def web_search(query: str, max_results: int = 8) -> str:
-    """Search the open web and scholarly indexes (arXiv, OpenAlex,
-    Crossref, Europe PMC, Semantic Scholar). Returns a JSON document with
-    a ranked "results" list (title, url, snippet, source tag) and an
-    "errors" list recording any search leg that was unavailable."""
+    """Search the web and scholarly indexes (arXiv, OpenAlex, Crossref, Europe
+    PMC, Semantic Scholar). Returns JSON: results (title, url, snippet, source)
+    and errors (search legs that were unavailable). A snippet is not evidence:
+    fetch the page before relying on it."""
     if not query.strip():
         return json.dumps(
             {"tool": "web_search", "error": "missing 'query'"}, ensure_ascii=False
@@ -75,10 +77,10 @@ async def web_search(query: str, max_results: int = 8) -> str:
 async def web_fetch(
     url: str, max_chars: int = 4_000, view: Literal["article", "page"] = "article",
 ) -> str:
-    """Fetch one public http/https page and reduce it to its article
-    text. Read a search result with this before relying on it. If article view
-    omits a factual label or date, use page view to retain the page's text cards.
-    Repeating an unchanged view does not reveal new evidence."""
+    """Fetch one public http/https page as text. view="article" (default)
+    returns the main article; if a label or date is missing, retry once with
+    view="page". Raise max_chars only if the result says it was truncated.
+    Fetching the same URL and view again returns the same text."""
     if not url.strip():
         return json.dumps(
             {"tool": "web_fetch", "error": "missing 'url'"}, ensure_ascii=False
@@ -93,6 +95,37 @@ async def web_fetch(
         return await _web_fetch(client, url, max_chars=max_chars, view=view)
 
 
+@mcp.tool()
+async def http_request(
+    method: str,
+    url: str,
+    body: dict | list | str | None = None,
+    headers: dict | None = None,
+    timeout: float = 30.0,
+) -> str:
+    """Issue one HTTP request and return the response. method and url are
+    required; only public http/https addresses are allowed (loopback, private
+    and link-local targets are refused). body is a JSON object/array (sent as
+    JSON) OR a pre-serialized JSON string sent verbatim; omit it for a
+    bodyless request. Set headers yourself - httpx adds nothing automatically:
+    for a JSON body pass headers={'Content-Type': 'application/json'}. Returns
+    JSON {status, headers, body} where body is the response parsed as JSON when
+    possible, else raw text. Use this to POST to APIs; web_fetch only GETs.
+    Non-2xx statuses and network failures come back as JSON, not errors."""
+    return await _http_request(
+        method=method, url=url, body=body, headers=headers, timeout=timeout,
+    )
+
+
+#: A result blaming the toolset is a capability gap, not a finished request.
+_MISSING_TOOL = re.compile(
+    r"\b(?:tool|tools|tooling|toolset)\b[^.]{0,60}\b(?:does not|doesn't|do not|"
+    r"don't|cannot|can't|only) support"
+    r"|\b(?:no|none of my|without an?) (?:available |suitable )?tools?\b"
+    r"[^.]{0,40}\b(?:can|could|that|capable|to)\b"
+)
+
+
 async def report_message(
     kind: Literal["accepted", "progress", "finding", "question", "blocked", "result"],
     text: Annotated[str, Field(min_length=1, max_length=4000)],
@@ -101,15 +134,15 @@ async def report_message(
     sources: list[str] | None = None,
     artifacts: list[str] | None = None,
 ) -> str:
-    """Send a concise message to the main conversation's task mailbox.
-
-    Acknowledge each instruction revision with accepted before acting on it,
-    copying its related_message_id exactly. Report useful findings and blockers
-    as work proceeds. Cite public source URLs and relative workspace artifact
-    paths. Tool execution history stays private. This receipt records a local
-    report; the host separately persists it before delivering an update.
-    Text is limited to 4000 characters. Summarize long files and list their paths
-    in artifacts; do not paste a whole document. Split long findings into reports.
+    """Send one report to the main conversation. It sees only these reports, not
+    your tool calls.
+    - kind: accepted | progress | finding | question | blocked | result
+    - text: up to 4000 characters. Summarize long files and put their paths in
+      artifacts.
+    - revision, related_message_id: copy exactly from the instruction you are
+      answering.
+    - sources: public URLs that support the text.
+    - artifacts: relative /workspace paths of files the user asked for.
     """
     if kind not in {"accepted", "progress", "finding", "question", "blocked", "result"}:
         raise ValueError("unsupported report kind")
@@ -123,6 +156,11 @@ async def report_message(
     for values in (sources or [], artifacts or []):
         if len(values) > 32 or any(len(value) > 2048 for value in values):
             raise ValueError("report references exceed the allowed size")
+    if kind == "result" and _MISSING_TOOL.search(text.lower().replace("’", "'")):
+        raise ValueError(
+            "This result says no tool can do what was asked. That is not a result: "
+            "send kind=blocked with the capability_gap block from "
+            "recollect-reporting, so the missing capability can be built.")
     return json.dumps({
         "kind": kind,
         "text": text.strip(),

@@ -531,9 +531,16 @@ asyncio.run(warm())
     }
 }
 
-function Test-RecollectContainer($Container, [string]$Image, [string]$SandboxRoot) {
-    if ($Container.Name -notmatch '^/recollect-subagent-[a-f0-9]+$' -or
-        $Container.Config.Image -cne $Image) { return $false }
+function Test-RecollectContainer($Container, [string]$Image, [string]$SandboxRoot,
+                                 [string]$ImageId = '') {
+    if ($Container.Name -notmatch '^/recollect-subagent-[a-f0-9]+$') { return $false }
+    # Self-modification launches the base image by ID, or a bundle image built from it.
+    $configured = [string]$Container.Config.Image
+    $immutable = $configured -cmatch '^sha256:[0-9a-f]{64}$'
+    $bundle = $immutable -and $Container.Config.Labels -and
+        $Container.Config.Labels.PSObject.Properties.Name -contains 'recollect.bundle'
+    if (-not ($configured -ceq $Image -or ($ImageId -and $configured -ceq $ImageId) -or
+              $bundle)) { return $false }
     $mounts = @($Container.Mounts)
     if ($mounts.Count -ne 2) { return $false }
     $root = [IO.Path]::GetFullPath($SandboxRoot).TrimEnd('\', '/') + '\'
@@ -605,11 +612,16 @@ function Invoke-RecollectStop {
             if ($LASTEXITCODE -ne 0) {
                 throw 'Docker is unavailable; cannot verify research container cleanup. No services stopped.'
             }
+            $imageId = ''
+            if ($ids.Count) {
+                $imageId = [string](& docker image inspect --format '{{.Id}}' $settings.image 2>$null)
+                if ($LASTEXITCODE -ne 0) { $imageId = '' }
+            }
             foreach ($containerId in $ids) {
                 $inspection = & docker inspect $containerId
                 if ($LASTEXITCODE -ne 0) { throw "Cannot inspect container $containerId." }
                 $container = @($inspection | ConvertFrom-Json)[0]
-                if (-not (Test-RecollectContainer $container $settings.image $settings.root)) {
+                if (-not (Test-RecollectContainer $container $settings.image $settings.root $imageId)) {
                     throw "Container $containerId has unexpected ownership; no services stopped."
                 }
                 $containers += $container

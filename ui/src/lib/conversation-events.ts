@@ -22,3 +22,38 @@ export function conversationEvents(
   }
   return events.sort((a, b) => a.at - b.at)
 }
+
+/** Everything the assistant says between two user messages, in order. */
+export interface ConversationBundle {
+  id: string
+  /** The user message that opened this bundle; null before the first one. */
+  user: string | null
+  exchange: Exchange | null
+  updates: TaskNotification[]
+}
+
+/**
+ * The assistant's reply and every later worker update share one bundle, which
+ * only a new user message closes. A task direction sent from its card counts
+ * as a user message.
+ */
+export function conversationBundles(
+  exchanges: Exchange[], notifications: TaskNotification[],
+): ConversationBundle[] {
+  const bundles: ConversationBundle[] = []
+  for (const event of conversationEvents(exchanges, notifications)) {
+    if (event.kind === 'turn') {
+      bundles.push({ id: event.id, user: event.exchange.user, exchange: event.exchange,
+        updates: [] })
+      continue
+    }
+    const update = event.notification
+    if (update.user_message || bundles.length === 0) {
+      bundles.push({ id: event.id, user: update.user_message || null, exchange: null,
+        updates: [update] })
+    } else {
+      bundles[bundles.length - 1].updates.push(update)
+    }
+  }
+  return bundles
+}

@@ -11,6 +11,7 @@ from recollect.api import _VOICE_INSTRUCTIONS, _stream_turn, _turn_system_prompt
 from recollect.config import RecollectConfig
 from recollect.engine.date_context import current_date_context, research_date_context
 from recollect.engine.subagent import RESEARCHER_PROMPT, SubagentResult, transfer_task
+from recollect.system_prompt import build as build_system_prompt
 from tests.test_subagent import FINAL_JSON, _make_state, _parse_sse
 from tests.test_voice_chat import chat_app as chat_app
 
@@ -22,7 +23,7 @@ def test_prompt_date_uses_utc_and_remains_stable_throughout_the_day(tmp_path):
 
     first = _turn_system_prompt(config, early, "voice")
     assert first == _turn_system_prompt(config, late, "voice")
-    assert first.startswith(config.system_prompt + "\n\n" + _VOICE_INSTRUCTIONS)
+    assert first == build_system_prompt(date(2026, 9, 8), input_mode="voice")
     assert "Current date (UTC): 2026-09-08." in first
     assert "Day of week (UTC): Tuesday." in first
     assert "23:59" not in first

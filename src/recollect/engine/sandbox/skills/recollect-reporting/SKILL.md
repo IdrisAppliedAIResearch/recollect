@@ -1,45 +1,48 @@
 ---
 name: recollect-reporting
-description: Report accepted instructions, useful findings, blockers, and final answers to Recollect's main conversation during delegated work.
+description: How to report to Recollect's main conversation during delegated work: acknowledgment, findings, blockers, capability gaps, final result.
 ---
 
-Use `recollect_research_report_message` to acknowledge each instruction with
-`kind=accepted` before working. Copy its revision and related message ID exactly.
-Preserve earlier requirements unless replaced, and relay changes to native child
-tasks. Give a child the revision, message ID, and this reporting skill's name.
-For external fact-finding, load `recollect-research` before choosing sources.
+<order>
+1. accepted: first, before any work. Copy the revision and related message ID exactly.
+2. progress: only when something changes what the main conversation should know, such as identifying the source or retrieval failing. Don't repeat unchanged status.
+3. finding: each verified fact as soon as you have it.
+4. Finish with exactly one of: result, question, blocked.
+Before looking up external facts, load recollect-research.
+</order>
 
-Send `kind=progress` when a meaningful step changes what the main agent should
-know, such as resolving the source identity or encountering a retrieval problem.
-Do not repeat unchanged status or wait for the main agent to poll for updates.
+<finding>
+- The main conversation keeps findings and recalls them later, so each must stand alone: its facts, its caveats, its URLs in sources.
+- Report only what you retrieved. A search hit alone is not a finding. Don't present background knowledge as research, and don't invent names, relationships or URLs to fill a list.
+</finding>
 
-Report supported discoveries with `kind=finding` as they become useful, including
-the actual facts and supporting URLs in `sources`. Report completed observations,
-not invented progress. Use `blocked` or `question` for a concrete obstacle or
-missing decision. A search hit alone does not establish a finding.
-If retrieval fails, report what remains unverified. Do not manufacture names,
-relationships, or source URLs to fill a requested list. Distinguish retrieved
-facts from hypotheses, and do not present background knowledge as current research.
+<result>
+- Two or three spoken sentences. Lead with the answer.
+- Don't repeat the findings; they are already saved.
+- Mention a limitation only if it changes how far the answer can be trusted: retrieval you couldn't complete, a claim backed only by the subject's own material, or findings that disagree.
+- No routine sourcing remarks. No table unless the user asked for one.
+- Exception: list every authentication step the user must follow.
+</result>
 
-Your `finding` messages are what the main agent keeps and can recall later, so
-each one must stand alone: its own facts, its own caveats, its own `sources`.
-Detail belongs there, not saved for the result.
+<question_or_blocked>
+- question: a decision only the user can make.
+- blocked: a concrete obstacle. Say what remains unverified.
+</question_or_blocked>
 
-Finish with `kind=result`: a short spoken overview in `text`, two or three
-sentences, leading with the answer and naming only what changes it. Do not
-restate every finding there. The detail is already reported and retained, and
-the main agent recalls it when the user asks, so a result that recites
-everything is wasted rather than thorough.
+<capability_gap>
+If the request needs something none of your tools can do, it is never a result, even after a partial attempt:
+1. Don't simulate it, substitute another action, or claim success.
+2. Send one blocked report. In text, explain the limitation, then add this block:
 
-Name a limitation in the overview only when it changes how far the answer can
-be trusted: retrieval you could not complete, a claim carried by the subject's
-own material alone, findings that disagree. Where the research simply worked,
-give the answer and stop. Routine sourcing belongs in the findings; "from their
-website", said every time, tells the user nothing they can act on. Reserve
-tables for a user-requested table; do not expand a brief comparison into extra
-research fields.
+```capability_gap
+{"type": "capability_gap", "missing_capability": "...", "attempted": ["..."], "modification_request": "..."}
+```
 
-Research, summaries, lists, and comparisons are conversational answers by default.
-Do not create a document or extra format merely to finish research. Load
-`recollect-files` when the user requests creation or revision of a saved file.
-Files never replace reporting the findings.
+- missing_capability: what you cannot do.
+- attempted: what you checked or tried.
+- modification_request: the smallest new capability that would let this request be completed.
+</capability_gap>
+
+<child_tasks>
+If you start a child task, give it the revision, the related message ID, this skill's name, and every requirement still in force.
+</child_tasks>

@@ -62,6 +62,23 @@ class SandboxHandle:
 
 
 @dataclass(frozen=True)
+class SandboxDeployment:
+    """A verified bundle launch: immutable image ID, its skills and its own root."""
+
+    image_id: str
+    skills_source: Path
+    root: Path
+    #: The bundle's tool host import path inside the image; None keeps the
+    #: base image's packaged tool server (legacy deployments and fixtures).
+    python_path: str | None = None
+
+    def __post_init__(self) -> None:
+        if (not self.image_id.startswith("sha256:") or len(self.image_id) != 71
+                or any(c not in "0123456789abcdef" for c in self.image_id[7:])):
+            raise ValueError("A deployment must launch an immutable image ID")
+
+
+@dataclass(frozen=True)
 class SandboxInvocation:
     """Fresh state for exactly one delegated call."""
 
@@ -99,13 +116,24 @@ class SandboxManager:
         model_slot: asyncio.Lock | None = None,
         model_base_url: str | None = None,
         model_api_key: str | None = None,
+        deployment: SandboxDeployment | None = None,
+        development: bool = False,
+        connections: tuple[str, str] | None = None,
     ) -> None:
         self._config = config
+        #: Connected-account service (host URL, key) for worker tool processes.
+        self._connections = connections
+        #: Stock OpenCode for self-modification agents (see configgen).
+        self._development = development
+        # A deployment (A or B bundle) owns its own image, skills and root.
+        self.deployment = deployment
         # Absolute on purpose: a relative workdir lands the opencode
         # project in whichever directory the server happens to run in,
         # and the session's stored directory (absolute) would never
         # match for re-attachment.
-        self._root = Path(config.sandbox_root).resolve()
+        self._root = Path(
+            deployment.root if deployment is not None else config.sandbox_root
+        ).resolve()
         self._handle: SandboxHandle | None = None
         self._active: SandboxInvocation | None = None
         self._lifecycle_lock = asyncio.Lock()
@@ -115,6 +143,10 @@ class SandboxManager:
         self._commands = command_factory
         self._model_base_url = model_base_url
         self._model_api_key = model_api_key
+        # Unbounded profile: sandbox control requests and startup carry no
+        # elapsed-time cutoff. Stop/abort cleanup keeps its own short bounds.
+        self._unbounded = bool(getattr(config, "experiment_unbounded", False))
+        self._control_timeout = None if self._unbounded else 10.0
 
     def configure_model(self, base_url: str, api_key: str) -> None:
         """Set the admitted inference endpoint before the sandbox starts."""
@@ -154,6 +186,12 @@ class SandboxManager:
             # OpenCode may use several model calls, including native child
             # agents. Hold the single hardware slot for the whole run.
             if not continuous:
+                if getattr(self._model_slot, "slots", 1) == 3:
+                    # Unpinned whole-run calls would borrow a lane and could land
+                    # on the modifier's slot; three lanes need the pinned ingress.
+                    raise SandboxStartError(
+                        "Three-lane model profiles require continuous worker ingress"
+                    )
                 await self._model_slot.acquire()
                 model_acquired = True
             async with self._lifecycle_lock:
@@ -166,7 +204,7 @@ class SandboxManager:
                     response = await handle.client.post(
                         "/session",
                         json={"title": f"recollect:{session_id}:{invocation_id}"},
-                        timeout=10.0,
+                        timeout=self._control_timeout,
                     )
                     response.raise_for_status()
                     payload = response.json()
@@ -214,7 +252,8 @@ class SandboxManager:
                 try:
                     if self._handle is handle:
                         response = await handle.client.delete(
-                            f"/session/{invocation.oc_session_id}", timeout=10.0
+                            f"/session/{invocation.oc_session_id}",
+                            timeout=self._control_timeout,
                         )
                         response.raise_for_status()
                 except httpx.HTTPError:
@@ -300,6 +339,14 @@ class SandboxManager:
             if invocation is not None:
                 await self.finish_invocation(invocation)
 
+    def _launch_image(self) -> str:
+        if self.deployment is not None:
+            return self.deployment.image_id
+        return self._config.sandbox_container_image
+
+    def _skills_source(self) -> Path | None:
+        return self.deployment.skills_source if self.deployment is not None else None
+
     @staticmethod
     def _scrub_workspace(workdir: Path) -> None:
         root = workdir.resolve(strict=True)
@@ -343,7 +390,19 @@ class SandboxManager:
             runtime_workdir=runtime_workdir,
             runtime_python="/usr/local/bin/python" if self._commands is None else None,
             prompt_dir=prompt_dir,
+            skills_source=self._skills_source(),
+            unbounded=self._unbounded,
+            bundle_pythonpath=(self.deployment.python_path
+                               if self.deployment is not None else None),
+            connections=(None if self._connections is None else (
+                container_model_url(self._connections[0])
+                if self._commands is None else self._connections[0],
+                self._connections[1])),
             **({
+                "development": True,
+                "context_limit": cfg.generator_context_tokens,
+                "output_limit": min(32_768, cfg.generator_context_tokens // 4),
+            } if self._development else {
                 "context_limit": cfg.generator_context_tokens,
                 "output_limit": cfg.subagent_inference_tokens,
                 "continuous": True,
@@ -356,7 +415,7 @@ class SandboxManager:
             try:
                 container = build_container_launch(
                     runtime=cfg.sandbox_container_runtime,
-                    image=cfg.sandbox_container_image,
+                    image=self._launch_image(),
                     name=f"recollect-subagent-{uuid.uuid4().hex[:12]}",
                     host_port=port,
                     workspace=workdir,
@@ -394,7 +453,8 @@ class SandboxManager:
         client = httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{port}",
             auth=("opencode", password),
-            timeout=httpx.Timeout(30.0, connect=10.0),
+            timeout=(httpx.Timeout(None) if self._unbounded
+                     else httpx.Timeout(30.0, connect=10.0)),
         )
         handle = SandboxHandle(
             workdir=workdir,
@@ -462,9 +522,10 @@ class SandboxManager:
             )
 
     async def _wait_healthy(self, handle: SandboxHandle) -> None:
-        deadline = time.monotonic() + _START_TIMEOUT_S
+        # Unbounded startup still fails on an observed early exit, never on age.
+        deadline = None if self._unbounded else time.monotonic() + _START_TIMEOUT_S
         last = ""
-        while time.monotonic() < deadline:
+        while deadline is None or time.monotonic() < deadline:
             if handle.process is not None and handle.process.returncode is not None:
                 raise SandboxStartError(
                     f"opencode serve exited early (code "
@@ -506,7 +567,9 @@ class SandboxManager:
             attest_container(
                 inspection,
                 name=container.name,
-                image=self._config.sandbox_container_image,
+                image=self._launch_image(),
+                image_id=(self.deployment.image_id
+                          if self.deployment is not None else None),
                 workspace=handle.workdir,
                 config_dir=config_dir,
                 host_port=handle.port,

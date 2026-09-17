@@ -95,48 +95,33 @@ async def mcp() -> Rpc:
 async def test_tools_are_the_research_tools(mcp: Rpc) -> None:
     result = await mcp.request("tools/list")
     tools = {tool["name"]: tool for tool in result["tools"]}
-    assert set(tools) == {"web_search", "web_fetch"}
+    # Self-modification adds tools to this server, so the research pair must be
+    # present and well-formed rather than the whole list being frozen.
+    assert {"web_search", "web_fetch"} <= set(tools)
+    assert all(tool["inputSchema"]["type"] == "object" for tool in tools.values())
     assert tools["web_search"]["inputSchema"]["required"] == ["query"]
     assert tools["web_fetch"]["inputSchema"]["required"] == ["url"]
 
 
-async def test_web_search_requires_a_query(mcp: Rpc) -> None:
-    result = await mcp.request(
-        "tools/call", {"name": "web_search", "arguments": {"query": "   "}}
-    )
+async def call(mcp: Rpc, name: str, arguments: dict) -> dict:
+    result = await mcp.request("tools/call", {"name": name, "arguments": arguments})
     content = result["content"]
     assert content and content[0]["type"] == "text"
     document = json.loads(content[0]["text"])
-    assert document["tool"] == "web_search"
-    assert document["error"] == "missing 'query'"
+    assert document["tool"] == name
+    return document
 
 
-async def test_web_fetch_requires_a_url(mcp: Rpc) -> None:
+async def test_tools_refuse_bad_arguments_and_private_hosts(mcp: Rpc) -> None:
+    # One server for every refusal: each spawn costs most of this file's time.
+    assert (await call(mcp, "web_search", {"query": "   "}))["error"] == (
+        "missing 'query'")
     # Present but blank: an absent param is rejected by the JSON schema
     # before the tool runs, the tool itself guards the blank case.
-    result = await mcp.request(
-        "tools/call", {"name": "web_fetch", "arguments": {"url": "   "}}
-    )
-    document = json.loads(result["content"][0]["text"])
-    assert document["error"] == "missing 'url'"
-
-
-async def test_web_fetch_refuses_non_http_schemes(mcp: Rpc) -> None:
-    result = await mcp.request(
-        "tools/call", {"name": "web_fetch", "arguments": {"url": "ftp://example.com/x"}}
-    )
-    document = json.loads(result["content"][0]["text"])
-    assert document["error"] == "only http/https URLs"
-
-
-async def test_web_fetch_keeps_the_ssrf_guard(mcp: Rpc) -> None:
-    result = await mcp.request(
-        "tools/call",
-        {
-            "name": "web_fetch",
-            "arguments": {"url": "http://127.0.0.1:8080/api/health"},
-        },
-    )
-    document = json.loads(result["content"][0]["text"])
-    assert document["error"].startswith("refused")
-    assert "only public http/https pages may be fetched" in document["error"]
+    assert (await call(mcp, "web_fetch", {"url": "   "}))["error"] == "missing 'url'"
+    assert (await call(mcp, "web_fetch", {"url": "ftp://example.com/x"}))[
+        "error"] == "only http/https URLs"
+    refused = (await call(mcp, "web_fetch",
+                          {"url": "http://127.0.0.1:8080/api/health"}))["error"]
+    assert refused.startswith("refused")
+    assert "only public http/https pages may be fetched" in refused

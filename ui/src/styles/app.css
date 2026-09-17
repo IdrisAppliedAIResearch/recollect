@@ -2010,3 +2010,15 @@ table,
 .task__deletion p { margin: 0 0 8px; }
 .task__deletion > p { margin-top: 8px; }
 .task__deletion > .callout { display: block; }
+
+/* One assistant bundle: the reply, then every later update until the user speaks. */
+.bundle__update { padding-top: 8px; margin-top: 8px; border-top: 1px dashed var(--border); }
+.bundle__reply + .bundle__update { margin-top: 10px; }
+.bundle > .bundle__update:first-child { padding-top: 0; margin-top: 0; border-top: 0; }
+.bundle__time { font-size: var(--fs-xs); margin-top: 2px; }
+
+.implementation__state { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+.implementation__log { list-style: none; margin: 8px 0 0; padding: 0; }
+.implementation__log li { display: grid; grid-template-columns: 76px 1fr; gap: 8px;
+  padding: 6px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.implementation__log time { color: var(--text-faint); font-size: var(--fs-xs); }
