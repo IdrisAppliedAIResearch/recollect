@@ -30,6 +30,13 @@ export interface ResearchTask {
   partial: boolean
   quiet: boolean
   artifacts: TaskArtifact[]
+  /** Set while the task asks whether to build a capability it is missing. */
+  build_proposal?: BuildProposal | null
+}
+
+export interface BuildProposal {
+  missing_capability: string | null
+  modification_request: string | null
 }
 
 export interface TaskNotification {

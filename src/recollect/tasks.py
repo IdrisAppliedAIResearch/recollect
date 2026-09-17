@@ -101,6 +101,9 @@ class TaskCoordinator:
         # Called synchronously when the user cancels a task, so a running
         # self-modification loop for it stops without a model in the path.
         self.on_cancel = None
+        # (session_id, task_id) -> the capability build awaiting the user's
+        # go/no-go on that task, or None.
+        self.build_proposal = None
         self._held: set[tuple[str, str]] = set()
         self._active_manager = None
         self.enabled = bool(
@@ -535,6 +538,12 @@ class TaskCoordinator:
 
     async def snapshot(self, session_id) -> dict:
         snapshot = await asyncio.to_thread(self.store.snapshot, session_id)
+        if self.build_proposal is not None:
+            snapshot["tasks"] = [
+                {**task, "build_proposal": self.build_proposal(
+                    task["session_id"], task["task_id"])}
+                for task in snapshot["tasks"]
+            ]
         return {"enabled": self.enabled, **snapshot}
 
     async def context(self, session_id) -> tuple[str, list[str]]:
@@ -573,6 +582,7 @@ class TaskCoordinator:
             }
             | {
                 "worker_active": self._has_owner(task),
+                "build_proposal": task.get("build_proposal"),
                 "activity": task["checkpoint"].get("activity", {}),
                 "objective": task["objective"][:1_000],
                 "progress": task["progress"][:1_000],

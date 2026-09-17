@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { liveSource } from '../src/api/live.ts'
-import { artifactUrl, deleteSavedTask, resetSavedTasks, sendTaskMessage, taskSnapshot } from '../src/api/tasks.ts'
+import { artifactUrl, decideBuild, deleteSavedTask, resetSavedTasks, sendTaskMessage, taskSnapshot } from '../src/api/tasks.ts'
 import { pendingNotifications, safeSourceUrl } from '../src/lib/task-notifications.ts'
 import { conversationEvents } from '../src/lib/conversation-events.ts'
 import { canDeleteSavedWork } from '../src/lib/task-retention.ts'
@@ -28,6 +28,25 @@ test('task polling and commands use conversation scoped paths and cancelable fet
   assert.equal(requests[1].options.body, requests[2].options.body)
   assert.equal(artifactUrl('chat /1', 'task /2', 'file /3'),
     '/api/sessions/chat%20%2F1/tasks/task%20%2F2/artifacts/file%20%2F3')
+})
+
+test('build buttons send the user decision for the exact task', async (t) => {
+  const requests = []
+  const original = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return Response.json({ task_id: 'task /2', build: 'started' })
+  }
+  t.after(() => { globalThis.fetch = original })
+  assert.deepEqual(await decideBuild('chat /1', 'task /2', true),
+    { task_id: 'task /2', build: 'started' })
+  await decideBuild('chat /1', 'task /2', false)
+  assert.equal(requests[0].url, '/api/selfmod/decide')
+  assert.equal(requests[0].options.method, 'POST')
+  assert.deepEqual(requests.map((r) => JSON.parse(r.options.body)), [
+    { session_id: 'chat /1', task_id: 'task /2', approve: true },
+    { session_id: 'chat /1', task_id: 'task /2', approve: false },
+  ])
 })
 
 test('task errors preserve a specific server explanation', async (t) => {

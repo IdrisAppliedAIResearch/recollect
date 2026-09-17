@@ -49,7 +49,11 @@ def task_tools() -> list[dict]:
         "function": {
             "name": "task_control",
             "description": (
-                "Read status, steer, continue, cancel, or quiet a saved task."
+                "Read status, steer, continue, cancel, or quiet a saved task. "
+                "When a task has a build_proposal, it is asking the user whether "
+                "to build a missing capability: use build when the user says yes "
+                "and skip_build when the user says no. Never choose either "
+                "without the user's answer."
             ),
             "parameters": {
                 "type": "object",
@@ -62,6 +66,8 @@ def task_tools() -> list[dict]:
                             "continue",
                             "cancel",
                             "quiet",
+                            "build",
+                            "skip_build",
                         ],
                     },
                     "task_id": {"type": "string"},
@@ -140,6 +146,20 @@ async def _control(state, session_id, request_id, arguments, message=""):
             return task
         return snapshot
     task_id = arguments.get("task_id")
+    if operation in {"build", "skip_build"}:
+        # Only the user's answer to a pending build question reaches the service.
+        waiting = [t["task_id"] for t in snapshot["tasks"] if t.get("build_proposal")]
+        service = getattr(state, "selfmod", None)
+        if service is None or not waiting:
+            raise ValueError("No capability build is waiting for an answer.")
+        if not task_id and len(waiting) == 1:
+            task_id = waiting[0]
+        if task_id not in waiting:
+            raise ValueError("That task is not waiting for a build answer.")
+        decision = await service.decide(session_id, task_id, operation == "build")
+        task = next(t for t in (await state.tasks.snapshot(session_id))["tasks"]
+                    if t["task_id"] == task_id)
+        return {**task, "build": decision["build"]}
     if not task_id:
         candidates = snapshot["tasks"]
         if len(candidates) != 1:

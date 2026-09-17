@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { artifactUrl, deleteSavedTask, resetSavedTasks, sendTaskMessage } from '../api/tasks.ts'
+import { artifactUrl, decideBuild, deleteSavedTask, resetSavedTasks, sendTaskMessage } from '../api/tasks.ts'
 import { safeSourceUrl } from '../lib/task-notifications.ts'
 import { canDeleteSavedWork } from '../lib/task-retention.ts'
 import { clock, stamp } from '../lib/format.ts'
@@ -82,6 +82,24 @@ function TaskCard({ task, enabled, notifications, dependents }: {
     }
   }
 
+  const decide = async (approve: boolean) => {
+    if (pending) return
+    const abort = new AbortController()
+    active.current = abort
+    setPending(true)
+    setError(null)
+    setReceipt(null)
+    try {
+      await decideBuild(task.session_id, task.task_id, approve, abort.signal)
+      if (abort.signal.aborted) return
+      setReceipt(approve ? 'Building the capability.' : 'Not building it.')
+    } catch (failure) {
+      if (!abort.signal.aborted) setError((failure as Error).message)
+    } finally {
+      if (!abort.signal.aborted) setPending(false)
+    }
+  }
+
   return (
     <article className="task">
       <div className="task__head">
@@ -99,6 +117,16 @@ function TaskCard({ task, enabled, notifications, dependents }: {
         <p className="faint">The saved result predates your latest direction.</p>}
       {task.progress && <Markdown text={task.progress} />}
       {task.error && <p className="callout callout--bad">{task.error}</p>}
+      {task.build_proposal && <div className="callout callout--warn task__build">
+        <p>Build the missing capability{task.build_proposal.missing_capability
+          ? `: ${task.build_proposal.missing_capability}` : ''}?</p>
+        <div className="rowflex">
+          <button type="button" className="btn" disabled={pending}
+            onClick={() => void decide(true)}>Build it</button>
+          <button type="button" className="btn btn--ghost" disabled={pending}
+            onClick={() => void decide(false)}>Don't build</button>
+        </div>
+      </div>}
       {(task.findings.length > 0 || task.result) && <details className="task__findings">
         <summary>Saved {task.partial ? 'partial ' : ''}findings</summary>
         <Markdown text={task.result || task.findings.join('\n\n')} />

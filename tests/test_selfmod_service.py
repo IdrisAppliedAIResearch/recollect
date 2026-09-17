@@ -113,33 +113,83 @@ async def test_a_second_install_on_one_root_does_not_collide(tmp_path, monkeypat
     assert not list(root.glob("skills-a-*"))
 
 
-async def test_gap_interrupts_a_task_and_runs_the_loop_on_the_original_request(service):
+async def test_a_gap_asks_the_user_first_and_builds_nothing_until_yes(service):
     await service.prepare()
-    outcome = await service.coordinator.on_gap("session", GAP)
-    assert outcome == Outcome(True, "done")
-    assert service.coordinator.interrupts == [("task-a", service_module.GAP_NOTICE)]
+    assert await service.coordinator.on_gap("session", GAP) is None
+    question = service_module.proposal_notice(GAP)
+    assert "calendar write" in question and "Want me to build" in question
+    assert service.coordinator.interrupts == [("task-a", question)]
     assert service.coordinator.notices == [
-        ("session", "task-a", "selfmod-gap-task-a", service_module.GAP_NOTICE)]
-    assert service.coordinator.on_cancel == service.cancel_requested
-    assert service.status["state"] == "finished"
-    [loop] = service.loops
-    assert loop.runs == [GAP] and loop.request == "book the room"
-    assert kinds(service)[-2:] == ["gap_accepted", "loop_finished"]
+        ("session", "task-a", "selfmod-proposal-task-a", question)]
+    assert service.status["state"] == "awaiting_approval"
+    assert service.proposal("session", "task-a") == {
+        "missing_capability": "calendar write",
+        "modification_request": "add a calendar tool"}
+    assert service.proposal("session", "other") is None
+    assert service.coordinator.build_proposal == service.proposal
+    assert not service.loops
+    assert "gap_proposed" in kinds(service)
     await service.close()
 
 
-async def test_a_second_gap_is_declined_while_a_loop_is_running(service):
+async def test_yes_runs_the_loop_on_the_original_request(service):
     await service.prepare()
+    await service.handle_gap("session", GAP)
+    with pytest.raises(ValueError, match="No capability build"):
+        await service.decide("session", "other-task", True)
+    assert await service.decide("session", "task-a", True) == {
+        "task_id": "task-a", "build": "started"}
+    assert service.coordinator.progress[-1] == service_module.GAP_NOTICE
+    assert await service._runner == Outcome(True, "done")
+    assert service.status["state"] == "finished"
+    [loop] = service.loops
+    assert loop.runs == [GAP] and loop.request == "book the room"
+    assert service.proposal("session", "task-a") is None
+    with pytest.raises(ValueError):
+        await service.decide("session", "task-a", True)
+    assert kinds(service)[-3:] == ["gap_decision", "gap_accepted", "loop_finished"]
+    await service.close()
+
+
+async def test_no_builds_nothing_and_leaves_the_task_blocked(service):
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    assert await service.decide("session", "task-a", False) == {
+        "task_id": "task-a", "build": "declined"}
+    assert service.status["state"] == "declined"
+    assert service.coordinator.notices[-1][3] == service_module.declined_notice(GAP)
+    assert not service.loops and service._runner is None
+    # A later gap can ask again.
+    await service.handle_gap("session", GAP)
+    assert service.status["state"] == "awaiting_approval"
+    await service.close()
+
+
+async def test_canceling_a_task_answers_its_pending_question(service):
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    service.cancel_requested("session", "task-a")
+    assert service.proposal("session", "task-a") is None
+    assert service.status["state"] == "declined" and not service.loops
+    await service.close()
+
+
+async def test_a_second_gap_is_declined_while_one_waits_or_runs(service):
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    await service.handle_gap("session", {**GAP, "task_id": "task-b"})
+    assert service.proposal("session", "task-b") is None
     entered, release = asyncio.Event(), asyncio.Event()
     service.loops.append(Loop(Outcome(False, "stopped"), entered, release))
-    first = asyncio.create_task(service.handle_gap("session", GAP))
+    await service.decide("session", "task-a", True)
     await asyncio.wait_for(entered.wait(), 5)
-    assert await service.handle_gap("session", GAP) is None
-    assert "gap_declined" in kinds(service)
+    await service.handle_gap("session", {**GAP, "task_id": "task-b"})
+    assert service.proposal("session", "task-b") is None
+    assert kinds(service).count("gap_declined") == 2
     release.set()
-    assert await first == Outcome(False, "stopped")
+    assert await service._runner == Outcome(False, "stopped")
     # The loop already finished, so a later user stop has nothing to stop.
-    service.stop()
+    assert service.stop() is False
     assert not service.loops[0].stopped
     await service.close()
 
@@ -148,14 +198,15 @@ async def test_cancel_on_the_task_card_stops_the_loop_mid_step(service):
     await service.prepare()
     entered, release = asyncio.Event(), asyncio.Event()
     service.loops.append(Loop(Outcome(True, "never"), entered, release))
-    running = asyncio.create_task(service.handle_gap("session", GAP))
+    await service.handle_gap("session", GAP)
+    await service.decide("session", "task-a", True)
     await asyncio.wait_for(entered.wait(), 5)
     assert service.status["state"] == "running"
     service.cancel_requested("other-session", "task-a")
     service.cancel_requested("session", "unrelated-task")
-    assert not running.done()
+    assert not service._runner.done()
     service.cancel_requested("session", "task-a")
-    outcome = await asyncio.wait_for(running, 5)
+    outcome = await asyncio.wait_for(service._runner, 5)
     assert outcome.stopped and service.status["state"] == "stopped"
     assert service.coordinator.notices[-1][3] == service_module.STOPPED_NOTICE
     assert service.stop() is False

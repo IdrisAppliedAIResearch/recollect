@@ -111,6 +111,14 @@ class CreateSession(BaseModel):
     title: str | None = Field(default=None, max_length=MAX_TITLE_CHARS)
 
 
+class BuildDecision(BaseModel):
+    """The user's go/no-go on building a capability a task is missing."""
+
+    session_id: str = Field(min_length=1, max_length=200)
+    task_id: str = Field(min_length=1, max_length=200)
+    approve: bool
+
+
 class _ChatResponse(StreamingResponse):
     async def stream_response(self, send) -> None:
         # Starlette's disconnect scope can cancel every subsequent await.
@@ -304,6 +312,17 @@ def create_app(
         if service is None:
             raise HTTPException(404, "Self-modification is not enabled.")
         return {"stopped": service.stop()}
+
+    @app.post("/api/selfmod/decide")
+    async def selfmod_decide(decision: BuildDecision) -> dict:
+        service = state().selfmod
+        if service is None:
+            raise HTTPException(404, "Self-modification is not enabled.")
+        try:
+            return await service.decide(decision.session_id, decision.task_id,
+                                        decision.approve)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
 
     # -- inspector API -----------------------------------------------------
 

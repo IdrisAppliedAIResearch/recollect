@@ -3,9 +3,11 @@
 The app owns these objects; a worker never reaches them. Preparing builds A's
 bundle image from the repository tree and registers it as the serving
 deployment, so delegated work runs on A. A structured gap report from A then
-stops A's execution, keeps its task cancelable, and runs exactly one loop,
-journaled and announced at each milestone. Canceling the task stops the loop
-immediately. A second report while a loop runs is declined, not queued.
+stops A's execution, keeps its task cancelable, and asks the user whether to
+build the capability. Only an explicit yes, from chat or the task card, runs
+exactly one loop, journaled and announced at each milestone. Canceling the task
+stops the loop immediately. A second report while one waits or runs is
+declined, not queued.
 """
 
 import asyncio
@@ -48,8 +50,23 @@ from .tests_first import authoring, model_completer
 DOCKER_ENVIRONMENT = {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "PATHEXT"}
 # Development validates this against A's tree; roles run their own driver.
 ENTRYPOINT = "recollect/engine/mcp_research.py"
-GAP_NOTICE = ("I can't do that yet, so I'm building the capability and will pick "
-              "your request back up when it's ready.")
+GAP_NOTICE = ("Building the capability now. I'll pick your request back up when "
+              "it's ready.")
+
+
+def proposal_notice(gap):
+    missing = str(gap.get("missing_capability") or "a capability this request needs")
+    return (f"I can't do that yet. Missing: {missing.rstrip('.')}. Want me to build "
+            "that capability? If you say yes, I'll pick your request back up once "
+            "it works.")
+
+
+def declined_notice(gap):
+    missing = str(gap.get("missing_capability") or "a missing capability")
+    return (f"Okay, I won't build it. This request stays blocked: "
+            f"{missing.rstrip('.')}.")
+
+
 STOPPED_NOTICE = "Stopped building the capability."
 
 
@@ -139,7 +156,9 @@ class SelfModificationService:
         self.sandboxes = DeploymentSandboxes(self.router)
         self.baseline = self.policy = None
         self._lock = asyncio.Lock()
-        self._loop = self._job = None
+        self._loop = self._job = self._runner = None
+        #: The gap waiting for the user's go/no-go; at most one at a time.
+        self._proposal = None
         self._stop_requested = False
         self._notices = 0
         #: What the running or last loop is doing, for the status API.
@@ -194,6 +213,7 @@ class SelfModificationService:
         self._coordinator.deployments = TaskDeployments(self.router, self.sandboxes)
         self._coordinator.on_gap = self.handle_gap
         self._coordinator.on_cancel = self.cancel_requested
+        self._coordinator.build_proposal = self.proposal
         await self._record("a_registered", {"bundle_digest": bundle.digest,
                                             "image_id": verified.image_id})
         return verified
@@ -231,40 +251,86 @@ class SelfModificationService:
                 author=author, reviewer=reviewer),
             develop=develop, switch=switch, on_event=self._on_event)
 
+    def proposal(self, session_id, task_id):
+        """The capability build waiting for the user's go/no-go on this task."""
+        pending = self._proposal
+        if pending and pending["session_id"] == session_id and pending[
+                "task_id"] == task_id:
+            return {"missing_capability": pending["gap"].get("missing_capability"),
+                    "modification_request": pending["gap"].get(
+                        "modification_request")}
+        return None
+
     async def handle_gap(self, session_id, gap):
+        """A's gap pauses its task and asks the user; nothing is built without a yes."""
         task_id = gap.get("task_id")
         async with self._lock:
-            if self._loop is not None:
+            building = self._runner is not None and not self._runner.done()
+            if building or self._loop is not None or self._proposal is not None:
                 await self._record("gap_declined", {
-                    "task_id": task_id, "reason": "a loop is already running"})
+                    "task_id": task_id,
+                    "reason": "another capability build is waiting or running"})
                 return None
-            request = await asyncio.to_thread(
-                lambda: self._coordinator.store.get(
-                    session_id, task_id)["original_message"])
-            journal = Journal.create(self._root / ("loop-" + uuid.uuid4().hex))
-            self._journals.append(journal)
-            self._loop = self._loop_factory(journal, session_id, task_id, request,
-                                            gap)
-        await self._record("gap_accepted", {
+            self._proposal = {"session_id": session_id, "task_id": task_id,
+                              "gap": gap}
+            now = datetime.now(UTC).isoformat()
+            self.status = {"state": "awaiting_approval", "session_id": session_id,
+                           "task_id": task_id, "continuation_task_id": None,
+                           "attempt": 0,
+                           "missing_capability": gap.get("missing_capability"),
+                           "started_at": now, "updated_at": now}
+        await self._record("gap_proposed", {
             "task_id": task_id,
             "missing_capability": gap.get("missing_capability")})
-        now = datetime.now(UTC).isoformat()
-        self.status = {"state": "running", "session_id": session_id,
-                       "task_id": task_id, "continuation_task_id": None,
-                       "attempt": 0, "milestone": GAP_NOTICE,
-                       "started_at": now, "updated_at": now}
+        text = proposal_notice(gap)
+        await self._interrupt(session_id, task_id, text,
+                              message_id="selfmod-proposal-" + task_id)
+        return None
+
+    async def decide(self, session_id, task_id, approve):
+        """The user's go/no-go. A yes starts the loop in the background."""
+        async with self._lock:
+            pending = self._proposal
+            if (pending is None or pending["session_id"] != session_id
+                    or pending["task_id"] != task_id):
+                raise ValueError("No capability build is waiting for approval "
+                                 "on that task.")
+            self._proposal = None
+            gap = pending["gap"]
+            if not approve:
+                self.status.update(state="declined",
+                                   updated_at=datetime.now(UTC).isoformat())
+        await self._record("gap_decision", {"task_id": task_id,
+                                            "approved": bool(approve)})
+        if not approve:
+            await self._notice(declined_notice(gap))
+            return {"task_id": task_id, "build": "declined"}
+        self.status.update(state="running")
         self._stop_requested = False
-        loop = self._loop
+        await self._notice(GAP_NOTICE, message_id="selfmod-gap-" + task_id)
+        self._runner = asyncio.create_task(self._run(session_id, task_id, gap))
+        return {"task_id": task_id, "build": "started"}
+
+    async def _run(self, session_id, task_id, gap):
         try:
-            await self._interrupt(session_id, task_id)
-            self._job = asyncio.create_task(loop.run(gap))
-            try:
-                outcome = await self._job
-            except asyncio.CancelledError:
-                if not self._stop_requested:
-                    raise
-                outcome = Outcome(False, "stopped by the user", stopped=True)
-                await self._notice(STOPPED_NOTICE)
+            async with self._lock:
+                request = await asyncio.to_thread(
+                    lambda: self._coordinator.store.get(
+                        session_id, task_id)["original_message"])
+                journal = Journal.create(self._root / ("loop-" + uuid.uuid4().hex))
+                self._journals.append(journal)
+                self._loop = self._loop_factory(journal, session_id, task_id,
+                                                request, gap)
+            await self._record("gap_accepted", {
+                "task_id": task_id,
+                "missing_capability": gap.get("missing_capability")})
+            self._job = asyncio.create_task(self._loop.run(gap))
+            outcome = await self._job
+        except asyncio.CancelledError:
+            if not self._stop_requested:
+                raise
+            outcome = Outcome(False, "stopped by the user", stopped=True)
+            await self._notice(STOPPED_NOTICE)
         finally:
             self._loop = self._job = None
         self.status.update(
@@ -277,15 +343,14 @@ class SelfModificationService:
                                              "detail": outcome.detail})
         return outcome
 
-    async def _interrupt(self, session_id, task_id):
+    async def _interrupt(self, session_id, task_id, text, *, message_id):
         """A's execution stops; its task stays active so its card can cancel."""
         try:
-            await self._coordinator.interrupt_for_selfmod(session_id, task_id,
-                                                          GAP_NOTICE)
+            await self._coordinator.interrupt_for_selfmod(session_id, task_id, text)
         except Exception as error:
             await self._record("interrupt_failed", {"task_id": task_id,
                                                     "reason": str(error)[:2048]})
-        await self._notice(GAP_NOTICE, message_id="selfmod-gap-" + task_id)
+        await self._notice(text, message_id=message_id)
 
     async def _notice(self, text, *, message_id=None, notify=True):
         """One milestone on the original task: a notification and its progress."""
@@ -343,6 +408,14 @@ class SelfModificationService:
     def cancel_requested(self, session_id, task_id):
         """Coordinator hook: canceling the original or resumed task stops the loop."""
         status = self.status
+        pending = self._proposal
+        if (pending and pending["session_id"] == session_id
+                and pending["task_id"] == task_id):
+            # Canceling the task also answers its pending build question.
+            self._proposal = None
+            self.status.update(state="declined",
+                               updated_at=datetime.now(UTC).isoformat())
+            return
         if (status.get("state") == "running"
                 and session_id == status.get("session_id")
                 and task_id in {status.get("task_id"),
@@ -351,10 +424,11 @@ class SelfModificationService:
 
     def stop(self):
         """Deterministic stop: cancel the running loop now, including its step."""
-        if self._job is None or self._job.done():
+        running = self._runner if self._job is None else self._job
+        if running is None or running.done():
             return False
         self._stop_requested = True
-        self._job.cancel()
+        running.cancel()
         return True
 
     async def close(self):
