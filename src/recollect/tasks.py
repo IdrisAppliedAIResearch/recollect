@@ -98,6 +98,9 @@ class TaskCoordinator:
         # A subagent's structured capability-gap report starts self-modification.
         self.on_gap = on_gap
         self._gap_handlers = set()
+        # Called synchronously when the user cancels a task, so a running
+        # self-modification loop for it stops without a model in the path.
+        self.on_cancel = None
         self._held: set[tuple[str, str]] = set()
         self._active_manager = None
         self.enabled = bool(
@@ -272,6 +275,23 @@ class TaskCoordinator:
         self._pending.append(key)
         self._wake.set()
         return task
+
+    async def interrupt_for_selfmod(self, session_id, task_id, progress) -> dict:
+        """Stop A's execution but keep its task active, so the card can cancel."""
+        async with self._mutation:
+            key = (session_id, task_id)
+            if key in self._pending:
+                self._pending.remove(key)
+            task = await asyncio.to_thread(
+                self.store.update, session_id, task_id,
+                state="blocked", progress=progress,
+            )
+            self._notifications.pop(key, None)
+            # Settlement leaves a blocked task blocked; only cancel-requested
+            # becomes canceled.
+            if self._active == key and self._execution is not None:
+                self._execution.cancel()
+            return task
 
     async def release_held(self, session_id, task_id) -> None:
         """Queue a held continuation after the controller released its route."""
@@ -494,6 +514,8 @@ class TaskCoordinator:
                 "cancel",
                 {},
             )
+            if self.on_cancel is not None:
+                self.on_cancel(session_id, task_id)
             if task["state"] not in ACTIVE_STATES:
                 return task
             key = (session_id, task_id)

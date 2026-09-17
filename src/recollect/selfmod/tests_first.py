@@ -308,6 +308,8 @@ async def freeze_tests(request, gap, *, baseline, policy, author, reviewer, reco
                                        "rationale": ""}
         if approved:
             await record("tests_frozen", {"tests_sha256": tests.sha256,
+                                          "tool_name": tests.interface["tool_name"],
+                                          "checks": len(tests.checks),
                                           "rationale": report["rationale"]})
             return tests
         history.append({"stage": "review", "tests_sha256": tests.sha256,
@@ -326,7 +328,8 @@ def authoring(request, *, baseline, policy, author, reviewer):
     return run
 
 
-def model_completer(base_url, model, *, slot=None, transport=None):
+def model_completer(base_url, model, *, slot=None, transport=None,
+                    admission=None, lane=None):
     """A fresh one-shot chat completion per call, without a timeout or token cap."""
     async def complete(prompt, content):
         payload = {
@@ -339,12 +342,18 @@ def model_completer(base_url, model, *, slot=None, transport=None):
             "chat_template_kwargs": {"enable_thinking": False},
             **({"id_slot": slot} if slot is not None else {}),
         }
-        async with httpx.AsyncClient(trust_env=False, follow_redirects=False,
-                                     timeout=None, transport=transport) as client:
-            response = await client.post(
-                base_url + "/chat/completions", content=encode(payload),
-                headers={"Content-Type": "application/json"})
-            response.raise_for_status()
+        if admission is not None:
+            await admission.acquire(lane=lane)
+        try:
+            async with httpx.AsyncClient(trust_env=False, follow_redirects=False,
+                                         timeout=None, transport=transport) as client:
+                response = await client.post(
+                    base_url + "/chat/completions", content=encode(payload),
+                    headers={"Content-Type": "application/json"})
+                response.raise_for_status()
+        finally:
+            if admission is not None:
+                admission.release(lane=lane)
         choices = response.json().get("choices")
         if (type(choices) is not list or len(choices) != 1
                 or type(choices[0].get("message", {}).get("content")) is not str):

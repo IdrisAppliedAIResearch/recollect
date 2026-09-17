@@ -22,14 +22,15 @@ GAP = {"task_id": "task-a", "missing_capability": "calendar write",
 class Coordinator:
     def __init__(self):
         self.deployments = self.on_gap = None
-        self.commands, self.notices = [], []
+        self.interrupts, self.notices, self.progress = [], [], []
         self.store = SimpleNamespace(
             get=lambda session_id, task_id: {"original_message": "book the room"},
-            notify=lambda *args: self.notices.append(args))
+            notify=lambda *args: self.notices.append(args),
+            update=lambda session_id, task_id, **changes: self.progress.append(
+                changes["progress"]))
 
-    async def command(self, session_id, task_id, request_id, operation, *args,
-                      **kwargs):
-        self.commands.append((task_id, operation))
+    async def interrupt_for_selfmod(self, session_id, task_id, progress):
+        self.interrupts.append((task_id, progress))
 
 
 class Loop:
@@ -112,13 +113,15 @@ async def test_a_second_install_on_one_root_does_not_collide(tmp_path, monkeypat
     assert not list(root.glob("skills-a-*"))
 
 
-async def test_gap_cancels_a_task_and_runs_the_loop_on_the_original_request(service):
+async def test_gap_interrupts_a_task_and_runs_the_loop_on_the_original_request(service):
     await service.prepare()
     outcome = await service.coordinator.on_gap("session", GAP)
     assert outcome == Outcome(True, "done")
-    assert service.coordinator.commands == [("task-a", "cancel")]
+    assert service.coordinator.interrupts == [("task-a", service_module.GAP_NOTICE)]
     assert service.coordinator.notices == [
         ("session", "task-a", "selfmod-gap-task-a", service_module.GAP_NOTICE)]
+    assert service.coordinator.on_cancel == service.cancel_requested
+    assert service.status["state"] == "finished"
     [loop] = service.loops
     assert loop.runs == [GAP] and loop.request == "book the room"
     assert kinds(service)[-2:] == ["gap_accepted", "loop_finished"]
@@ -138,4 +141,47 @@ async def test_a_second_gap_is_declined_while_a_loop_is_running(service):
     # The loop already finished, so a later user stop has nothing to stop.
     service.stop()
     assert not service.loops[0].stopped
+    await service.close()
+
+
+async def test_cancel_on_the_task_card_stops_the_loop_mid_step(service):
+    await service.prepare()
+    entered, release = asyncio.Event(), asyncio.Event()
+    service.loops.append(Loop(Outcome(True, "never"), entered, release))
+    running = asyncio.create_task(service.handle_gap("session", GAP))
+    await asyncio.wait_for(entered.wait(), 5)
+    assert service.status["state"] == "running"
+    service.cancel_requested("other-session", "task-a")
+    service.cancel_requested("session", "unrelated-task")
+    assert not running.done()
+    service.cancel_requested("session", "task-a")
+    outcome = await asyncio.wait_for(running, 5)
+    assert outcome.stopped and service.status["state"] == "stopped"
+    assert service.coordinator.notices[-1][3] == service_module.STOPPED_NOTICE
+    assert service.stop() is False
+    assert "loop_finished" in kinds(service)
+    await service.close()
+
+
+async def test_milestones_become_notices_and_task_progress(service):
+    service.status = {"state": "running", "session_id": "session",
+                      "task_id": "task-a", "continuation_task_id": None}
+    for kind, data in (
+        ("tests_frozen", {"tool_name": "create_event", "checks": 4}),
+        ("attempt_started", {"attempt": 1}),
+        ("attempt_failed", {"attempt": 1, "reason": "RuntimeError: B crashed.\nmore"}),
+        ("resuming", {"attempt": 2, "task_id": "task-b"}),
+        ("loop_stopped", {}),
+    ):
+        await service._on_event(kind, data)
+    assert [n[3] for n in service.coordinator.notices] == [
+        "Tests are ready: I'll add create_event and check it with 4 tests.",
+        "Attempt 1: building and testing.",
+        "Attempt 1 didn't pass: RuntimeError: B crashed. Trying again.",
+        "The new capability passed. Resuming your request.",
+        service_module.STOPPED_NOTICE,
+    ]
+    assert service.coordinator.progress == [n[3] for n in service.coordinator.notices]
+    assert service.status["continuation_task_id"] == "task-b"
+    assert service.status["milestone"] == service_module.STOPPED_NOTICE
     await service.close()

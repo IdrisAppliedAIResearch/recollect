@@ -199,8 +199,11 @@ class LocalRoleModel:
     An interrupted request is terminal, never silently retried.
     """
 
-    def __init__(self, settings: RoleSettings, *, transport=None):
+    def __init__(self, settings: RoleSettings, *, transport=None, admission=None,
+                 lane=None):
         self.settings, self.transport = settings, transport
+        # The app's model admission queue: on one slot, conversation goes first.
+        self.admission, self.lane = admission, lane
         self._used = False
         self._request = self._response = b""
         self.response_complete = False
@@ -225,28 +228,34 @@ class LocalRoleModel:
         if len(body) > 128 * 1024:
             raise IntegrityError("Role model context exceeds byte budget")
         self._request = body
-        async with asyncio.timeout(remaining):
-            async with httpx.AsyncClient(
-                trust_env=False, follow_redirects=False, timeout=remaining,
-                transport=self.transport,
-            ) as client:
-                async with client.stream(
-                    "POST", self.settings.base_url + "/chat/completions",
-                    content=body, headers={"Content-Type": "application/json",
-                                           "Accept-Encoding": "identity"},
-                ) as response:
-                    response.raise_for_status()
-                    if response.headers.get("content-encoding", "identity") != (
-                        "identity"
-                    ):
-                        raise IntegrityError("Encoded role response is forbidden")
-                    raw = bytearray()
-                    async for chunk in response.aiter_raw(chunk_size=8192):
-                        room = 128 * 1024 - len(raw)
-                        raw.extend(chunk[:room])
-                        self._response = bytes(raw)
-                        if len(chunk) > room:
-                            raise IntegrityError("Role model response exceeds bound")
+        if self.admission is not None:
+            await self.admission.acquire(lane=self.lane)
+        try:
+            async with asyncio.timeout(remaining):
+                async with httpx.AsyncClient(
+                    trust_env=False, follow_redirects=False, timeout=remaining,
+                    transport=self.transport,
+                ) as client:
+                    async with client.stream(
+                        "POST", self.settings.base_url + "/chat/completions",
+                        content=body, headers={"Content-Type": "application/json",
+                                               "Accept-Encoding": "identity"},
+                    ) as response:
+                        response.raise_for_status()
+                        if response.headers.get("content-encoding", "identity") != (
+                            "identity"
+                        ):
+                            raise IntegrityError("Encoded role response is forbidden")
+                        raw = bytearray()
+                        async for chunk in response.aiter_raw(chunk_size=8192):
+                            room = 128 * 1024 - len(raw)
+                            raw.extend(chunk[:room])
+                            self._response = bytes(raw)
+                            if len(chunk) > room:
+                                raise IntegrityError("Role model response exceeds bound")
+        finally:
+            if self.admission is not None:
+                self.admission.release(lane=self.lane)
         self.response_complete = True
         self.local_closed = True
         now = clock()

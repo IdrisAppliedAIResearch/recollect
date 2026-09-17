@@ -92,7 +92,7 @@ async def test_user_stop_ends_the_loop_without_a_new_attempt(journal):
     switch = Switch([])
     loop = SelfModificationLoop(journal, author_tests=author_tests, develop=develop,
                                 switch=switch, retry_pause=0)
-    assert await loop.run({}) == Outcome(False, "stopped by the user")
+    assert await loop.run({}) == Outcome(False, "stopped by the user", stopped=True)
     assert switch.resets == ["RuntimeError: failed"]
     assert kinds(journal)[-1] == "loop_stopped"
 
@@ -172,3 +172,27 @@ async def test_switch_resumes_on_b_and_rolls_back_to_a_for_a_retry(router):
     assert coordinator.calls == [
         ("submit", "task-selfmod-task-a-1"), ("release", "task-selfmod-task-a-1"),
         ("submit", "task-selfmod-task-a-2"), ("release", "task-selfmod-task-a-2")]
+
+
+async def test_canceled_resume_stops_and_events_reach_the_observer(journal):
+    tests = parse_tests(authored())
+    events = []
+
+    async def author_tests(gap, stopped, record):
+        await record("tests_frozen", {"tests_sha256": tests.sha256,
+                                      "tool_name": "create_event", "checks": 3})
+        return tests
+
+    async def develop(attempt, frozen, feedback):
+        return candidate("x")
+
+    async def on_event(kind, data):
+        events.append(kind)
+
+    switch = Switch([Outcome(False, "the resumed request was canceled", stopped=True)])
+    loop = SelfModificationLoop(journal, author_tests=author_tests, develop=develop,
+                                switch=switch, retry_pause=0, on_event=on_event)
+    outcome = await loop.run({})
+    assert outcome.stopped and switch.activated == [1]
+    assert switch.resets == ["stopped by the user"]
+    assert events == ["loop_started", "tests_frozen", "attempt_started", "loop_stopped"]

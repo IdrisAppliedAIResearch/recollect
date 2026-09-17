@@ -291,6 +291,20 @@ def create_app(
 
     install_task_routes(app, state)
 
+    @app.get("/api/selfmod/status")
+    async def selfmod_status() -> dict:
+        service = state().selfmod
+        if service is None:
+            return {"enabled": False}
+        return {"enabled": True, **service.status}
+
+    @app.post("/api/selfmod/stop")
+    async def selfmod_stop() -> dict:
+        service = state().selfmod
+        if service is None:
+            raise HTTPException(404, "Self-modification is not enabled.")
+        return {"stopped": service.stop()}
+
     # -- inspector API -----------------------------------------------------
 
     @app.get("/api/health")

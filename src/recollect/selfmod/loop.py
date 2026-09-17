@@ -41,6 +41,8 @@ def continuation_brief(tests, gap):
 class Outcome:
     finished: bool
     detail: str
+    #: The user stopped the run, for example by canceling the resumed request.
+    stopped: bool = False
 
 
 def _reason(error):
@@ -53,8 +55,11 @@ class SelfModificationLoop:
     tests, gap)``
     and ``reset(reason)``."""
 
-    def __init__(self, journal, *, author_tests, develop, switch, retry_pause=1.0):
+    def __init__(self, journal, *, author_tests, develop, switch, retry_pause=1.0,
+                 on_event=None):
         self._journal = journal
+        # Async observer of each journaled event, for user-visible milestones.
+        self._on_event = on_event
         self._author_tests, self._develop, self._switch = author_tests, develop, switch
         self._retry_pause = retry_pause
         self._stop = asyncio.Event()
@@ -66,10 +71,12 @@ class SelfModificationLoop:
     async def _record(self, kind, data, files=None):
         extra = () if files is None else (files,)
         await asyncio.to_thread(self._journal.append, kind, data, *extra)
+        if self._on_event is not None:
+            await self._on_event(kind, data)
 
     async def _stopped(self):
         await self._record("loop_stopped", {})
-        return Outcome(False, "stopped by the user")
+        return Outcome(False, "stopped by the user", stopped=True)
 
     async def run(self, gap):
         await self._record("loop_started", {"gap": gap})
@@ -99,6 +106,9 @@ class SelfModificationLoop:
                 raise
             except Exception as error:
                 outcome = Outcome(False, _reason(error))
+            if outcome.stopped:
+                await self._switch.reset("stopped by the user")
+                return await self._stopped()
             if outcome.finished:
                 await self._record("attempt_finished", {"attempt": attempt,
                                                         "detail": outcome.detail})
@@ -147,12 +157,13 @@ class DeploymentSwitch:
 
     def __init__(self, *, router, sandboxes, images, coordinator, session_id,
                  parent_task_id, request, base_image_id, launch, manager_factory,
-                 poll_seconds=1.0):
+                 poll_seconds=1.0, on_event=None):
         self._router, self._sandboxes, self._images = router, sandboxes, images
         self._coordinator, self._session_id = coordinator, session_id
         self._parent, self._request = parent_task_id, request
         self._base_image_id, self._launch = base_image_id, launch
         self._manager_factory, self._poll = manager_factory, poll_seconds
+        self._on_event = on_event
 
     async def activate(self, attempt, candidate, tests, gap):
         bundle = SubagentBundle(candidate, self._base_image_id, self._launch)
@@ -170,6 +181,9 @@ class DeploymentSwitch:
         await asyncio.to_thread(self._router.commit)
         await asyncio.to_thread(self._router.release_continuation, task["task_id"])
         await self._coordinator.release_held(self._session_id, task["task_id"])
+        if self._on_event is not None:
+            await self._on_event("resuming", {"attempt": attempt,
+                                              "task_id": task["task_id"]})
         while True:
             final = await asyncio.to_thread(self._coordinator.store.get,
                                             self._session_id, task["task_id"])
@@ -179,6 +193,8 @@ class DeploymentSwitch:
             await asyncio.sleep(self._poll)
         if final["state"] == "completed":
             return Outcome(True, "the resumed request completed on B")
+        if final["state"] == "canceled":
+            return Outcome(False, "the resumed request was canceled", stopped=True)
         return Outcome(False, f"the resumed request ended {final['state']}: "
                               f"{final.get('progress') or ''}"[:2048])
 

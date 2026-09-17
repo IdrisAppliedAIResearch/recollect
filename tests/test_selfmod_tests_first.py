@@ -213,3 +213,28 @@ async def test_model_completer_sends_text_and_flags_a_cut_off_reply():
     finish[0] = "length"
     with pytest.raises(ValueError, match="cut off"):
         await complete("prompt", "x")
+
+
+class Admission:
+    def __init__(self):
+        self.calls = []
+
+    async def acquire(self, *, lane):
+        self.calls.append(("acquire", lane))
+
+    def release(self, *, lane):
+        self.calls.append(("release", lane))
+
+
+async def test_model_completer_queues_through_model_admission():
+    admission = Admission()
+
+    def handle(request):
+        assert admission.calls == [("acquire", "worker")]
+        return httpx.Response(200, json={"choices": [{
+            "finish_reason": "stop", "message": {"content": '{"ok": true}'}}]})
+
+    complete = model_completer("http://127.0.0.1:1/v1", "local", admission=admission,
+                               lane="worker", transport=httpx.MockTransport(handle))
+    assert await complete("prompt", "x") == {"ok": True}
+    assert admission.calls == [("acquire", "worker"), ("release", "worker")]

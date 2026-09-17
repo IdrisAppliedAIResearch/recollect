@@ -485,3 +485,19 @@ async def test_unbounded_model_reply_survives_elapsed_hours(case):
     reply, raw = await broker.complete({}, Deadline(None, case.clock.boot),
                                        clock=case.clock)
     assert decode(reply) == {} and raw == broker.evidence().files[1].content
+
+
+async def test_role_model_queues_through_admission_and_releases_on_failure(case):
+    from tests.test_selfmod_tests_first import Admission
+
+    admission = Admission()
+
+    def handle(request):
+        assert admission.calls == [("acquire", "modifier")]
+        return httpx.Response(500)
+
+    broker = LocalRoleModel(settings(), transport=httpx.MockTransport(handle),
+                            admission=admission, lane="modifier")
+    with pytest.raises(httpx.HTTPStatusError):
+        await broker.complete({}, Deadline(None, case.clock.boot), clock=case.clock)
+    assert admission.calls == [("acquire", "modifier"), ("release", "modifier")]
