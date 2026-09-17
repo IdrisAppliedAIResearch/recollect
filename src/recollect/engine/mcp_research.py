@@ -28,6 +28,7 @@ from .webtools import (
     SearchProviderState,
     SearchRunState,
 )
+from .subagent_tools.http_request import http_request as _http_request
 from .webtools import (
     web_fetch as _web_fetch,
 )
@@ -92,6 +93,28 @@ async def web_fetch(
         headers={"User-Agent": _UA},
     ) as client:
         return await _web_fetch(client, url, max_chars=max_chars, view=view)
+
+
+@mcp.tool()
+async def http_request(
+    method: str,
+    url: str,
+    body: dict | list | str | None = None,
+    headers: dict | None = None,
+    timeout: float = 30.0,
+) -> str:
+    """Issue one HTTP request and return the response. method and url are
+    required; only public http/https addresses are allowed (loopback, private
+    and link-local targets are refused). body is a JSON object/array (sent as
+    JSON) OR a pre-serialized JSON string sent verbatim; omit it for a
+    bodyless request. Set headers yourself - httpx adds nothing automatically:
+    for a JSON body pass headers={'Content-Type': 'application/json'}. Returns
+    JSON {status, headers, body} where body is the response parsed as JSON when
+    possible, else raw text. Use this to POST to APIs; web_fetch only GETs.
+    Non-2xx statuses and network failures come back as JSON, not errors."""
+    return await _http_request(
+        method=method, url=url, body=body, headers=headers, timeout=timeout,
+    )
 
 
 #: A result blaming the toolset is a capability gap, not a finished request.
