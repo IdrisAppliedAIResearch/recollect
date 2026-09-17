@@ -140,6 +140,8 @@ async def test_yes_runs_the_loop_on_the_original_request(service):
     assert await service.decide("session", "task-a", True) == {
         "task_id": "task-a", "build": "started"}
     assert service.coordinator.progress[-1] == service_module.GAP_NOTICE
+    # A button answer has no chat reply, so the notice announces it.
+    assert service.coordinator.notices[-1][3] == service_module.GAP_NOTICE
     assert await service._runner == Outcome(True, "done")
     assert service.status["state"] == "finished"
     [loop] = service.loops
@@ -218,27 +220,31 @@ async def test_milestones_become_notices_and_task_progress(service):
     service.status = {"state": "running", "session_id": "session",
                       "task_id": "task-a", "continuation_task_id": None}
     for kind, data in (
-        ("tests_frozen", {"tool_name": "create_event", "checks": 4}),
+        ("tests_frozen", {"tool_name": "http_request", "checks": 4}),
         ("attempt_started", {"attempt": 1}),
         ("attempt_failed", {"attempt": 1, "reason": "RuntimeError: B crashed.\nmore"}),
+        ("attempt_started", {"attempt": 2}),
         ("resuming", {"attempt": 2, "task_id": "task-b"}),
         ("loop_stopped", {}),
     ):
         await service._on_event(kind, data)
-    # The chat hears failures, resumption and stops; the card shows every step.
+    # The chat hears the build start, failures, resumption and stops; frozen
+    # tests and retries stay on the card and in the workspace.
     assert [n[3] for n in service.coordinator.notices] == [
+        "I'm starting the build for the new HTTP request feature.",
         "Attempt 1 didn't pass: RuntimeError: B crashed. Trying again.",
         "The new capability passed. Resuming your request.",
         service_module.STOPPED_NOTICE,
     ]
     assert service.coordinator.progress == [
-        "Tests are ready: I'll add create_event and check it with 4 tests.",
-        "Attempt 1: building and testing.",
-        *[n[3] for n in service.coordinator.notices]]
+        *[n[3] for n in service.coordinator.notices[:2]],
+        "Attempt 2 of the HTTP request feature is building.",
+        *[n[3] for n in service.coordinator.notices[2:]]]
     assert [a["text"] for a in service.activity] == [
-        "Tests frozen: 4 checks for create_event.",
+        "Tests frozen: 4 checks for http_request.",
         "Attempt 1 started.",
         "Attempt 1 failed: RuntimeError: B crashed. more",
+        "Attempt 2 started.",
         "The new capability passed. Resuming the request.",
         "Stopped.",
     ]
@@ -355,4 +361,16 @@ async def test_a_finished_build_completes_the_original_task(service):
     assert ("task-a", {"state": "completed", "progress": "HTTP 200",
                        "result": "HTTP 200"}) in updates
     assert [a["kind"] for a in service.activity][:2] == ["proposed", "decision"]
+    await service.close()
+
+
+async def test_an_answer_given_in_chat_updates_the_card_without_a_duplicate_notice(
+        service):
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    before = len(service.coordinator.notices)
+    await service.decide("session", "task-a", True, announce=False)
+    assert len(service.coordinator.notices) == before
+    assert service.coordinator.progress[-1] == service_module.GAP_NOTICE
+    await service._runner
     await service.close()

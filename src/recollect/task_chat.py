@@ -156,7 +156,9 @@ async def _control(state, session_id, request_id, arguments, message=""):
             task_id = waiting[0]
         if task_id not in waiting:
             raise ValueError("That task is not waiting for a build answer.")
-        decision = await service.decide(session_id, task_id, operation == "build")
+        # The main chat's reply announces the decision; no duplicate notice.
+        decision = await service.decide(session_id, task_id, operation == "build",
+                                        announce=False)
         task = next(t for t in (await state.tasks.snapshot(session_id))["tasks"]
                     if t["task_id"] == task_id)
         return {**task, "build": decision["build"]}

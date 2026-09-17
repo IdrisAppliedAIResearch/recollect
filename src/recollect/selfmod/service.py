@@ -74,6 +74,14 @@ def declined_notice(gap):
             f"this capability: {_capability(gap)}.")
 
 
+def feature_name(tool_name):
+    """``http_request`` reads as "HTTP request" when spoken."""
+    words = str(tool_name or "").replace("-", "_").split("_")
+    spoken = [w.upper() if w.lower() in {"http", "https", "url", "api", "json", "sms"}
+              else w for w in words if w]
+    return " ".join(spoken) or None
+
+
 def describe(kind, data):
     """One line for the implementation workspace, or None for internal events."""
     attempt = data.get("attempt")
@@ -362,8 +370,12 @@ class SelfModificationService:
                               message_id="selfmod-proposal-" + task_id)
         return None
 
-    async def decide(self, session_id, task_id, approve):
-        """The user's go/no-go. A yes starts the loop in the background."""
+    async def decide(self, session_id, task_id, approve, *, announce=True):
+        """The user's go/no-go. A yes starts the loop in the background.
+
+        ``announce=False`` when the answer came through chat: the main chat's own
+        reply already tells the user, so the card updates without a notice.
+        """
         async with self._lock:
             pending = self._proposal
             if (pending is None or pending["session_id"] != session_id
@@ -380,11 +392,12 @@ class SelfModificationService:
         self._log("decision", "You approved the build." if approve
                   else "You declined the build.")
         if not approve:
-            await self._notice(declined_notice(gap))
+            await self._notice(declined_notice(gap), notify=announce)
             return {"task_id": task_id, "build": "declined"}
         self.status.update(state="running")
         self._stop_requested = False
-        await self._notice(GAP_NOTICE, message_id="selfmod-gap-" + task_id)
+        await self._notice(GAP_NOTICE, message_id="selfmod-gap-" + task_id,
+                           notify=announce)
         self._runner = asyncio.create_task(self._run(session_id, task_id, gap))
         return {"task_id": task_id, "build": "started"}
 
@@ -479,13 +492,17 @@ class SelfModificationService:
         # Step-by-step detail lives in the implementation workspace; the chat
         # hears only the moments that change what the user should know.
         if kind == "tests_frozen":
-            await self._notice(f"Tests are ready: I'll add {data.get('tool_name')} "
-                               f"and check it with {data.get('checks')} tests.",
-                               notify=False)
+            self.status["feature"] = feature_name(data.get("tool_name"))
         elif kind == "attempt_started":
             self.status["attempt"] = attempt
-            await self._notice(f"Attempt {attempt}: building and testing.",
-                               notify=False)
+            feature = self.status.get("feature") or "requested"
+            if attempt == 1:
+                await self._notice(
+                    f"I'm starting the build for the new {feature} feature.")
+            else:
+                # A failure notice already said it is trying again.
+                await self._notice(f"Attempt {attempt} of the {feature} feature "
+                                   "is building.", notify=False)
         elif kind == "attempt_failed":
             reason = (str(data.get("reason") or "no reason recorded")
                       .splitlines()[0][:200].rstrip("."))

@@ -695,11 +695,12 @@ class BuildQuestions:
                     "modification_request": "add an HTTP request tool"}
         return None
 
-    async def decide(self, session_id, task_id, approve):
+    async def decide(self, session_id, task_id, approve, *, announce=True):
         if (session_id, task_id) != self.pending:
             raise ValueError("No capability build is waiting for approval.")
         self.pending = None
         self.decisions.append((session_id, task_id, approve))
+        self.announced = announce
         return {"task_id": task_id, "build": "started" if approve else "declined"}
 
 
@@ -729,6 +730,8 @@ async def test_the_users_answer_in_chat_decides_the_pending_build(
     events = await chat(state, session_id, "Yes, go ahead." if approve else "No.")
     assert "error" not in events
     assert state.selfmod.decisions == [(session_id, task["task_id"], approve)]
+    # The chat's own reply is the announcement, so no duplicate notice.
+    assert state.selfmod.announced is False
     handoff = json.loads(state.generator.calls[-1]["messages"][-1]["content"])
     assert handoff["task_id"] == task["task_id"]
 
@@ -755,6 +758,7 @@ async def test_the_task_card_buttons_decide_through_the_api(make_task_state):
         response = await client.post("/api/selfmod/decide", json=body)
         assert response.status_code == 200
         assert response.json() == {"task_id": task["task_id"], "build": "declined"}
+        assert state.selfmod.announced is True
         again = await client.post("/api/selfmod/decide", json=body)
         assert again.status_code == 409
         state.selfmod = None
