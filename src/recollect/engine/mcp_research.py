@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Annotated, Literal
 
 import httpx
@@ -93,6 +94,15 @@ async def web_fetch(
         return await _web_fetch(client, url, max_chars=max_chars, view=view)
 
 
+#: A result blaming the toolset is a capability gap, not a finished request.
+_MISSING_TOOL = re.compile(
+    r"\b(?:tool|tools|tooling|toolset)\b[^.]{0,60}\b(?:does not|doesn't|do not|"
+    r"don't|cannot|can't|only) support"
+    r"|\b(?:no|none of my|without an?) (?:available |suitable )?tools?\b"
+    r"[^.]{0,40}\b(?:can|could|that|capable|to)\b"
+)
+
+
 async def report_message(
     kind: Literal["accepted", "progress", "finding", "question", "blocked", "result"],
     text: Annotated[str, Field(min_length=1, max_length=4000)],
@@ -123,6 +133,11 @@ async def report_message(
     for values in (sources or [], artifacts or []):
         if len(values) > 32 or any(len(value) > 2048 for value in values):
             raise ValueError("report references exceed the allowed size")
+    if kind == "result" and _MISSING_TOOL.search(text.lower().replace("’", "'")):
+        raise ValueError(
+            "This result says no tool can do what was asked. That is not a result: "
+            "send kind=blocked with the capability_gap block from "
+            "recollect-reporting, so the missing capability can be built.")
     return json.dumps({
         "kind": kind,
         "text": text.strip(),

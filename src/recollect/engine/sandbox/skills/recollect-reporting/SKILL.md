@@ -30,7 +30,7 @@ Before looking up external facts, load recollect-research.
 </question_or_blocked>
 
 <capability_gap>
-If the request needs something none of your tools can do:
+If the request needs something none of your tools can do, it is never a result, even after a partial attempt:
 1. Don't simulate it, substitute another action, or claim success.
 2. Send one blocked report. In text, explain the limitation, then add this block:
 
