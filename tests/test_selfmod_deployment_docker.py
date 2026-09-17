@@ -67,3 +67,12 @@ async def test_bundle_image_serves_exact_accepted_bytes_only(images):
         await store.verify(tampered, image)
     with pytest.raises(IntegrityError):
         await store.verify(bundle, base)
+    # A discarded B leaves no image or container behind.
+    code, out, _ = await docker.run("create", "--pull=never", "--network", "none",
+                                    image)
+    assert code == 0
+    await store.remove(image)
+    code, _, _ = await docker.run("image", "inspect", image)
+    assert code != 0
+    code, _, _ = await docker.run("container", "inspect", out.decode().strip())
+    assert code != 0
