@@ -23,6 +23,9 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from .subagent_tools.http_request import (
+    http_request as _http_request,
+)
 from .webtools import (
     PublicWebTransport,
     SearchProviderState,

@@ -362,9 +362,10 @@ class _Attempt:
         owner = self._owner
         history = ""
         if self._feedback:
-            history = "\n\n" + _tag("earlier_attempts", (
-                "Earlier attempts failed. Avoid the same failures:\n"
-                + "\n".join(f"- {f}" for f in self._feedback)))
+            history = "\n\n" + _tag("earlier_attempts", "\n".join(
+                ["Earlier attempts failed. Avoid the same failures, and note that "
+                 "a tool the worker cannot call correctly is a failed attempt:"]
+                + [_tag("attempt", f) for f in self._feedback]))
         message = "\n\n".join([
             "<role>You are a developer adding a capability to this codebase. The "
             "capability is missing; your job is to build it.</role>",

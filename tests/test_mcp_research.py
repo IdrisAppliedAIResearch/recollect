@@ -95,7 +95,10 @@ async def mcp() -> Rpc:
 async def test_tools_are_the_research_tools(mcp: Rpc) -> None:
     result = await mcp.request("tools/list")
     tools = {tool["name"]: tool for tool in result["tools"]}
-    assert set(tools) == {"web_search", "web_fetch"}
+    # Self-modification adds tools to this server, so the research pair must be
+    # present and well-formed rather than the whole list being frozen.
+    assert {"web_search", "web_fetch"} <= set(tools)
+    assert all(tool["inputSchema"]["type"] == "object" for tool in tools.values())
     assert tools["web_search"]["inputSchema"]["required"] == ["query"]
     assert tools["web_fetch"]["inputSchema"]["required"] == ["url"]
 

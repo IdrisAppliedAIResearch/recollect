@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 from .deployment import SubagentBundle
 
+#: Rejected calls to the new tool that make a finished request a failed build.
+BROKEN_TOOL_CALLS = 3
 #: Harness defects, as opposed to a model or environment failure worth retrying.
 BUGS = (TypeError, AttributeError, NameError, ImportError, IndentationError)
 FEEDBACK = 8
@@ -42,6 +44,63 @@ class Outcome:
     detail: str
     #: The user stopped the run, for example by canceling the resumed request.
     stopped: bool = False
+    #: What the worker on B actually saw, for the next attempt to act on.
+    evidence: str = ""
+
+
+def _worker_rows(store, session_id, task_id):
+    try:
+        return store.messages(session_id, task_id)
+    except Exception:  # a store failure must not mask the attempt's own result
+        return []
+
+
+def _tool_errors(rows):
+    """{(tool, first line of the error): how many times it repeated}."""
+    errors = {}
+    for row in rows:
+        payload = row.get("payload") or {}
+        if row.get("kind") != "tool":
+            continue
+        observation = " ".join(str(payload.get("observation") or "").split())
+        if observation.lower().startswith("error"):
+            key = (payload.get("tool") or "tool", observation[:240])
+            errors[key] = errors.get(key, 0) + 1
+    return errors
+
+
+def tool_failures(store, session_id, task_id, tool_name):
+    """How often the worker's calls to one tool came back as errors."""
+    return sum(count for (tool, _), count in
+               _tool_errors(_worker_rows(store, session_id, task_id)).items()
+               if tool == tool_name)
+
+
+def worker_evidence(store, session_id, task_id, *, tools=4, bound=1200):
+    """What the failed worker's own tool calls showed, deduplicated and short.
+
+    An attempt that only hears "the request did not finish" rebuilds the same
+    interface. The repeated tool errors name the real defect.
+    """
+    rows = _worker_rows(store, session_id, task_id)
+    errors, worked, last = _tool_errors(rows), 0, ""
+    for row in rows:
+        payload = row.get("payload") or {}
+        observation = " ".join(str(payload.get("observation") or "").split())
+        if row.get("kind") == "tool":
+            if observation and not observation.lower().startswith("error"):
+                worked += 1
+        elif row.get("kind") in {"blocked", "result"}:
+            last = " ".join(str(payload.get("text") or "").split())[:240]
+    lines = []
+    for (tool, observation), count in sorted(errors.items(), key=lambda i: -i[1])[
+            :tools]:
+        lines.append(f"- {tool} failed {count}x: {observation}")
+    if worked:
+        lines.append(f"- {worked} tool call(s) returned without an error")
+    if last:
+        lines.append(f"- it stopped saying: {last}")
+    return "\n".join(lines)[:bound]
 
 
 def _reason(error):
@@ -116,7 +175,9 @@ class SelfModificationLoop:
                                                         "detail": outcome.detail})
                 return outcome
             await self._switch.reset(outcome.detail)
-            feedback.append(f"attempt {attempt}: {outcome.detail}")
+            feedback.append(f"attempt {attempt}: {outcome.detail}"
+                            + (f"\nwhat its worker saw:\n{outcome.evidence}"
+                               if outcome.evidence else ""))
             repeats = repeats + 1 if outcome.detail == last_reason else 1
             last_reason = outcome.detail
             # Pacing, not a limit: an identical failure waits longer each time,
@@ -171,13 +232,28 @@ class DeploymentSwitch:
                 break
             # Observation cadence only; the resumed request has no deadline.
             await asyncio.sleep(self._poll)
+        store, task_id = self._coordinator.store, task["task_id"]
         if final["state"] == "completed":
-            await self._promote(candidate, tests)
-            return Outcome(True, "the resumed request completed on B")
+            # A worker can finish by working around the new tool and saying so.
+            # A capability its own worker could not call is not built.
+            tool = tests.interface["tool_name"]
+            failures = await asyncio.to_thread(tool_failures, store,
+                                               self._session_id, task_id, tool)
+            if failures < BROKEN_TOOL_CALLS:
+                await self._promote(candidate, tests)
+                return Outcome(True, "the resumed request completed on B")
+            evidence = await asyncio.to_thread(worker_evidence, store,
+                                               self._session_id, task_id)
+            return Outcome(False, f"the resumed request finished, but its worker "
+                                  f"could not call {tool}: {failures} of its calls "
+                                  f"were rejected", evidence=evidence)
         if final["state"] == "canceled":
             return Outcome(False, "the resumed request was canceled", stopped=True)
+        evidence = await asyncio.to_thread(worker_evidence, store,
+                                           self._session_id, task_id)
         return Outcome(False, f"the resumed request ended {final['state']}: "
-                              f"{final.get('progress') or ''}"[:2048])
+                              f"{final.get('progress') or ''}"[:2048],
+                       evidence=evidence)
 
     async def reset(self, reason):
         """Scrap this attempt's B: nothing of it outlives the attempt."""

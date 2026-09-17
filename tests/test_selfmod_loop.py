@@ -4,11 +4,19 @@ import pytest
 
 from recollect.selfmod.contracts import File, Snapshot
 from recollect.selfmod.deployment import BundleImages, Deployment, Deployments
-from recollect.selfmod.loop import DeploymentSwitch, Outcome, SelfModificationLoop
+from recollect.selfmod.loop import (
+    DeploymentSwitch,
+    Outcome,
+    SelfModificationLoop,
+    tool_failures,
+    worker_evidence,
+)
 from recollect.selfmod.tests_first import parse_tests
 from tests.selfmod_fake_images import FakeImages
 from tests.test_selfmod_deployment import bundle
 from tests.test_selfmod_tests_first import authored
+
+GAP = {"missing_capability": "calendar"}
 
 
 def candidate(text):
@@ -279,3 +287,131 @@ async def test_a_harness_defect_ends_the_loop_instead_of_retrying(events):
     outcome = await loop.run({})
     assert not outcome.finished and "TypeError" in outcome.detail
     assert calls == [{}] and kinds(events)[-1] == "loop_failed"
+
+
+class Mailbox:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def messages(self, session_id, task_id):
+        return self.rows
+
+
+def tool(name, observation):
+    return {"kind": "tool", "payload": {"tool": name, "observation": observation}}
+
+
+def test_worker_evidence_names_the_repeated_tool_failure():
+    rows = [tool("http_request", "Error executing tool http_request: 1 validation "
+                                 "error\nbody\n  Input should be a valid string")
+            for _ in range(40)]
+    rows += [tool("http_request", '{"status_code": 200}'),
+             tool("web_search", "Error executing tool web_search: no query"),
+             {"kind": "blocked", "payload": {"text": "native checkpoints repeated"}}]
+    assert worker_evidence(Mailbox(rows), "s", "t").splitlines() == [
+        "- http_request failed 40x: Error executing tool http_request: 1 validation "
+        "error body Input should be a valid string",
+        "- web_search failed 1x: Error executing tool web_search: no query",
+        "- 1 tool call(s) returned without an error",
+        "- it stopped saying: native checkpoints repeated",
+    ]
+    # A store that cannot answer must not hide the attempt's own failure.
+    assert worker_evidence(object(), "s", "t") == ""
+
+
+async def test_a_failed_resume_collects_what_its_worker_saw():
+    a = Deployment("A", await receipt(bundle(), "sha256:" + "b" * 64), object())
+    deployments = Deployments(a)
+    deployments.bind("task-a")
+    coordinator = Coordinator(deployments, ["blocked"])
+    coordinator.messages = lambda session_id, task_id: [
+        tool("http_request", "Error executing tool http_request: bad body")]
+
+    async def nothing(*args):
+        pass
+
+    switch = DeploymentSwitch(
+        deployments=deployments, images=Images(), coordinator=coordinator,
+        session_id="s", parent_task_id="task-a", request="the request",
+        base_image_id=bundle().base_image_id, launch=(("entrypoint", "research"),),
+        stage=lambda value: Deployment("B", value, object()), promote=nothing,
+        discard=nothing, poll_seconds=0)
+    outcome = await switch.activate(1, candidate("x"), parse_tests(authored()),
+                                    {"missing_capability": "calendar"})
+    assert not outcome.finished
+    assert "http_request failed 1x: Error executing tool http_request: bad body" in (
+        outcome.evidence)
+
+
+async def test_the_next_attempt_is_given_that_evidence(events):
+    tests = parse_tests(authored())
+    seen = []
+
+    async def author_tests(gap, stopped, record):
+        return tests
+
+    async def develop(attempt, frozen, feedback):
+        seen.append(feedback)
+        return candidate(f"attempt {attempt}")
+
+    switch = Switch([Outcome(False, "the resumed request ended blocked",
+                             evidence="- http_request failed 40x: bad body"),
+                     Outcome(True, "done")])
+    loop = SelfModificationLoop(author_tests=author_tests, develop=develop,
+                                switch=switch, retry_pause=0, on_event=events)
+    assert (await loop.run({})).finished
+    assert seen[0] == ()
+    assert seen[1] == ("attempt 1: the resumed request ended blocked\n"
+                       "what its worker saw:\n- http_request failed 40x: bad body",)
+
+
+async def switch_for(coordinator, deployments, promoted):
+    async def promote(value, tests):
+        promoted.append(value)
+
+    async def nothing(*args):
+        pass
+
+    return DeploymentSwitch(
+        deployments=deployments, images=Images(), coordinator=coordinator,
+        session_id="s", parent_task_id="task-a", request="the request",
+        base_image_id=bundle().base_image_id, launch=(("entrypoint", "research"),),
+        stage=lambda value: Deployment("B", value, object()), promote=promote,
+        discard=nothing, poll_seconds=0)
+
+
+async def test_a_finish_that_worked_around_the_new_tool_is_not_a_build(events):
+    a = Deployment("A", await receipt(bundle(), "sha256:" + "b" * 64), object())
+    deployments = Deployments(a)
+    deployments.bind("task-a")
+    coordinator = Coordinator(deployments, ["completed"])
+    rejected = tool("create_event", "Error executing tool create_event: 1 validation "
+                                    "error body Input should be a valid string")
+    coordinator.messages = lambda session_id, task_id: [rejected] * 4 + [
+        tool("web_fetch", '{"status_code": 200}'),
+        {"kind": "result", "payload": {"text": "I used a form post instead."}}]
+    promoted = []
+    switch = await switch_for(coordinator, deployments, promoted)
+    tests = parse_tests(authored())
+    assert tests.interface["tool_name"] == "create_event"
+    outcome = await switch.activate(1, candidate("x"), tests, GAP)
+    assert not outcome.finished and not promoted
+    assert "could not call create_event: 4 of its calls were rejected" in outcome.detail
+    assert "create_event failed 4x" in outcome.evidence
+    assert tool_failures(coordinator, "s", "t", "web_fetch") == 0
+
+
+async def test_a_clean_finish_still_promotes(events):
+    a = Deployment("A", await receipt(bundle(), "sha256:" + "b" * 64), object())
+    deployments = Deployments(a)
+    deployments.bind("task-a")
+    coordinator = Coordinator(deployments, ["completed"])
+    # One rejected call while the model finds the right arguments is not a defect.
+    coordinator.messages = lambda session_id, task_id: [
+        tool("create_event", "Error executing tool create_event: missing title"),
+        tool("create_event", '{"event_id": "abc"}')]
+    promoted = []
+    switch = await switch_for(coordinator, deployments, promoted)
+    value = candidate("x")
+    outcome = await switch.activate(1, value, parse_tests(authored()), GAP)
+    assert outcome.finished and promoted == [value]
