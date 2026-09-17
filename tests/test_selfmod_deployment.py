@@ -6,6 +6,7 @@ import pytest
 
 from recollect.selfmod.contracts import File, Snapshot
 from recollect.selfmod.deployment import (
+    BundleImages,
     DeploymentRouter,
     SubagentBundle,
     bundle_tar,
@@ -234,3 +235,15 @@ def test_verify_rejects_copied_labels_wrong_base_or_changed_bytes(fault):
             File("tools/research.py", b"changed\n"))))))
     with pytest.raises(IntegrityError):
         verified(value, IMAGE_B, fake)
+
+
+async def test_build_reuses_a_verified_image_for_identical_bundle_bytes():
+    fake = FakeImages()
+    value = bundle()
+    # A forged label on different bytes is skipped, never reused.
+    forged = "sha256:" + "e" * 64
+    fake.add(value, forged, tar=bundle_tar(b_bundle()))
+    image_id = "sha256:" + "d" * 64
+    fake.add(value, image_id)
+    # The fake has no commit: building a new image would fail the test.
+    assert await BundleImages(fake).build(value) == image_id

@@ -60,6 +60,8 @@ async def test_bundle_image_serves_exact_accepted_bytes_only(images):
     image = await store.build(bundle)
     built.append(image)
     assert await store.verify(bundle, image)
+    # Identical bytes reuse the verified image instead of piling up a new one.
+    assert await store.build(bundle) == image
     tampered = replace(bundle, candidate=Snapshot((
         *candidate.files[:1], File("tools/generic_research.py", b"changed\n"))))
     with pytest.raises(IntegrityError):

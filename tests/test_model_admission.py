@@ -418,3 +418,15 @@ async def test_start_accepts_verified_three_slot_profile(gateway):
     model.properties["total_slots"] = 3
     await ingress.start()
     assert ingress.server.started
+
+
+def test_self_modification_is_on_by_default_and_can_be_turned_off(
+    tmp_path, monkeypatch,
+):
+    model = tmp_path / "embed.gguf"
+    model.write_bytes(b"x")
+    monkeypatch.setenv("RECOLLECT_EMBEDDING_MODEL_PATH", str(model))
+    monkeypatch.delenv("RECOLLECT_SELFMOD_ENABLED", raising=False)
+    assert RecollectConfig.from_env().selfmod_enabled is True
+    monkeypatch.setenv("RECOLLECT_SELFMOD_ENABLED", "0")
+    assert RecollectConfig.from_env().selfmod_enabled is False

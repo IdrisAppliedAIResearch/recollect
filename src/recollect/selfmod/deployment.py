@@ -127,6 +127,24 @@ class BundleImages:
         return out
 
     async def build(self, bundle):
+        """An image serving exactly this bundle: reuse a verified one, else build it.
+
+        Rebuilding identical bytes on every start only piles up stale images.
+        The label is a lookup hint; reuse still requires full verification.
+        """
+        # Committed bundle images are untagged, which only --all lists.
+        existing = (await self._checked(
+            "images", "--all", "--quiet", "--no-trunc", "--filter",
+            "label=recollect.bundle=" + bundle.digest,
+        )).decode().split()
+        for image_id in dict.fromkeys(existing):
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+                continue
+            try:
+                await self.verify(bundle, image_id)
+            except IntegrityError:
+                continue
+            return image_id
         container = (await self._checked(
             "create", "--pull=never", "--network", "none", bundle.base_image_id,
         )).decode().strip()

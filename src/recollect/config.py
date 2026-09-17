@@ -424,8 +424,9 @@ class RecollectConfig:
             experiment_unbounded=_flag(
                 os.environ.get("RECOLLECT_EXPERIMENT_UNBOUNDED", "0")
             ),
+            # On by default for the app; RECOLLECT_SELFMOD_ENABLED=0 turns it off.
             selfmod_enabled=_flag(
-                os.environ.get("RECOLLECT_SELFMOD_ENABLED", "0")
+                os.environ.get("RECOLLECT_SELFMOD_ENABLED", "1")
             ),
             sandbox_steps=int(os.environ.get("RECOLLECT_SANDBOX_STEPS", 24)),
             sandbox_idle_ttl_s=float(
