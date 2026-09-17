@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..engine.sandbox.manager import SandboxDeployment, SandboxManager
+from .agents import AgentDeveloper, DockerChecks
 from .contracts import File, Snapshot
 from .deployment import (
     BundleImages,
@@ -33,10 +34,15 @@ from .docker_runtime import DockerFixtureRuntime
 from .files import materialize
 from .integration import DevelopmentSettings
 from .journal import IntegrityError, Journal
-from .loop import DeploymentSwitch, Outcome, RoundDeveloper, SelfModificationLoop
+from .loop import DeploymentSwitch, Outcome, SelfModificationLoop
 from .native_runtime import NativeDocker
-from .roles import LocalRoleModel, RoleSettings
-from .subagent_tree import BUNDLE_PYTHONPATH, LAUNCH, baseline, change_policy
+from .subagent_tree import (
+    BUNDLE_PYTHONPATH,
+    LAUNCH,
+    PROTECTED,
+    baseline,
+    change_policy,
+)
 from .tests_first import authoring, model_completer
 
 DOCKER_ENVIRONMENT = {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "PATHEXT"}
@@ -100,7 +106,8 @@ class SelfModificationService:
                  runtime_factory, manager_factory=None, role_slot=None,
                  sandbox_root=None,
                  model_slot=None, model_base_url=None, model_api_key=None,
-                 loop_factory=None, completer=model_completer):
+                 loop_factory=None, completer=model_completer, docker=None,
+                 run_checks=None, development_manager_factory=None):
         self._config, self._coordinator = config, coordinator
         self._repository, self._root = Path(repository), Path(root)
         self._images = images
@@ -113,6 +120,9 @@ class SelfModificationService:
         self._model_base_url, self._model_api_key = model_base_url, model_api_key
         self._loop_factory = loop_factory or self._build_loop
         self._completer = completer
+        self._docker, self._run_checks = docker, run_checks
+        self._development_manager_factory = (development_manager_factory
+                                             or self._development_manager)
         self._root.mkdir(parents=True, exist_ok=True)
         # Each install owns its directories, so a later boot never collides with
         # the materialized skills or sandbox root an earlier one left behind.
@@ -157,6 +167,20 @@ class SelfModificationService:
             manager.configure_model(self._model_base_url, self._model_api_key)
         return manager
 
+    def _development_manager(self, name):
+        """Stock OpenCode on the base image, in a sandbox root of its own."""
+        self._sandbox_root.mkdir(parents=True, exist_ok=True)
+        token = f"{name}-{uuid.uuid4().hex[:12]}"
+        empty = self._sandbox_root / ("dev-skills-" + token)
+        empty.mkdir()
+        manager = SandboxManager(
+            self._config, model_slot=self._model_slot, development=True,
+            deployment=SandboxDeployment(self._base_image_id, empty,
+                                         self._sandbox_root / ("dev-" + token)))
+        if self._model_base_url is not None:
+            manager.configure_model(self._model_base_url, self._model_api_key)
+        return manager
+
     async def prepare(self):
         """Serve A from its own verified bundle image and accept gap reports."""
         self.baseline = await asyncio.to_thread(baseline, self._repository)
@@ -184,14 +208,13 @@ class SelfModificationService:
                                  slot=self._role_slot, **admitted)
         reviewer = self._completer(self._role_endpoint, self._role_model,
                                    slot=self._role_slot, **admitted)
-        develop = RoundDeveloper(
-            self._root / ("rounds-" + task_id), request=request,
-            baseline=self.baseline, policy=self.policy,
-            settings=self.development_settings(),
-            role_settings=lambda checks: RoleSettings(
-                self._role_endpoint, self._role_model, checks, slot=self._role_slot),
-            runtime_factory=self._runtime_factory,
-            model_factory=lambda settings: LocalRoleModel(settings, **admitted),
+        develop = AgentDeveloper(
+            self._root / ("rounds-" + task_id), request=request, gap=gap,
+            baseline=self.baseline, policy=self.policy, protected=PROTECTED,
+            manager_factory=self._development_manager_factory,
+            run_checks=self._run_checks or DockerChecks(
+                self._docker, self._base_image_id),
+            on_event=self._on_event,
         )
         switch = DeploymentSwitch(
             router=self.router, sandboxes=self.sandboxes, images=self._images,
@@ -302,6 +325,15 @@ class SelfModificationService:
             else:
                 await self._notice(f"Attempt {attempt} didn't pass: {reason}. "
                                    "Trying again.")
+        elif kind == "plan_approved":
+            await self._notice(f"Attempt {attempt}: plan approved, implementing.",
+                               notify=False)
+        elif kind == "checks":
+            state = "passed" if data.get("passed") else "failed, fixing"
+            await self._notice(f"Attempt {attempt}: checks {state}.", notify=False)
+        elif kind == "code_review" and not data.get("approved"):
+            await self._notice(f"Attempt {attempt}: review asked for changes.",
+                               notify=False)
         elif kind == "resuming":
             self.status["continuation_task_id"] = data.get("task_id")
             await self._notice("The new capability passed. Resuming your request.")
@@ -356,7 +388,7 @@ async def install(config, coordinator, *, repository=None, root=None,
         role_endpoint=config.generator_base_url, role_model=config.generator_model,
         runtime_factory=lambda: DockerFixtureRuntime(executable, shared, endpoint),
         role_slot=role_slot, model_slot=model_slot, sandbox_root=sandbox_root,
-        model_base_url=model_base_url, model_api_key=model_api_key,
+        model_base_url=model_base_url, model_api_key=model_api_key, docker=docker,
     )
     await service.prepare()
     return service

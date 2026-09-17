@@ -117,8 +117,11 @@ class SandboxManager:
         model_base_url: str | None = None,
         model_api_key: str | None = None,
         deployment: SandboxDeployment | None = None,
+        development: bool = False,
     ) -> None:
         self._config = config
+        #: Stock OpenCode for self-modification agents (see configgen).
+        self._development = development
         # A deployment (A or B bundle) owns its own image, skills and root.
         self.deployment = deployment
         # Absolute on purpose: a relative workdir lands the opencode
@@ -389,6 +392,10 @@ class SandboxManager:
             bundle_pythonpath=(self.deployment.python_path
                                if self.deployment is not None else None),
             **({
+                "development": True,
+                "context_limit": cfg.generator_context_tokens,
+                "output_limit": min(32_768, cfg.generator_context_tokens // 4),
+            } if self._development else {
                 "context_limit": cfg.generator_context_tokens,
                 "output_limit": cfg.subagent_inference_tokens,
                 "continuous": True,

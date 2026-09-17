@@ -56,6 +56,44 @@ def _permission_table(*, subagent: bool, continuous: bool = False) -> dict:
     }
 
 
+def build_development_config(
+    *, base_url: str, model: str, api_key: str, context_limit: int, output_limit: int
+) -> dict:
+    """Stock OpenCode for self-modification agents, as a person would run it.
+
+    Every native tool is allowed, bash and the network included, with no step
+    limit and no Recollect MCP or skills. The container is the boundary: the
+    workspace holds only the tree under development, and no credentials.
+    """
+    if context_limit <= output_limit or output_limit < 1:
+        raise ValueError("OpenCode context must leave room beyond the output reserve")
+    model_ref = f"{PROVIDER_ID}/{model}"
+    return {
+        "$schema": "https://opencode.ai/config.json",
+        "model": model_ref,
+        "small_model": model_ref,
+        "enabled_providers": [PROVIDER_ID],
+        "default_agent": AGENT_NAME,
+        "plugin": [],
+        "autoupdate": False,
+        "share": "disabled",
+        "snapshot": False,
+        "compaction": {"auto": True, "prune": True, "reserved": 8000},
+        "provider": {
+            PROVIDER_ID: {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "Recollect local model",
+                "options": {"baseURL": base_url, "apiKey": api_key, "timeout": False},
+                "models": {model: {"name": "Recollect local model", "limit": {
+                    "context": context_limit, "output": output_limit}}},
+            }
+        },
+        # Nobody answers questions and the workspace is the only directory.
+        "permission": {"*": "allow", "question": "deny",
+                       "external_directory": "deny"},
+    }
+
+
 def build_config(
     workdir: Path,
     *,
@@ -175,6 +213,7 @@ def write_config(
     skills_source: Path | None = None,
     unbounded: bool = False,
     bundle_pythonpath: str | None = None,
+    development: bool = False,
 ) -> Path:
     """Write configuration and bundled skills into the read-only config mount.
 
@@ -182,6 +221,14 @@ def write_config(
     default remains the skills shipped with this package.
     """
     workdir.mkdir(parents=True, exist_ok=True)
+    config_path = workdir / "opencode.json"
+    if development:
+        config = build_development_config(
+            base_url=base_url, model=model, api_key=api_key,
+            context_limit=context_limit, output_limit=output_limit)
+        config_path.write_text(
+            json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        return config_path
     if continuous:
         shutil.copytree(
             skills_source or Path(__file__).with_name("skills"), workdir / "skills",
@@ -202,7 +249,6 @@ def write_config(
         unbounded=unbounded,
         bundle_pythonpath=bundle_pythonpath,
     )
-    config_path = workdir / "opencode.json"
     config_path.write_text(
         json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
