@@ -303,6 +303,7 @@ class _Attempt:
         message = "\n\n".join([
             _tag("approved_plan", json.dumps(plan, indent=1)),
             _tag("instructions", (
+                "Your job is to make the solution work.\n"
                 "1. Implement the approved plan in source/.\n"
                 "2. Run every check and fix the code until all of them pass.\n"
                 "3. Reply with a short summary of what you changed."))])
@@ -360,7 +361,9 @@ class _Attempt:
                 "Earlier attempts failed. Avoid the same failures:\n"
                 + "\n".join(f"- {f}" for f in self._feedback)))
         message = "\n\n".join([
-            "<role>You are a developer adding a capability to this codebase.</role>",
+            "<role>You are a developer adding a capability to this codebase. The "
+            "capability is missing; your job is to build it, not to report that it "
+            "is missing.</role>",
             self._context() + history, self._workspace_notes(),
             _tag("instructions", (
                 "1. Explore source/ and read every check.\n"
