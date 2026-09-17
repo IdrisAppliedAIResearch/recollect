@@ -196,3 +196,37 @@ async def test_canceled_resume_stops_and_events_reach_the_observer(journal):
     assert outcome.stopped and switch.activated == [1]
     assert switch.resets == ["stopped by the user"]
     assert events == ["loop_started", "tests_frozen", "attempt_started", "loop_stopped"]
+
+
+async def test_identical_failures_back_off_and_a_new_reason_resets(journal,
+                                                                  monkeypatch):
+    import recollect.selfmod.loop as loop_module
+
+    tests = parse_tests(authored())
+    pauses = []
+
+    async def sleep(seconds):
+        pauses.append(seconds)
+
+    monkeypatch.setattr(loop_module.asyncio, "sleep", sleep)
+
+    async def author_tests(gap, stopped, record):
+        return tests
+
+    reasons = iter(["same", "same", "same", "different", "different"])
+
+    async def develop(attempt, frozen, feedback):
+        reason = next(reasons, None)
+        if reason is None:
+            return candidate("ok")
+        raise RuntimeError(reason)
+
+    switch = Switch([Outcome(True, "done")])
+    loop = SelfModificationLoop(journal, author_tests=author_tests, develop=develop,
+                                switch=switch, retry_pause=1.0)
+    assert (await loop.run({})).finished
+    assert pauses == [1.0, 2.0, 4.0, 1.0, 2.0]
+    failed = [r.value["data"] for r in journal.verify()
+              if r.value["kind"] == "attempt_failed"]
+    assert [f["repeats"] for f in failed] == [1, 2, 3, 1, 2]
+    assert loop_module.MAX_PAUSE == 300.0

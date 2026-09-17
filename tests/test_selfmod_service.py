@@ -185,3 +185,61 @@ async def test_milestones_become_notices_and_task_progress(service):
     assert service.status["continuation_task_id"] == "task-b"
     assert service.status["milestone"] == service_module.STOPPED_NOTICE
     await service.close()
+
+
+async def test_repeated_failures_update_progress_without_new_notices(service):
+    service.status = {"state": "running", "session_id": "session",
+                      "task_id": "task-a", "continuation_task_id": None}
+    await service._on_event("attempt_failed", {"attempt": 1, "reason": "boom",
+                                               "repeats": 1})
+    await service._on_event("attempt_failed", {"attempt": 2, "reason": "boom",
+                                               "repeats": 2})
+    assert len(service.coordinator.notices) == 1
+    assert service.coordinator.progress[-1] == (
+        "Attempt 2 didn't pass: boom (2 in a row). Trying again.")
+    await service.close()
+
+
+async def test_service_development_settings_open_a_real_cycle_on_a_tree(service):
+    """The settings the service builds must validate against A's real tree."""
+    from recollect.selfmod.contracts import TaskContract
+    from recollect.selfmod.round import ModificationRound, RoundConfig
+    from recollect.selfmod.tests_first import parse_tests
+    from tests.test_selfmod_tests_first import authored
+
+    await service.prepare()
+    tests = parse_tests(authored())
+    contract = TaskContract("request", tests.contract_requirements, tests.names,
+                            service.policy.sha256)
+    round_ = ModificationRound.create(
+        service._root / "real-cycle",
+        RoundConfig("attempt-1", contract, service.baseline.sha256))
+    try:
+        development = round_.open_development(
+            baseline=service.baseline, policy=service.policy,
+            settings=service.development_settings())
+        assert development.stage == "plan"
+        # Role containers for planning and implementing must also accept the
+        # real tree, the frozen checks and a plan that creates a new tool.
+        from recollect.selfmod.contracts import Plan, PlannedChange, Verification
+        from recollect.selfmod.roles import RoleSettings, make_context, role_spec
+
+        profile = RoleSettings("http://127.0.0.1:8001/v1", "local", tests.checks)
+        context = make_context(development, development.authorize("plan"), profile)
+        role_spec(development, context, b"{}\n", profile, None)
+        development._grants.clear()
+        ids = tuple(r.id for r in contract.requirements)
+        plan = Plan(contract.sha256, (
+            PlannedChange("recollect/engine/subagent_tools/http_post.py", "create",
+                          ids, "new tool"),
+            PlannedChange("recollect/engine/mcp_research.py", "modify", ids,
+                          "register the tool")),
+            tuple(Verification(i, "checks") for i in ids))
+        development._development.propose(development._id, plan)
+        development._development._stage = "implement"
+        context = make_context(development, development.authorize("execute"), profile)
+        spec = role_spec(development, context, b"{}\n", profile, None)
+        assert "source/recollect/engine/subagent_tools" in spec.policy.create_under
+    finally:
+        round_.close()
+        await service.close()

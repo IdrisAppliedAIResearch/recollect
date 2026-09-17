@@ -18,6 +18,8 @@ from .journal import IntegrityError
 from .round import ModificationRound, RoundConfig
 
 FEEDBACK = 8
+#: Longest pause between attempts that keep failing the same way.
+MAX_PAUSE = 300.0
 TERMINAL = {"completed", "blocked", "canceled", "interrupted"}
 
 
@@ -91,6 +93,7 @@ class SelfModificationLoop:
                 # A pause between failed passes, not a limit on agent work.
                 await asyncio.sleep(self._retry_pause)
         feedback, attempt = [], 0
+        last_reason, repeats = None, 0
         while not self._stop.is_set():
             attempt += 1
             await self._record("attempt_started", {
@@ -115,8 +118,16 @@ class SelfModificationLoop:
                 return outcome
             await self._switch.reset(outcome.detail)
             feedback.append(f"attempt {attempt}: {outcome.detail}")
+            repeats = repeats + 1 if outcome.detail == last_reason else 1
+            last_reason = outcome.detail
+            # Pacing, not a limit: an identical failure waits longer each time,
+            # and a new failure reason starts again from the shortest pause.
+            pause = min(self._retry_pause * 2 ** (repeats - 1), MAX_PAUSE)
             await self._record("attempt_failed", {"attempt": attempt,
-                                                  "reason": outcome.detail})
+                                                  "reason": outcome.detail,
+                                                  "repeats": repeats,
+                                                  "pause_s": pause})
+            await asyncio.sleep(pause)
         return await self._stopped()
 
 

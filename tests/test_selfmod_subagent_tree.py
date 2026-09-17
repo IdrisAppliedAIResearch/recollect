@@ -40,7 +40,8 @@ def test_modifier_scope_protects_the_tool_host_and_never_deletes():
     assert policy.permits("dependencies.lock", "modify")
     assert policy.permits("skills/recollect-reporting/SKILL.md", "modify")
     assert policy.permits("recollect/engine/subagent_tools/new_tool.py", "create")
-    assert policy.permits("skills/new-skill/SKILL.md", "create")
+    assert not policy.permits("skills/new-skill/SKILL.md", "create")
+    assert policy.permits("recollect/engine/subagent_tools/new_tool.py", "create")
     assert not policy.permits("recollect/engine/new_top_level.py", "create")
     assert not policy.permits("recollect/engine/mcp_research.py", "delete")
 

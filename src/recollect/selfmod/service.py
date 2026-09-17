@@ -40,7 +40,8 @@ from .subagent_tree import BUNDLE_PYTHONPATH, LAUNCH, baseline, change_policy
 from .tests_first import authoring, model_completer
 
 DOCKER_ENVIRONMENT = {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "PATHEXT"}
-ENTRYPOINT = "driver.py"
+# Development validates this against A's tree; roles run their own driver.
+ENTRYPOINT = "recollect/engine/mcp_research.py"
 GAP_NOTICE = ("I can't do that yet, so I'm building the capability and will pick "
               "your request back up when it's ready.")
 STOPPED_NOTICE = "Stopped building the capability."
@@ -173,6 +174,10 @@ class SelfModificationService:
                                             "image_id": verified.image_id})
         return verified
 
+    def development_settings(self):
+        return DevelopmentSettings(self._base_image_id, self._image_environment,
+                                   ENTRYPOINT)
+
     def _build_loop(self, journal, session_id, task_id, request, gap):
         admitted = {"admission": self._admission, "lane": self._lane}
         author = self._completer(self._role_endpoint, self._role_model,
@@ -182,8 +187,7 @@ class SelfModificationService:
         develop = RoundDeveloper(
             self._root / ("rounds-" + task_id), request=request,
             baseline=self.baseline, policy=self.policy,
-            settings=DevelopmentSettings(self._base_image_id,
-                                         self._image_environment, ENTRYPOINT),
+            settings=self.development_settings(),
             role_settings=lambda checks: RoleSettings(
                 self._role_endpoint, self._role_model, checks, slot=self._role_slot),
             runtime_factory=self._runtime_factory,
@@ -260,7 +264,7 @@ class SelfModificationService:
                                                     "reason": str(error)[:2048]})
         await self._notice(GAP_NOTICE, message_id="selfmod-gap-" + task_id)
 
-    async def _notice(self, text, *, message_id=None):
+    async def _notice(self, text, *, message_id=None, notify=True):
         """One milestone on the original task: a notification and its progress."""
         session_id, task_id = self.status.get("session_id"), self.status.get("task_id")
         if not task_id:
@@ -268,9 +272,10 @@ class SelfModificationService:
         self._notices += 1
         self.status.update(milestone=text, updated_at=datetime.now(UTC).isoformat())
         try:
-            await asyncio.to_thread(
-                self._coordinator.store.notify, session_id, task_id,
-                message_id or f"selfmod-{task_id}-{self._notices}", text)
+            if notify:
+                await asyncio.to_thread(
+                    self._coordinator.store.notify, session_id, task_id,
+                    message_id or f"selfmod-{task_id}-{self._notices}", text)
             await asyncio.to_thread(self._coordinator.store.update, session_id,
                                     task_id, progress=text)
         except Exception as error:
@@ -288,8 +293,15 @@ class SelfModificationService:
         elif kind == "attempt_failed":
             reason = (str(data.get("reason") or "no reason recorded")
                       .splitlines()[0][:200].rstrip("."))
-            await self._notice(f"Attempt {attempt} didn't pass: {reason}. "
-                               "Trying again.")
+            repeats = data.get("repeats") or 1
+            if repeats > 1:
+                # Same failure again: keep the card current without a new notice.
+                await self._notice(f"Attempt {attempt} didn't pass: {reason} "
+                                   f"({repeats} in a row). Trying again.",
+                                   notify=False)
+            else:
+                await self._notice(f"Attempt {attempt} didn't pass: {reason}. "
+                                   "Trying again.")
         elif kind == "resuming":
             self.status["continuation_task_id"] = data.get("task_id")
             await self._notice("The new capability passed. Resuming your request.")
