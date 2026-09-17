@@ -68,7 +68,9 @@ def test_native_agents_are_preserved_with_defense_in_depth_permissions(tmp_path)
         assert permission["doom_loop"] == "allow"
         assert permission["recollect_research_*"] == "allow"
 
-    assert build["permission"]["task"] == {"*": "deny", "general": "allow"}
+    # No worker delegates: a sub-agent has no tools and no reporting duty, so
+    # its invented answer would reach the user as a result.
+    assert build["permission"]["task"] == "deny"
     assert general["permission"]["task"] == "deny"
 
 

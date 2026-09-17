@@ -29,10 +29,13 @@ TOOL_HOST_MODULE = "recollect.engine.toolhost"
 
 
 def _permission_table(*, subagent: bool, continuous: bool = False) -> dict:
-    """Deny unknown/plugin tools; a worker cannot delegate recursively."""
-    task_rule: dict | str = (
-        "deny" if subagent else {"*": "deny", SUBAGENT_NAME: "allow"}
-    )
+    """Deny unknown/plugin tools; a worker cannot delegate at all.
+
+    Delegation is an escape hatch from the capability gap: asked for something
+    no tool can do, a worker sent the request to a sub-agent that had neither
+    the tools nor the reporting duty, and reported its invented answer as a
+    result. Evidence comes from tools, or the worker reports the gap.
+    """
     return {
         "*": "deny",
         "read": "allow",
@@ -51,7 +54,7 @@ def _permission_table(*, subagent: bool, continuous: bool = False) -> dict:
                    "recollect-files": "allow", "recollect-research": "allow"}
                   if continuous else "deny"),
         "lsp": "deny",
-        "task": task_rule,
+        "task": "deny",
         f"{MCP_SERVER}_*": "allow",
     }
 
