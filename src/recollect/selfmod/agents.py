@@ -196,7 +196,8 @@ class DockerChecks:
             "--user", "65532:65532", "--pids-limit", str(self._pids),
             "--memory", f"{self._memory}m",
             "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m",
-            "--tmpfs", "/work:rw,noexec,nosuid,nodev,size=256m",
+            "--tmpfs",
+            "/work:rw,noexec,nosuid,nodev,size=256m,uid=65532,gid=65532,mode=0700",
             "--workdir", "/work", "--entrypoint", "python", self._image,
             "-I", "-S", "-B", "-c", UNPACK_AND_CHECK, "/work/checks/" + check.path,
             data=data)
