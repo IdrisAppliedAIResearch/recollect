@@ -362,8 +362,7 @@ class _Attempt:
                 + "\n".join(f"- {f}" for f in self._feedback)))
         message = "\n\n".join([
             "<role>You are a developer adding a capability to this codebase. The "
-            "capability is missing; your job is to build it, not to report that it "
-            "is missing.</role>",
+            "capability is missing; your job is to build it.</role>",
             self._context() + history, self._workspace_notes(),
             _tag("instructions", (
                 "1. Explore source/ and read every check.\n"
