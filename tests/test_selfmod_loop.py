@@ -265,3 +265,17 @@ async def test_identical_failures_back_off_and_a_new_reason_resets(events,
     failed = [data for kind, data in events if kind == "attempt_failed"]
     assert [f["repeats"] for f in failed] == [1, 2, 3, 1, 2]
     assert loop_module.MAX_PAUSE == 300.0
+
+
+async def test_a_harness_defect_ends_the_loop_instead_of_retrying(events):
+    calls = []
+
+    async def author_tests(gap, stopped, record):
+        calls.append(gap)
+        await record("tests_authored", {}, "an argument the recorder never takes")
+
+    loop = SelfModificationLoop(author_tests=author_tests, develop=None,
+                                switch=Switch([]), retry_pause=0, on_event=events)
+    outcome = await loop.run({})
+    assert not outcome.finished and "TypeError" in outcome.detail
+    assert calls == [{}] and kinds(events)[-1] == "loop_failed"

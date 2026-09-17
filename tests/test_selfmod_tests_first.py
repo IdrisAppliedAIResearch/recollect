@@ -146,7 +146,7 @@ async def test_authoring_revises_until_an_independent_review_approves(tree):
         seen.append(("review", text))
         return next(reviews)
 
-    async def record(kind, data, files=None):
+    async def record(kind, data):
         records.append(kind)
 
     run = authoring(REQUEST, baseline=baseline, policy=policy, author=author,
@@ -176,7 +176,7 @@ async def test_cut_off_reply_becomes_a_finding_not_a_crash(tree):
     async def reviewer(prompt, text):
         return {"approved": True, "findings": [], "rationale": "ok"}
 
-    async def record(kind, data, files=None):
+    async def record(kind, data):
         records.append((kind, data))
 
     run = authoring(REQUEST, baseline=baseline, policy=policy, author=author,

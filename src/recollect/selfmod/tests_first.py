@@ -319,7 +319,7 @@ async def freeze_tests(request, gap, *, baseline, policy, author, reviewer, reco
             "tests_sha256": tests.sha256, "interface": tests.interface,
             "requirements": [asdict(r) for r in tests.requirements],
             "unverified": list(tests.unverified),
-        }, Snapshot(tests.checks))
+        })
         try:
             report = await reviewer(REVIEW_PROMPT, message(
                 request, gap, baseline, policy, tests=authored, history=recent,

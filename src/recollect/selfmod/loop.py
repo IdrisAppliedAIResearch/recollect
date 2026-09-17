@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 from .deployment import SubagentBundle
 
+#: Harness defects, as opposed to a model or environment failure worth retrying.
+BUGS = (TypeError, AttributeError, NameError, ImportError, IndentationError)
 FEEDBACK = 8
 #: Longest pause between attempts that keep failing the same way.
 MAX_PAUSE = 300.0
@@ -80,6 +82,11 @@ class SelfModificationLoop:
                 return await self._stopped()
             try:
                 tests = await self._author_tests(gap, self._stop.is_set, self._record)
+            except BUGS as error:
+                # A defect in this harness never becomes a transient failure to
+                # retry: it would call the model forever and never succeed.
+                await self._record("loop_failed", {"reason": _reason(error)})
+                return Outcome(False, _reason(error))
             except Exception as error:
                 await self._record("tests_failed", {"reason": _reason(error)})
                 # A pause between failed passes, not a limit on agent work.

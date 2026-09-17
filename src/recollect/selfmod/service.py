@@ -84,6 +84,8 @@ def describe(kind, data):
     if kind == "tests_frozen":
         return (f"Tests frozen: {data.get('checks')} checks for "
                 f"{data.get('tool_name')}.")
+    if kind == "loop_failed":
+        return f"The build stopped on a fault in Recollect: {_line(data.get('reason'))}"
     if kind == "tests_failed":
         return f"Writing tests failed, retrying: {_line(data.get('reason'))}"
     if kind == "attempt_started":
