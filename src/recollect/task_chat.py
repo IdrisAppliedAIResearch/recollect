@@ -24,7 +24,8 @@ from .task_replies import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def task_tools() -> list[dict]:
+def task_tools(build_question: bool = False) -> list[dict]:
+    """``build_question``: a task is waiting for the user's go/no-go on a build."""
     start = copy.deepcopy(run_subagent_tool())
     start["function"]["description"] = (
         "Start research, supported file work, or a request that needs a capability "
@@ -49,11 +50,11 @@ def task_tools() -> list[dict]:
         "function": {
             "name": "task_control",
             "description": (
-                "Read status, steer, continue, cancel, or quiet a saved task. "
-                "When a task has a build_proposal, it is asking the user whether "
-                "to build a missing capability: use build when the user says yes "
-                "and skip_build when the user says no. Never choose either "
-                "without the user's answer."
+                "Read status, steer, continue, cancel, or quiet a saved task."
+                + (" A task with a build_proposal is asking the user whether to "
+                   "build a missing capability: use build when the user says yes "
+                   "and skip_build when the user says no. Never choose either "
+                   "without the user's answer." if build_question else "")
             ),
             "parameters": {
                 "type": "object",
@@ -66,8 +67,8 @@ def task_tools() -> list[dict]:
                             "continue",
                             "cancel",
                             "quiet",
-                            "build",
-                            "skip_build",
+                            # Offered only while a build question is waiting.
+                            *(["build", "skip_build"] if build_question else []),
                         ],
                     },
                     "task_id": {"type": "string"},
@@ -307,10 +308,11 @@ async def stream_task_turn(
             existing["task_id"] if existing else task_ids[-1] if task_ids else None
         )
         try:
+            context_tasks = json.loads(context)["tasks"]
             active_tasks = [
-                task for task in json.loads(context)["tasks"]
-                if task.get("worker_active")
+                task for task in context_tasks if task.get("worker_active")
             ]
+            build_question = any(task.get("build_proposal") for task in context_tasks)
             if question == "files":
                 snapshot = await state.tasks.snapshot(session_id)
                 trace.response_text = artifact_reply(snapshot["tasks"])
@@ -353,7 +355,7 @@ async def stream_task_turn(
                 async for _ in state.generator.stream(
                     messages,
                     trace=trace,
-                    tools=task_tools(),
+                    tools=task_tools(build_question),
                     max_tokens=state.config.generator_routing_max_tokens,
                 ):
                     pass

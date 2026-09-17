@@ -764,3 +764,18 @@ async def test_the_task_card_buttons_decide_through_the_api(make_task_state):
         state.selfmod = None
         assert (await client.post("/api/selfmod/decide", json=body)).status_code == 404
     assert state.selfmod is None
+
+
+def test_build_operations_are_offered_only_while_a_question_waits():
+    def operations(tools):
+        control = next(t for t in tools if t["function"]["name"] == "task_control")
+        return control["function"]["parameters"]["properties"]["operation"]["enum"]
+
+    assert "build" not in operations(api_task_tools())
+    assert {"build", "skip_build"} <= set(operations(api_task_tools(True)))
+
+
+def api_task_tools(build_question=False):
+    from recollect.task_chat import task_tools
+
+    return task_tools(build_question)
