@@ -8,7 +8,6 @@ from recollect.selfmod.loop import (
     DeploymentSwitch,
     Outcome,
     SelfModificationLoop,
-    tool_failures,
     worker_evidence,
 )
 from recollect.selfmod.tests_first import parse_tests
@@ -363,55 +362,3 @@ async def test_the_next_attempt_is_given_that_evidence(events):
     assert seen[0] == ()
     assert seen[1] == ("attempt 1: the resumed request ended blocked\n"
                        "what its worker saw:\n- http_request failed 40x: bad body",)
-
-
-async def switch_for(coordinator, deployments, promoted):
-    async def promote(value, tests):
-        promoted.append(value)
-
-    async def nothing(*args):
-        pass
-
-    return DeploymentSwitch(
-        deployments=deployments, images=Images(), coordinator=coordinator,
-        session_id="s", parent_task_id="task-a", request="the request",
-        base_image_id=bundle().base_image_id, launch=(("entrypoint", "research"),),
-        stage=lambda value: Deployment("B", value, object()), promote=promote,
-        discard=nothing, poll_seconds=0)
-
-
-async def test_a_finish_that_worked_around_the_new_tool_is_not_a_build(events):
-    a = Deployment("A", await receipt(bundle(), "sha256:" + "b" * 64), object())
-    deployments = Deployments(a)
-    deployments.bind("task-a")
-    coordinator = Coordinator(deployments, ["completed"])
-    rejected = tool("create_event", "Error executing tool create_event: 1 validation "
-                                    "error body Input should be a valid string")
-    coordinator.messages = lambda session_id, task_id: [rejected] * 4 + [
-        tool("web_fetch", '{"status_code": 200}'),
-        {"kind": "result", "payload": {"text": "I used a form post instead."}}]
-    promoted = []
-    switch = await switch_for(coordinator, deployments, promoted)
-    tests = parse_tests(authored())
-    assert tests.interface["tool_name"] == "create_event"
-    outcome = await switch.activate(1, candidate("x"), tests, GAP)
-    assert not outcome.finished and not promoted
-    assert "could not call create_event: 4 of its calls were rejected" in outcome.detail
-    assert "create_event failed 4x" in outcome.evidence
-    assert tool_failures(coordinator, "s", "t", "web_fetch") == 0
-
-
-async def test_a_clean_finish_still_promotes(events):
-    a = Deployment("A", await receipt(bundle(), "sha256:" + "b" * 64), object())
-    deployments = Deployments(a)
-    deployments.bind("task-a")
-    coordinator = Coordinator(deployments, ["completed"])
-    # One rejected call while the model finds the right arguments is not a defect.
-    coordinator.messages = lambda session_id, task_id: [
-        tool("create_event", "Error executing tool create_event: missing title"),
-        tool("create_event", '{"event_id": "abc"}')]
-    promoted = []
-    switch = await switch_for(coordinator, deployments, promoted)
-    value = candidate("x")
-    outcome = await switch.activate(1, value, parse_tests(authored()), GAP)
-    assert outcome.finished and promoted == [value]

@@ -12,8 +12,6 @@ from dataclasses import dataclass
 
 from .deployment import SubagentBundle
 
-#: Rejected calls to the new tool that make a finished request a failed build.
-BROKEN_TOOL_CALLS = 3
 #: Harness defects, as opposed to a model or environment failure worth retrying.
 BUGS = (TypeError, AttributeError, NameError, ImportError, IndentationError)
 FEEDBACK = 8
@@ -67,13 +65,6 @@ def _tool_errors(rows):
             key = (payload.get("tool") or "tool", observation[:240])
             errors[key] = errors.get(key, 0) + 1
     return errors
-
-
-def tool_failures(store, session_id, task_id, tool_name):
-    """How often the worker's calls to one tool came back as errors."""
-    return sum(count for (tool, _), count in
-               _tool_errors(_worker_rows(store, session_id, task_id)).items()
-               if tool == tool_name)
 
 
 def worker_evidence(store, session_id, task_id, *, tools=4, bound=1200):
@@ -234,19 +225,8 @@ class DeploymentSwitch:
             await asyncio.sleep(self._poll)
         store, task_id = self._coordinator.store, task["task_id"]
         if final["state"] == "completed":
-            # A worker can finish by working around the new tool and saying so.
-            # A capability its own worker could not call is not built.
-            tool = tests.interface["tool_name"]
-            failures = await asyncio.to_thread(tool_failures, store,
-                                               self._session_id, task_id, tool)
-            if failures < BROKEN_TOOL_CALLS:
-                await self._promote(candidate, tests)
-                return Outcome(True, "the resumed request completed on B")
-            evidence = await asyncio.to_thread(worker_evidence, store,
-                                               self._session_id, task_id)
-            return Outcome(False, f"the resumed request finished, but its worker "
-                                  f"could not call {tool}: {failures} of its calls "
-                                  f"were rejected", evidence=evidence)
+            await self._promote(candidate, tests)
+            return Outcome(True, "the resumed request completed on B")
         if final["state"] == "canceled":
             return Outcome(False, "the resumed request was canceled", stopped=True)
         evidence = await asyncio.to_thread(worker_evidence, store,

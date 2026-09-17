@@ -417,9 +417,13 @@ class _Attempt:
                 "files the plan touches.\n"
                 "2. Would this plan make every check pass and meet every requirement, "
                 "within the workspace rules?\n"
-                "3. Approve unless something is wrong or missing. Don't reject for "
+                "3. A model calls this capability through the tool server, from the "
+                "schema the registration generates. Would the arguments in this plan "
+                "accept what a model actually sends, and does the tool's name and "
+                "description say enough to call it correctly the first time?\n"
+                "4. Approve unless something is wrong or missing. Don't reject for "
                 "style. Don't edit source/.\n"
-                "4. End your final message with one JSON object:\n" + VERDICT))])
+                "5. End your final message with one JSON object:\n" + VERDICT))])
 
     async def _code_review(self, plan, files, results):
         owner = self._owner
@@ -437,9 +441,14 @@ class _Attempt:
                 "1. Read changes.diff and the changed files in source/.\n"
                 "2. Does the change meet every requirement, including what the checks "
                 "don't cover? You may run the checks and your own experiments.\n"
-                "3. Approve unless something is wrong. Don't reject for style. Don't "
+                "3. Call it as the worker will: a model reaches this capability "
+                "through the tool server's generated schema, and sends JSON values as "
+                "objects and lists, not as strings. Try the request's own arguments "
+                "that way. A tool the worker cannot call is not built, however well "
+                "the checks pass.\n"
+                "4. Approve unless something is wrong. Don't reject for style. Don't "
                 "edit source/.\n"
-                "4. End your final message with one JSON object:\n" + VERDICT))])
+                "5. End your final message with one JSON object:\n" + VERDICT))])
         return await self._review("code_review", message, tree,
                                   (File("changes.diff", diff.encode()),))
 
