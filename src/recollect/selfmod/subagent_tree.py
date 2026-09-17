@@ -4,8 +4,8 @@ The tree is exactly what a deployment bundle serves: the MCP tool server and its
 research tools, tools added by earlier builds, the reporting/research/file
 skills, the pinned dependency lock and the harness-owned tool host. Package
 ``__init__`` files are empty so the bundle never imports the host application.
-The modifier may change every file except the tool host and package markers, and
-may create new tool modules under subagent_tools.
+The modifier may change every file except the tool host, the dependency lock and
+the package markers, and may create new tool modules under subagent_tools.
 """
 
 from pathlib import Path
@@ -21,7 +21,11 @@ REPOSITORY_FILES = (
 PACKAGE_MARKERS = ("recollect/__init__.py", "recollect/engine/__init__.py")
 SKILLS_SOURCE = "src/recollect/engine/sandbox/skills"
 TOOLS = "recollect/engine/subagent_tools"
-PROTECTED = ("recollect/engine/toolhost.py", *PACKAGE_MARKERS)
+#: The lock is baked into the sandbox image at image build time, and the checks
+#: run without a network, so an added package would never arrive. Editing it can
+#: only cost attempts, and pulling third-party code in is not a decision a build
+#: gets to make.
+PROTECTED = ("recollect/engine/toolhost.py", "dependencies.lock", *PACKAGE_MARKERS)
 CREATE_UNDER = (TOOLS,)
 BUNDLE_PYTHONPATH = "/opt/python:/opt/recollect-bundle"
 TOOL_HOST_MODULE = "recollect.engine.toolhost"

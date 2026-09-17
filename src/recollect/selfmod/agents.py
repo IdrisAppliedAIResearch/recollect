@@ -283,7 +283,9 @@ class _Attempt:
             f"- In {SOURCE}/ you may modify any existing file except: {protected}. "
             f"You may create files under: {creatable}. Don't delete files.\n"
             "- Import only the standard library, the codebase, and the packages "
-            f"pinned in {SOURCE}/dependencies.lock.")) + (
+            f"pinned in {SOURCE}/dependencies.lock. The lock is fixed: a package "
+            "that is not already there cannot be installed, so build what you "
+            "need from the standard library.")) + (
             "\n\n" + _tag("connected_accounts", self._owner._connections + (
                 "\nThis workspace has no connection service: the tool reaches it "
                 "only once deployed. Test against fakes."))

@@ -37,7 +37,8 @@ def test_modifier_scope_protects_the_tool_host_and_never_deletes():
     for path in subagent_tree.PROTECTED:
         assert not policy.permits(path, "modify")
     assert policy.permits("recollect/engine/mcp_research.py", "modify")
-    assert policy.permits("dependencies.lock", "modify")
+    # No build adds a package: the lock is baked into the image, not installed.
+    assert not policy.permits("dependencies.lock", "modify")
     assert policy.permits("skills/recollect-reporting/SKILL.md", "modify")
     assert policy.permits("recollect/engine/subagent_tools/new_tool.py", "create")
     assert not policy.permits("skills/new-skill/SKILL.md", "create")

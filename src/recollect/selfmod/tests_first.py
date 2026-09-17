@@ -43,6 +43,7 @@ You write the acceptance tests for a new capability before anyone implements it.
 
 <rules>
 - A model calls the tool, so every parameter must accept what a model sends: a JSON value arrives as an object or a list, not as a string. Accept both where either is natural, and check that.
+- The dependency lock is fixed. Only the standard library and the packages already pinned in it are available, to the checks and to the deployed tool alike.
 - Test the interface's behavior. Don't depend on files outside the check, /workspace, or a running tool server.
 - Import only what check_environment allows.
 - If a property can't be verified with what's importable, check the strongest thing you can and list the rest in unverified.
