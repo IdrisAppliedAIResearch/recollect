@@ -8,11 +8,7 @@ import pytest
 
 from recollect.selfmod import subagent_tree
 from recollect.selfmod.contracts import File, Snapshot
-from recollect.selfmod.promotion import (
-    PromotionError,
-    branch_name,
-    promote,
-)
+from recollect.selfmod.promotion import PromotionError, promote, rollback_tag
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 NOW = datetime(2026, 9, 17, 12, 30, 5, tzinfo=UTC)
@@ -50,24 +46,45 @@ def built(tree):
     return Snapshot(tuple(File(p, c) for p, c in sorted(files.items())))
 
 
-def test_build_is_committed_on_a_new_branch_and_a_rebuilds_from_it(repository):
+def test_build_is_committed_where_the_work_lives_and_a_rebuilds_from_it(repository):
     tree = subagent_tree.baseline(repository)
     candidate = built(tree)
     saved = promote(repository, tree, candidate, "create event", now=NOW)
-    assert saved.branch == "selfmod/create-event-20260917-123005"
-    assert saved.previous == "main"
-    assert git(repository, "branch", "--show-current") == saved.branch
+    assert saved.tag == "selfmod-before-create-event-20260917-123005"
+    assert saved.branch == "main"
+    # One accumulating line of history: no branch is created.
+    assert git(repository, "branch", "--show-current") == "main"
+    assert git(repository, "branch", "--list") == "* main"
+    assert saved.previous == git(repository, "rev-parse", "HEAD~1")
     assert set(saved.paths) == {"src/recollect/engine/mcp_research.py",
                                 "src/recollect/engine/subagent_tools/event.py"}
     assert git(repository, "status", "--porcelain") == ""
-    assert "git switch main" in git(repository, "log", "-1", "--format=%B")
+    assert f"git reset --hard {saved.tag}" in git(repository, "log", "-1",
+                                                  "--format=%B")
     # The next start serves exactly what B served.
     assert subagent_tree.baseline(repository).sha256 == candidate.sha256
     assert subagent_tree.change_policy(candidate).permits(
         "recollect/engine/subagent_tools/event.py", "modify")
-    # Rolling back is switching to the previous branch.
-    git(repository, "switch", "--quiet", "main")
+    # Rolling back is one command against the tag the build left.
+    git(repository, "reset", "--hard", "--quiet", saved.tag)
     assert subagent_tree.baseline(repository).sha256 == tree.sha256
+
+
+def test_a_second_build_accumulates_on_the_first(repository):
+    tree = subagent_tree.baseline(repository)
+    first = promote(repository, tree, built(tree), "create event", now=NOW)
+    after = subagent_tree.baseline(repository)
+    second_tree = {f.path: f.content for f in after.files}
+    second_tree["recollect/engine/subagent_tools/invite.py"] = (
+        b"def invite():\n    pass\n")
+    second = promote(repository, after,
+                     Snapshot(tuple(File(p, c) for p, c in sorted(
+                         second_tree.items()))), "send invite", now=NOW)
+    assert second.previous == first.commit
+    assert git(repository, "branch", "--list") == "* main"
+    assert git(repository, "log", "--oneline").count("Self-modification") == 2
+    # The first build is still there after the second.
+    assert (repository / "src" / subagent_tree.TOOLS / "event.py").exists()
 
 
 def test_a_failed_commit_leaves_the_checkout_exactly_as_it_was(repository,
@@ -79,7 +96,7 @@ def test_a_failed_commit_leaves_the_checkout_exactly_as_it_was(repository,
     with pytest.raises(PromotionError, match="commit"):
         promote(repository, tree, built(tree), "create event", now=NOW)
     assert git(repository, "branch", "--show-current") == "main"
-    assert git(repository, "branch", "--list", "selfmod/*") == ""
+    assert git(repository, "tag", "--list") == ""
     assert git(repository, "status", "--porcelain") == ""
     assert subagent_tree.baseline(repository).sha256 == tree.sha256
 
@@ -94,9 +111,10 @@ def test_nothing_changed_or_no_repository_is_refused(repository, tmp_path):
         promote(outside, tree, built(tree), "x")
 
 
-def test_branch_names_are_safe_git_refs():
-    assert branch_name("HTTP request!", NOW) == "selfmod/http-request-20260917-123005"
-    assert branch_name(None, NOW) == "selfmod/capability-20260917-123005"
+def test_tag_names_are_safe_git_refs():
+    assert rollback_tag("HTTP request!", NOW) == (
+        "selfmod-before-http-request-20260917-123005")
+    assert rollback_tag(None, NOW) == "selfmod-before-capability-20260917-123005"
     assert subagent_tree.repository_path("skills/a/SKILL.md") == (
         subagent_tree.SKILLS_SOURCE + "/a/SKILL.md")
     assert subagent_tree.repository_path("dependencies.lock") == LOCK

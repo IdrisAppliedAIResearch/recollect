@@ -17,10 +17,11 @@ proves it on B by finishing the same request, and B becomes A.
    reviews the code. Failures go back into the session.
 4. **Prove on B.** The candidate tree becomes bundle image B and the original
    request resumes on it. Other new work keeps running on A meanwhile.
-5. **Promote.** When the resumed request completes, B's changed files are
-   committed on a new branch, `selfmod/<feature>-<timestamp>`, which is checked
-   out. B serves all new work, and the replaced A's sandbox, image and
-   directories are removed once its running task settles.
+5. **Promote.** When the resumed request completes, the commit the build
+   started from is tagged `selfmod-before-<feature>-<timestamp>`, and B's
+   changed files are committed on the checked-out branch, so builds accumulate
+   on one line of history. B serves all new work, and the replaced A's sandbox,
+   image and directories are removed once its running task settles.
 
 Any failure discards B (sandbox, image, directories) and retries from A with the
 failure as feedback, until a build finishes or the user stops it. No elapsed-time
@@ -35,10 +36,10 @@ all self-modification directories. A build interrupted by a restart is scrapped.
 ## Rolling back
 
 ```bash
-git switch <previous-branch>
+git reset --hard selfmod-before-<feature>-<timestamp>
 ```
 
-Then restart Recollect. The commit message names the previous branch.
+Then restart Recollect. The commit message names its own rollback tag.
 
 ## Code
 

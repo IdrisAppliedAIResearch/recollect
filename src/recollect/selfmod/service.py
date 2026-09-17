@@ -9,8 +9,9 @@ yes, from chat or the task card, runs exactly one loop, announced at each
 milestone. Canceling the task stops the loop immediately. A second report while
 one waits or runs is declined, not queued.
 
-When B finishes the request, its files are committed on a new git branch and B
-serves as A; the replaced A is torn down once its work settles. A B that fails,
+When B finishes the request, its files are committed on the checked-out branch,
+after a tag marks the state before it, and B serves as A; the replaced A is torn
+down once its work settles. A B that fails,
 is canceled or is interrupted by a restart leaves nothing behind.
 """
 
@@ -126,8 +127,9 @@ def describe(kind, data):
     if kind == "attempt_finished":
         return "The resumed request finished."
     if kind == "promoted":
-        return (f"Saved as branch {data.get('branch')}; it now serves new work. "
-                f"Roll back with: git switch {data.get('previous')}")
+        return (f"Committed on {data.get('branch')} as {data.get('commit')}; it "
+                f"now serves new work. Roll back with: git reset --hard "
+                f"{data.get('tag')}")
     if kind == "promotion_failed":
         return ("It serves new work until Recollect restarts, but saving it "
                 f"failed: {_line(data.get('reason'))}")
@@ -270,7 +272,7 @@ class SelfModificationService:
         return None if self._connections is None else connection_guide()
 
     async def _promote(self, candidate, tests):
-        """Save B's files on a new branch, then let B serve as A."""
+        """Commit B's files where the work lives, then let B serve as A."""
         feature = self.status.get("feature") or tests.interface.get("tool_name")
         try:
             saved = await asyncio.to_thread(self._promote_files, self._repository,
@@ -278,9 +280,11 @@ class SelfModificationService:
         except (PromotionError, OSError, ValueError) as error:
             await self._on_event("promotion_failed", {"reason": str(error)})
         else:
-            self.status["branch"] = saved.branch
+            self.status["commit"] = saved.commit
+            self.status["rollback_tag"] = saved.tag
             await self._on_event("promoted", {"branch": saved.branch,
-                                              "previous": saved.previous,
+                                              "commit": saved.commit[:12],
+                                              "tag": saved.tag,
                                               "paths": list(saved.paths)})
         self.baseline = candidate
         self.policy = change_policy(candidate)

@@ -1,8 +1,9 @@
-"""Save a proven build into the repository as its own git branch.
+"""Save a proven build into the repository, on the branch it was built from.
 
-B's tree is written back to the files it came from and committed on a new
-branch, so the next start builds A from it. The previous branch is untouched:
-rolling back is ``git switch <previous>`` and a restart.
+B's tree is written back to the files it came from and committed where the work
+already lives, so each build accumulates on one line of history instead of
+forking a branch per feature. The commit before it is tagged, so rolling back is
+one command and a restart.
 """
 
 import re
@@ -22,9 +23,11 @@ class PromotionError(RuntimeError):
 
 @dataclass(frozen=True)
 class Promotion:
-    branch: str
-    previous: str
     commit: str
+    #: Tag on the commit before the build: the state to roll back to.
+    tag: str
+    previous: str
+    branch: str
     paths: tuple[str, ...]
 
 
@@ -53,15 +56,15 @@ def _git(repository, *args):
     return result.stdout.strip()
 
 
-def branch_name(feature, now=None):
+def rollback_tag(feature, now=None):
     slug = re.sub(r"[^a-z0-9]+", "-", str(feature or "capability").lower()).strip("-")
     stamp = (now or datetime.now(UTC)).strftime("%Y%m%d-%H%M%S")
-    return f"selfmod/{slug[:40] or 'capability'}-{stamp}"
+    return f"selfmod-before-{slug[:40] or 'capability'}-{stamp}"
 
 
 def promote(repository, baseline, candidate, feature, *, now=None,
             format_files=None):
-    """Commit B's changed files on a new branch checked out in ``repository``."""
+    """Commit B's changed files on the branch the checkout is already on."""
     repository = Path(repository)
     before = {f.path: f.content for f in baseline.files}
     changed = [f for f in candidate.files
@@ -71,14 +74,12 @@ def promote(repository, baseline, candidate, feature, *, now=None,
     top = Path(_git(repository, "rev-parse", "--show-toplevel")).resolve()
     if top != repository.resolve():
         raise PromotionError(f"{repository} is not the root of a git repository")
-    previous = _git(repository, "rev-parse", "--abbrev-ref", "HEAD")
-    back = ("switch", previous)
-    if previous == "HEAD":
-        previous = _git(repository, "rev-parse", "HEAD")
-        back = ("switch", "--detach", previous)
-    branch = branch_name(feature, now)
+    previous = _git(repository, "rev-parse", "HEAD")
+    branch = _git(repository, "rev-parse", "--abbrev-ref", "HEAD")
+    tag = rollback_tag(feature, now)
     paths = tuple(repository_path(f.path) for f in changed)
-    _git(repository, "switch", "--create", branch)
+    # The state to return to, named before anything is written.
+    _git(repository, "tag", tag, previous)
     try:
         for file, path in zip(changed, paths, strict=True):
             target = repository / path
@@ -88,7 +89,8 @@ def promote(repository, baseline, candidate, feature, *, now=None,
         _git(repository, "add", "--", *paths)
         _git(repository, "commit", "--quiet", "-m",
              f"Self-modification: add the {feature or 'new'} capability",
-             "-m", f"Built from {previous}. Roll back with: git switch {previous}",
+             "-m", f"Built on {previous[:12]}. Roll back with: "
+                   f"git reset --hard {tag}",
              "--", *paths)
     except PromotionError:
         # Put the checkout back exactly as it was, so A never serves a half save.
@@ -99,7 +101,7 @@ def promote(repository, baseline, candidate, feature, *, now=None,
                 target.write_bytes(before[file.path])
             else:
                 target.unlink(missing_ok=True)
-        _git(repository, *back)
-        _git(repository, "branch", "--delete", "--force", branch)
+        _git(repository, "tag", "--delete", tag)
         raise
-    return Promotion(branch, previous, _git(repository, "rev-parse", "HEAD"), paths)
+    return Promotion(_git(repository, "rev-parse", "HEAD"), tag, previous, branch,
+                     paths)

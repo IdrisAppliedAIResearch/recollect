@@ -384,7 +384,8 @@ async def test_a_finished_b_is_saved_on_a_branch_and_replaces_a(service, tmp_pat
 
     def saved(repository, baseline, candidate, feature):
         calls.append((repository, feature))
-        return Promotion("selfmod/create-event-1", "main", "abc", ("src/x.py",))
+        return Promotion("abc123def4567", "selfmod-before-create-event-1", "0" * 40,
+                         "selfmodifying-experiment", ("src/x.py",))
 
     removed = []
 
@@ -401,9 +402,11 @@ async def test_a_finished_b_is_saved_on_a_branch_and_replaces_a(service, tmp_pat
     # The replaced A leaves nothing: sandbox, image and directories are gone.
     assert old.manager.torn_down and removed == [old.image_id]
     assert not any(path.exists() for path in old.paths)
-    assert service.status["branch"] == "selfmod/create-event-1"
-    assert service.activity[-1]["text"].startswith(
-        "Saved as branch selfmod/create-event-1")
+    assert service.status["commit"] == "abc123def4567"
+    assert service.status["rollback_tag"] == "selfmod-before-create-event-1"
+    assert service.activity[-1]["text"] == (
+        "Committed on selfmodifying-experiment as abc123def456; it now serves new "
+        "work. Roll back with: git reset --hard selfmod-before-create-event-1")
     await service.close()
 
 
@@ -420,5 +423,5 @@ async def test_a_failed_save_still_serves_b_until_restart(service, tmp_path):
     _, b, _ = await promoted_service(service, tmp_path, saved)
     assert service.deployments.a is b
     assert "no identity" in service.activity[-1]["text"]
-    assert "branch" not in service.status
+    assert "commit" not in service.status
     await service.close()
