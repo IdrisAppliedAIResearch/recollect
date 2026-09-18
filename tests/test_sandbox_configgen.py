@@ -84,6 +84,36 @@ def test_mcp_wraps_the_recollect_tools_with_the_running_interpreter(tmp_path):
     assert mcp["enabled"] is True
 
 
+def test_connections_and_the_connected_hint_reach_only_the_tool_process(tmp_path):
+    path = configgen.write_config(
+        tmp_path / "s2",
+        base_url="http://127.0.0.1:8000/v1",
+        model="local",
+        api_key="not-needed",
+        steps=24,
+        connections=("http://127.0.0.1:60000", "svc-key"),
+        connected=("google_calendar",),
+    )
+    config = json.loads(path.read_text(encoding="utf-8"))
+    env = config["mcp"][configgen.MCP_SERVER]["environment"]
+    assert env["RECOLLECT_CONNECTIONS_URL"] == "http://127.0.0.1:60000"
+    assert env["RECOLLECT_CONNECTIONS_TOKEN"] == "svc-key"
+    assert env["RECOLLECT_CONNECTED_CONNECTORS"] == "google_calendar"
+
+    # Without a relay the hint would register tools that cannot reach it.
+    plain = configgen.write_config(
+        tmp_path / "s3",
+        base_url="http://127.0.0.1:8000/v1",
+        model="local",
+        api_key="not-needed",
+        steps=24,
+        connected=("google_calendar",),
+    )
+    config = json.loads(plain.read_text(encoding="utf-8"))
+    env = config["mcp"][configgen.MCP_SERVER].get("environment", {})
+    assert "RECOLLECT_CONNECTED_CONNECTORS" not in env
+
+
 def test_container_paths_are_written_without_prompt_overrides(tmp_path):
     workdir = tmp_path / "config"
     path = configgen.write_config(

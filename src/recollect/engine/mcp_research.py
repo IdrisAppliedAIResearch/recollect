@@ -117,6 +117,25 @@ async def http_request(
     )
 
 
+def _connected_services() -> set:
+    """Connector services this tool process was launched with (issue #28).
+
+    The host lists what is connected in this process's environment when it
+    writes the configuration; asking the relay here would stall every tool
+    process for the length of the timeout. A service connected later joins
+    on the next tool process. A worker tool for a service that disconnects
+    mid-task answers with a clear "not connected" error rather than a guess.
+    """
+    listed = os.environ.get("RECOLLECT_CONNECTED_CONNECTORS", "")
+    return {name.strip() for name in listed.split(",") if name.strip()}
+
+
+if "google_calendar" in _connected_services():
+    from .subagent_tools.google_calendar import register as _register_calendar
+
+    _register_calendar(mcp)
+
+
 #: A result blaming the toolset is a capability gap, not a finished request.
 _MISSING_TOOL = re.compile(
     r"\b(?:tool|tools|tooling|toolset)\b[^.]{0,60}\b(?:does not|doesn't|do not|"

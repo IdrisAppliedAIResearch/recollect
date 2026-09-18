@@ -141,26 +141,59 @@ class _Server(uvicorn.Server):
 
 
 class ConnectionService:
-    """Serves connected-account access tokens to holders of its key."""
+    """Serves connected-account and connector access to holders of its key."""
 
-    def __init__(self, google: GoogleAccount) -> None:
+    def __init__(self, google: GoogleAccount | None = None, connectors=None) -> None:
         self.google = google
+        #: A recollect.connectors.ConnectorManager, or None while none exists.
+        #: Duck-typed (``connection``/``status``) to keep this module a leaf.
+        self.connectors = connectors
         self.key = secrets.token_urlsafe(32)
         self.base_url = ""
         self.app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
         self._server: _Server | None = None
         self._worker: asyncio.Task | None = None
 
-        @self.app.get("/google")
-        async def google_connection(request: Request):
+        def require_key(request: Request) -> None:
             if not secrets.compare_digest(request.headers.get("authorization", ""),
                                           f"Bearer {self.key}"):
                 raise HTTPException(401, "The connection service requires its key.")
+
+        @self.app.get("/google")
+        async def google_connection(request: Request):
+            require_key(request)
+            if self.google is None:
+                raise HTTPException(404, "No Google account is connected.")
             try:
                 return await self.google.connection()
             except (RuntimeError, OSError, KeyError, ValueError,
                     httpx.HTTPError) as error:
                 raise HTTPException(503, f"Google connection unavailable: "
+                                         f"{type(error).__name__}: {error}") from None
+
+        @self.app.get("/connectors")
+        async def connectors_list(request: Request):
+            require_key(request)
+            if self.connectors is None:
+                return []
+            try:
+                entries = self.connectors.status()
+            except (RuntimeError, OSError, KeyError) as error:
+                raise HTTPException(503, f"connectors unavailable: "
+                                         f"{type(error).__name__}: {error}") from None
+            return [entry for entry in entries if entry["connected"]]
+
+        @self.app.get("/connectors/{connector_id}")
+        async def connector_connection(connector_id: str, request: Request):
+            require_key(request)
+            if self.connectors is None:
+                raise HTTPException(404, "No connectors are available.")
+            try:
+                return await self.connectors.connection(connector_id)
+            except ValueError as error:  # unknown or not connected
+                raise HTTPException(404, str(error)) from None
+            except (RuntimeError, OSError, KeyError, httpx.HTTPError) as error:
+                raise HTTPException(503, f"{connector_id} connection unavailable: "
                                          f"{type(error).__name__}: {error}") from None
 
     async def start(self) -> None:
@@ -188,4 +221,7 @@ class ConnectionService:
         if self._worker is not None:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(asyncio.shield(self._worker), 5)
-        await self.google.close()
+        if self.google is not None:
+            await self.google.close()
+        if self.connectors is not None:
+            await self.connectors.close()

@@ -713,6 +713,60 @@ def with_build_question(state, session_id):
     return task
 
 
+def with_connect_question(state, session_id):
+    task = seed_task(state, session_id)
+    state.task_store.update(session_id, task["task_id"], state="blocked",
+                            progress="Want me to connect Google Calendar?")
+    state.selfmod = ConnectOffers(session_id, task["task_id"])
+    state.tasks.connect_proposal = state.selfmod.connect_proposal
+    return task
+
+
+class ConnectOffers(BuildQuestions):
+    """A self-modification service with one pending connect offer."""
+
+    def connect_proposal(self, session_id, task_id):
+        if (session_id, task_id) == self.pending:
+            return {"connector": "google_calendar", "name": "Google Calendar",
+                    "missing_capability": "calendar write"}
+        return None
+
+
+@pytest.mark.parametrize("operation,approve",
+                         [("connect", True), ("skip_connect", False)])
+async def test_the_users_answer_in_chat_decides_the_pending_connection(
+    make_task_state, operation, approve,
+):
+    state = make_task_state([], ["Got it."])
+    session_id = state.sessions.create_session().session_id
+    task = with_connect_question(state, session_id)
+    snapshot = await state.tasks.snapshot(session_id)
+    assert snapshot["tasks"][0]["connect_proposal"]["connector"] == (
+        "google_calendar")
+    context, _ = await state.tasks.context(session_id)
+    assert "connect_proposal" in context and "google_calendar" in context
+    state.generator.scripts["main"].append(tool(
+        "task_control", operation=operation, status_only=True))
+    events = await chat(state, session_id, "Yes, connect it." if approve
+                        else "No, skip it.")
+    assert "error" not in events
+    assert state.selfmod.decisions == [(session_id, task["task_id"], approve)]
+    assert state.selfmod.announced is False
+
+
+async def test_connect_without_a_pending_offer_changes_nothing(make_task_state):
+    state = make_task_state([
+        tool("task_control", operation="connect", status_only=True),
+    ], ["Nothing is waiting."])
+    session_id = state.sessions.create_session().session_id
+    with_connect_question(state, session_id)
+    state.selfmod.pending = None
+    await chat(state, session_id, "Connect it.")
+    handoff = json.loads(state.generator.calls[-1]["messages"][-1]["content"])
+    assert "No connection offer is waiting" in handoff["error"]
+    assert state.selfmod.decisions == []
+
+
 @pytest.mark.parametrize("operation,approve", [("build", True), ("skip_build", False)])
 async def test_the_users_answer_in_chat_decides_the_pending_build(
     make_task_state, operation, approve,
@@ -773,9 +827,14 @@ def test_build_operations_are_offered_only_while_a_question_waits():
 
     assert "build" not in operations(api_task_tools())
     assert {"build", "skip_build"} <= set(operations(api_task_tools(True)))
+    assert "connect" not in operations(api_task_tools())
+    assert {"connect", "skip_connect"} <= set(
+        operations(api_task_tools(True, True)))
+    assert "connect" not in operations(api_task_tools(True, False))
+    assert "build" not in operations(api_task_tools(False, True))
 
 
-def api_task_tools(build_question=False):
+def api_task_tools(build_question=False, connect_question=False):
     from recollect.task_chat import task_tools
 
-    return task_tools(build_question)
+    return task_tools(build_question, connect_question)

@@ -125,3 +125,13 @@ async def test_tools_refuse_bad_arguments_and_private_hosts(mcp: Rpc) -> None:
                           {"url": "http://127.0.0.1:8080/api/health"}))["error"]
     assert refused.startswith("refused")
     assert "only public http/https pages may be fetched" in refused
+
+
+def test_the_connected_hint_names_the_connectors_to_register(monkeypatch) -> None:
+    # The tool process registers connector tools from its environment, never
+    # from a network probe at import (issue #28).
+    from recollect.engine import mcp_research
+    monkeypatch.setenv("RECOLLECT_CONNECTED_CONNECTORS", "google_calendar, other")
+    assert mcp_research._connected_services() == {"google_calendar", "other"}
+    monkeypatch.delenv("RECOLLECT_CONNECTED_CONNECTORS")
+    assert mcp_research._connected_services() == set()

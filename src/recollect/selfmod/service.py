@@ -23,8 +23,12 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
+
 from ..connections import GUIDE as connection_guide_text
 from ..connections import ConnectionService, GoogleAccount, google_store
+from ..connectors.manager import GUIDE as connector_guide_text
+from ..connectors.manager import ConnectorManager
 from ..engine.sandbox.manager import SandboxDeployment, SandboxManager
 from .agents import AgentDeveloper, DockerChecks
 from .deployment import (
@@ -35,7 +39,7 @@ from .deployment import (
     materialize_skills,
 )
 from .docker import pinned_docker, resolve_image
-from .loop import DeploymentSwitch, Outcome, SelfModificationLoop
+from .loop import TERMINAL, DeploymentSwitch, Outcome, SelfModificationLoop
 from .promotion import PromotionError, promote
 from .subagent_tree import (
     BUNDLE_PYTHONPATH,
@@ -69,6 +73,35 @@ def proposal_notice(gap):
 def declined_notice(gap):
     return (f"Okay, I won't build it. This request stays blocked without "
             f"this capability: {_capability(gap)}.")
+
+
+def connect_notice(gap, name):
+    """Issue #28: a connector for the gap comes before the offer to build."""
+    return (f"I can't do that yet, but {name} can: {_capability(gap)}. "
+            "Want me to connect it? Your request picks back up as soon as "
+            "you allow it on the provider's page.")
+
+
+def connect_declined_notice(gap, name):
+    return (f"Okay, I won't connect {name}. This request stays blocked "
+            f"without this capability: {_capability(gap)}.")
+
+
+def connecting_notice(name):
+    return (f"Opening {name}'s sign-in in your browser; finish it there. "
+            "Your request resumes the moment you allow it.")
+
+
+def connector_brief(name, tools):
+    """The resumed worker's brief: the capability exists now, so use it."""
+    return (
+        f"The user just connected their {name} account. Your toolset now "
+        f"includes: {', '.join(tools)}.\n"
+        "1. Use them to finish the request. The earlier work shows this was "
+        "not possible before; that has changed, so don't report the same "
+        "gap again.\n"
+        f"2. If a {name} tool fails or reports the connection is "
+        "unavailable, report blocked with its error.")
 
 
 def feature_name(tool_name):
@@ -165,7 +198,8 @@ class SelfModificationService:
                  model_base_url=None, model_api_key=None, loop_factory=None,
                  completer=model_completer, docker=None, run_checks=None,
                  development_manager_factory=None, connections=None,
-                 promote=promote, retire_poll=1.0):
+                 connectors=None, promote=promote, retire_poll=1.0,
+                 continuation_poll=1.0):
         self._config, self._coordinator = config, coordinator
         self._repository, self._root = Path(repository), Path(root)
         self._images = images
@@ -179,6 +213,10 @@ class SelfModificationService:
         self._docker, self._run_checks = docker, run_checks
         #: The connected-account service; worker sandboxes (A and B) get its key.
         self._connections = connections
+        #: Connector lookup and consent (issue #28), or None when unavailable.
+        self._connectors = (connectors if connectors is not None else
+                            getattr(connections, "connectors", None))
+        self._continuation_poll = continuation_poll
         self._development_manager_factory = (development_manager_factory
                                              or self._development_manager)
         # Sandbox directories must sit outside any git repository: opencode
@@ -221,6 +259,9 @@ class SelfModificationService:
                                      None if self._connections is None else
                                      (self._connections.base_url,
                                       self._connections.key)),
+                                 connected=(lambda: tuple(
+                                     self._connectors.connected())
+                                     if self._connectors is not None else ()),
                                  deployment=SandboxDeployment(
                                      verified.image_id, skills,
                                      self._directory("root-" + name),
@@ -264,12 +305,19 @@ class SelfModificationService:
         self._coordinator.on_gap = self.handle_gap
         self._coordinator.on_cancel = self.cancel_requested
         self._coordinator.build_proposal = self.proposal
+        self._coordinator.connect_proposal = self.connect_proposal
         self._record("a_serving", {"image_id": verified.image_id,
                                    "removed_images": removed})
         return verified
 
     def _guide(self):
-        return None if self._connections is None else connection_guide()
+        parts = []
+        if self._connections is not None:
+            if getattr(self._connections, "google", None) is not None:
+                parts.append(connection_guide_text)
+            if self._connectors is not None and self._connectors.connected():
+                parts.append(connector_guide_text)
+        return "\n\n".join(parts) or None
 
     async def _promote(self, candidate, tests):
         """Commit B's files where the work lives, then let B serve as A."""
@@ -344,15 +392,31 @@ class SelfModificationService:
     def proposal(self, session_id, task_id):
         """The capability build waiting for the user's go/no-go on this task."""
         pending = self._proposal
-        if pending and pending["session_id"] == session_id and pending[
-                "task_id"] == task_id:
+        if (pending and not pending.get("connector")
+                and pending["session_id"] == session_id and pending[
+                    "task_id"] == task_id):
             return {"missing_capability": pending["gap"].get("missing_capability"),
                     "modification_request": pending["gap"].get(
                         "modification_request")}
         return None
 
+    def connect_proposal(self, session_id, task_id):
+        """The connector offered for this task's gap, or None."""
+        pending = self._proposal
+        if (pending and pending.get("connector")
+                and pending["session_id"] == session_id
+                and pending["task_id"] == task_id):
+            return {"connector": pending["connector"],
+                    "name": pending["connector_name"],
+                    "missing_capability": pending["gap"].get("missing_capability")}
+        return None
+
     async def handle_gap(self, session_id, gap):
-        """A's gap pauses its task and asks the user; nothing is built without a yes."""
+        """A's gap pauses its task and asks the user; nothing runs without a yes.
+
+        A connector that covers the gap is offered first (issue #28); only
+        when none exists does the task ask whether to build the capability.
+        """
         task_id = gap.get("task_id")
         async with self._lock:
             building = self._runner is not None and not self._runner.done()
@@ -361,21 +425,33 @@ class SelfModificationService:
                     "task_id": task_id,
                     "reason": "another capability build is waiting or running"})
                 return None
+            connector = (self._connectors.find(gap)
+                         if self._connectors is not None else None)
             self._proposal = {"session_id": session_id, "task_id": task_id,
-                              "gap": gap}
+                              "gap": gap,
+                              "connector": connector.id if connector else None,
+                              "connector_name": connector.name if connector
+                              else None}
             self.activity = []
             now = datetime.now(UTC).isoformat()
-            self.status = {"state": "awaiting_approval", "session_id": session_id,
+            self.status = {"state": ("awaiting_connect" if connector
+                                      else "awaiting_approval"),
+                           "session_id": session_id,
                            "task_id": task_id, "continuation_task_id": None,
                            "attempt": 0,
+                           "connector": connector.id if connector else None,
                            "missing_capability": gap.get("missing_capability"),
                            "started_at": now, "updated_at": now}
-        self._record("gap_proposed", {
+        self._record("connect_proposed" if connector else "gap_proposed", {
             "task_id": task_id,
+            "connector": connector.id if connector else None,
             "missing_capability": gap.get("missing_capability")})
-        text = proposal_notice(gap)
-        self._log("proposed", "Waiting for your go-ahead to build: "
-                  + _capability(gap) + ".")
+        text = (connect_notice(gap, connector.name) if connector
+                else proposal_notice(gap))
+        self._log("proposed", ("Waiting for your yes to connect "
+                               + connector.name + "." if connector else
+                               "Waiting for your go-ahead to build: "
+                               + _capability(gap) + "."))
         await self._interrupt(session_id, task_id, text,
                               message_id="selfmod-proposal-" + task_id)
         return None
@@ -394,9 +470,30 @@ class SelfModificationService:
                                  "on that task.")
             self._proposal = None
             gap = pending["gap"]
+            connector_id = pending["connector"]
             if not approve:
                 self.status.update(state="declined",
                                    updated_at=datetime.now(UTC).isoformat())
+        if connector_id:
+            name = pending["connector_name"]
+            self._record("connect_decision", {"task_id": task_id,
+                                              "connector": connector_id,
+                                              "approved": bool(approve)})
+            self._log("decision", f"You approved connecting {name}." if approve
+                      else f"You chose not to connect {name}.")
+            if not approve:
+                await self._notice(connect_declined_notice(gap, name),
+                                   notify=announce)
+                return {"task_id": task_id, "build": "declined"}
+            self.status.update(state="running")
+            self._stop_requested = False
+            # The task is created before any await: a cancel arriving in this
+            # window must find a live runner, not open a sign-in nobody
+            # asked to keep. The notice is the coroutine's first act.
+            self._runner = asyncio.create_task(
+                self._connect_and_resume(session_id, task_id, connector_id,
+                                         name, announce=announce))
+            return {"task_id": task_id, "build": "started"}
         self._record("gap_decision", {"task_id": task_id,
                                             "approved": bool(approve)})
         self._log("decision", "You approved the build." if approve
@@ -443,13 +540,101 @@ class SelfModificationService:
                                              "detail": outcome.detail})
         return outcome
 
+    async def _connect_and_resume(self, session_id, task_id, connector_id,
+                                  name, *, announce=True):
+        """Store the granted connector, then resume the same request on it."""
+        try:
+            await self._notice(connecting_notice(name),
+                               message_id="selfmod-connect-" + task_id,
+                               notify=announce)
+            entry = await self._connectors.connect(connector_id)
+        except asyncio.CancelledError:
+            if not self._stop_requested:
+                raise
+            self.status.update(state="stopped",
+                               updated_at=datetime.now(UTC).isoformat())
+            await self._notice(STOPPED_NOTICE)
+            return
+        except (RuntimeError, OSError, ValueError, httpx.HTTPError) as error:
+            # The connect alone failed: the request stays blocked and askable.
+            self._record("connect_failed", {"task_id": task_id,
+                                            "connector": connector_id,
+                                            "reason": str(error)[:2048]})
+            self.status.update(state="failed",
+                               updated_at=datetime.now(UTC).isoformat())
+            self._log("connect_failed",
+                      f"The connection to {name} did not complete.")
+            await self._notice(f"The connection to {name} didn't complete: "
+                               f"{str(error).rstrip('.')}. Ask me again "
+                               "whenever you're ready.")
+            return
+        self._record("connect_succeeded", {"task_id": task_id,
+                                           "connector": connector_id})
+        self._log("connected", f"Connected to {name}.")
+        await self._notice(f"Connected to {name}. Resuming your request.")
+        brief = connector_brief(name, entry.get("tools") or [])
+        try:
+            request = await asyncio.to_thread(
+                lambda: self._coordinator.store.get(
+                    session_id, task_id)["original_message"])
+            task = await self._coordinator.submit(
+                session_id, f"connect-{task_id}", brief, request,
+                parent_task_id=task_id, continuation=True)
+            await self._coordinator.release_held(session_id, task["task_id"])
+            self.status["continuation_task_id"] = task["task_id"]
+            while True:
+                final = await asyncio.to_thread(self._coordinator.store.get,
+                                                session_id, task["task_id"])
+                if final["state"] in TERMINAL:
+                    break
+                await asyncio.sleep(self._continuation_poll)
+        except asyncio.CancelledError:
+            if not self._stop_requested:
+                raise
+            self.status.update(state="stopped",
+                               updated_at=datetime.now(UTC).isoformat())
+            await self._notice(STOPPED_NOTICE)
+            return
+        except (KeyError, ValueError, OSError) as error:
+            self._record("connect_resume_failed", {"task_id": task_id,
+                                                   "reason": str(error)[:2048]})
+            self.status.update(state="failed",
+                               updated_at=datetime.now(UTC).isoformat())
+            return
+        self._record("connect_resumed", {"task_id": task_id,
+                                         "connector": connector_id,
+                                         "continuation_task_id":
+                                             task["task_id"],
+                                         "state": final["state"]})
+        if final["state"] == "completed":
+            await self._complete_original(session_id, task_id, task["task_id"])
+            self.status.update(state="finished",
+                               updated_at=datetime.now(UTC).isoformat())
+        elif final["state"] == "canceled":
+            await self._notice(f"Your request was stopped; {name} stays "
+                               "connected.")
+            self.status.update(state="stopped",
+                               updated_at=datetime.now(UTC).isoformat())
+        else:
+            # The user heard "Resuming"; a continuation that dies quietly
+            # would leave the original task interrupted with no last word.
+            reason = " ".join(str(final.get("error") or "no reason given")
+                              .split())[:200].rstrip(".")
+            await self._notice(f"{name} is connected, but the request could "
+                               f"not be finished: {reason}. Ask me again "
+                               "whenever you're ready.")
+            await self._complete_original(session_id, task_id, task["task_id"])
+            self.status.update(state="failed",
+                               updated_at=datetime.now(UTC).isoformat())
+
     def _log(self, kind, text):
         self.activity.append({"at": datetime.now(UTC).isoformat(), "kind": kind,
                               "text": text})
         del self.activity[:-200]
 
     async def _complete_original(self, session_id, task_id, continuation_id):
-        """The original task takes the resumed request's answer and finishes."""
+        """The original task takes the resumed request's outcome: its answer,
+        or its failure — never a silence that leaves the task interrupted."""
         store = self._coordinator.store
 
         def complete():
@@ -457,6 +642,13 @@ class SelfModificationService:
             if resumed["state"] == "completed":
                 store.update(session_id, task_id, state="completed",
                              progress=resumed["progress"], result=resumed["result"])
+            elif resumed["state"] in {"blocked", "interrupted"}:
+                # The resumed request ended short of an answer; the original
+                # task says so instead of waiting on it forever.
+                store.update(session_id, task_id, state="blocked",
+                             error=str(resumed.get("error")
+                                       or "The resumed request could not "
+                                          "finish."))
 
         try:
             await asyncio.to_thread(complete)
@@ -580,11 +772,14 @@ async def install(config, coordinator, *, repository=None, root=None,
     root.mkdir(parents=True, exist_ok=True)
     docker = await pinned_docker(root / "docker-cli")
     base_image_id = await resolve_image(docker, config.sandbox_container_image)
-    # A connected Google account, when the user has authorized one.
-    connections = None
-    if GoogleAccount.available(google_store()):
-        connections = ConnectionService(GoogleAccount(google_store()))
-        await connections.start()
+    # Accounts and connectors, served to workers over loopback. The service
+    # starts even with nothing connected: a connect mid-session must be able
+    # to hand its tools a relay without restarting anything.
+    google = (GoogleAccount(google_store())
+              if GoogleAccount.available(google_store()) else None)
+    connectors = ConnectorManager()
+    connections = ConnectionService(google, connectors)
+    await connections.start()
     role_slot = (model_slot.slot_for("modifier")
                  if config.generator_parallel_slots == 3
                  and hasattr(model_slot, "slot_for") else None)

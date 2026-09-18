@@ -93,7 +93,9 @@ function TaskCard({ task, enabled, notifications, dependents }: {
     try {
       await decideBuild(task.session_id, task.task_id, approve, abort.signal)
       if (abort.signal.aborted) return
-      setReceipt(approve ? 'Building the capability.' : 'Not building it.')
+      setReceipt(task.connect_proposal
+        ? (approve ? 'Opening the sign-in in your browser.' : 'Not connecting it.')
+        : (approve ? 'Building the capability.' : 'Not building it.'))
     } catch (failure) {
       if (!abort.signal.aborted) setError((failure as Error).message)
     } finally {
@@ -118,6 +120,18 @@ function TaskCard({ task, enabled, notifications, dependents }: {
         <p className="faint">The saved result predates your latest direction.</p>}
       {task.progress && <Markdown text={task.progress} />}
       {task.error && <p className="callout callout--bad">{task.error}</p>}
+      {task.connect_proposal && <div className="callout callout--warn task__build">
+        <p>Connect {task.connect_proposal.name} for{' '}
+          {task.connect_proposal.missing_capability || 'this'}? You allow it on{' '}
+          {task.connect_proposal.name}'s own page, and your request resumes
+          afterwards.</p>
+        <div className="rowflex">
+          <button type="button" className="btn" disabled={pending}
+            onClick={() => void decide(true)}>Connect</button>
+          <button type="button" className="btn btn--ghost" disabled={pending}
+            onClick={() => void decide(false)}>Not now</button>
+        </div>
+      </div>}
       {task.build_proposal && <div className="callout callout--warn task__build">
         <p>Build the missing capability{task.build_proposal.missing_capability
           ? `: ${task.build_proposal.missing_capability}` : ''}?</p>

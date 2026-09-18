@@ -32,12 +32,20 @@ export interface ResearchTask {
   artifacts: TaskArtifact[]
   /** Set while the task asks whether to build a capability it is missing. */
   build_proposal?: BuildProposal | null
+  /** Set while the task asks to connect an external service (issue #28). */
+  connect_proposal?: ConnectProposal | null
   checkpoint?: { selfmod_continuation?: boolean }
 }
 
 export interface BuildProposal {
   missing_capability: string | null
   modification_request: string | null
+}
+
+export interface ConnectProposal {
+  connector: string
+  name: string
+  missing_capability: string | null
 }
 
 export interface TaskNotification {

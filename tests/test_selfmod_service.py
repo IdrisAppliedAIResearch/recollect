@@ -425,3 +425,157 @@ async def test_a_failed_save_still_serves_b_until_restart(service, tmp_path):
     assert "no identity" in service.activity[-1]["text"]
     assert "commit" not in service.status
     await service.close()
+
+
+class FakeConnectors:
+    """The issue #28 seam: a connector offered, granted, or failed on demand."""
+
+    def __init__(self, found=None, error=None):
+        self.found, self.error = found, error
+        self.connected_ids = []
+
+    def find(self, gap):
+        return self.found
+
+    def connected(self):
+        return list(self.connected_ids)
+
+    async def connect(self, connector_id):
+        if self.error is not None:
+            raise self.error
+        self.connected_ids.append(connector_id)
+        return {"connector_id": connector_id, "name": "Google Calendar",
+                "tools": ["calendar_list_events", "calendar_create_event"]}
+
+    async def close(self):
+        pass
+
+
+CALENDAR = SimpleNamespace(id="google_calendar", name="Google Calendar")
+
+
+def resume_service(service, connectors):
+    """A coordinator that accepts a continuation and finishes it completed."""
+    service._connectors = connectors
+    service._continuation_poll = 0
+    submitted = []
+
+    async def submit(session_id, client_id, brief, request, *,
+                     parent_task_id=None, continuation=False):
+        submitted.append({"client_id": client_id, "brief": brief,
+                          "request": request, "parent_task_id": parent_task_id,
+                          "continuation": continuation})
+        return {"task_id": "task-cont"}
+
+    async def release_held(session_id, task_id):
+        submitted.append({"released": task_id})
+
+    def get(session_id, task_id):
+        if task_id == "task-cont":
+            return {"state": "completed"}
+        return {"original_message": "book the room"}
+
+    service.coordinator.submit, service.coordinator.release_held = (submit,
+                                                                    release_held)
+    service.coordinator.store.get = get
+    return submitted
+
+
+async def test_a_gap_with_a_connector_offers_to_connect_instead_of_build(service):
+    resume_service(service, FakeConnectors(found=CALENDAR))
+    await service.prepare()
+    assert await service.coordinator.on_gap("session", GAP) is None
+    question = service_module.connect_notice(GAP, "Google Calendar")
+    assert "Google Calendar can" in question and "allow it" in question
+    assert service.coordinator.interrupts == [("task-a", question)]
+    assert service.status["state"] == "awaiting_connect"
+    assert service.proposal("session", "task-a") is None
+    assert service.connect_proposal("session", "task-a") == {
+        "connector": "google_calendar", "name": "Google Calendar",
+        "missing_capability": "calendar write"}
+    assert service.coordinator.connect_proposal == service.connect_proposal
+    assert "connect_proposed" in kinds(service)
+    assert not service.loops
+    await service.close()
+
+
+async def test_yes_connects_then_resumes_the_request_on_the_connector(service):
+    submitted = resume_service(service, FakeConnectors(found=CALENDAR))
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    assert await service.decide("session", "task-a", True) == {
+        "task_id": "task-a", "build": "started"}
+    await service._runner
+    assert service._connectors.connected_ids == ["google_calendar"]
+    assert not service.loops  # nothing was built
+    brief = [entry for entry in submitted if "brief" in entry][0]
+    assert brief["continuation"] and brief["parent_task_id"] == "task-a"
+    assert brief["request"] == "book the room"
+    assert "calendar_list_events" in brief["brief"]
+    assert "don't report the same gap again" in brief["brief"]
+    assert {"released": "task-cont"} in submitted
+    assert service.status["state"] == "finished"
+    assert "connect_decision" in kinds(service)
+    assert "connect_succeeded" in kinds(service)
+    assert "connect_resumed" in kinds(service)
+    assert any("Connected to Google Calendar" in notice[3]
+               for notice in service.coordinator.notices)
+    await service.close()
+
+
+async def test_declining_the_connection_says_what_stays_blocked(service):
+    submitted = resume_service(service, FakeConnectors(found=CALENDAR))
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    assert await service.decide("session", "task-a", False,
+                                announce=False) == {
+        "task_id": "task-a", "build": "declined"}
+    assert service.status["state"] == "declined"
+    assert not submitted and not service.loops
+    assert service.coordinator.progress[-1] == service_module.connect_declined_notice(
+        GAP, "Google Calendar")
+    assert "calendar write" in service.coordinator.progress[-1]
+    await service.close()
+
+
+async def test_a_continuation_that_fails_gives_the_request_a_last_word(service):
+    submitted = resume_service(service, FakeConnectors(found=CALENDAR))
+
+    def failed_get(session_id, task_id):
+        if task_id == "task-cont":
+            return {"state": "blocked", "error": "the calendar said no."}
+        return {"original_message": "book the room"}
+
+    service.coordinator.store.get = failed_get
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    assert await service.decide("session", "task-a", True) == {
+        "task_id": "task-a", "build": "started"}
+    await service._runner
+    assert {"released": "task-cont"} in submitted
+    assert service.status["state"] == "failed"
+    assert service.coordinator.progress[-1] == (
+        "Google Calendar is connected, but the request could not be finished: "
+        "the calendar said no. Ask me again whenever you're ready.")
+    await service.close()
+
+
+async def test_a_failed_connect_fails_only_the_connection(service):
+    connectors = FakeConnectors(
+        found=CALENDAR,
+        error=RuntimeError("The Google Calendar sign-in was not completed "
+                           "in time."))
+    submitted = resume_service(service, connectors)
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    assert await service.decide("session", "task-a", True) == {
+        "task_id": "task-a", "build": "started"}
+    await service._runner
+    assert service.status["state"] == "failed"
+    assert "connect_failed" in kinds(service)
+    assert not submitted  # the request was never resumed
+    assert service.coordinator.progress[-1] == (
+        "The connection to Google Calendar didn't complete: The Google "
+        "Calendar sign-in was not completed in time. Ask me again whenever "
+        "you're ready.")
+    await service.close()

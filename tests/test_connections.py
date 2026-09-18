@@ -117,3 +117,50 @@ def test_test_authors_learn_the_connection_convention_only_when_connected():
     assert "RECOLLECT_CONNECTIONS_URL" in connected
     assert "<connected_accounts>" not in message("book it", gap, tree,
                                                  change_policy(tree))
+
+
+class FakeConnectors:
+    """A duck-typed ConnectorManager: one connected service, nothing else."""
+
+    def status(self):
+        return [{"connector_id": "google_calendar", "connected": True},
+                {"connector_id": "other", "connected": False}]
+
+    async def connection(self, connector_id):
+        if connector_id != "google_calendar":
+            raise ValueError(f"No connector named {connector_id!r}.")
+        return {"access_token": "at-1", "expires_in": 3599, "scope": "s",
+                "calendar_id": "primary-calendar"}
+
+    async def close(self):
+        pass
+
+
+async def test_connector_routes_answer_only_holders_of_the_key():
+    service = ConnectionService(None, FakeConnectors())
+    headers = {"Authorization": f"Bearer {service.key}"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=service.app),
+                                 base_url="http://service") as client:
+        assert (await client.get("/connectors")).status_code == 401
+        listed = await client.get("/connectors", headers=headers)
+        assert [entry["connector_id"] for entry in listed.json()] == \
+            ["google_calendar"]
+        ok = await client.get("/connectors/google_calendar", headers=headers)
+        assert ok.status_code == 200
+        assert ok.json()["calendar_id"] == "primary-calendar"
+        assert "refresh" not in ok.text
+        assert (await client.get("/connectors/nope", headers=headers)).status_code \
+            == 404
+        assert (await client.get("/google", headers=headers)).status_code == 404
+
+
+async def test_a_service_without_connectors_or_google_serves_nothing():
+    service = ConnectionService()
+    headers = {"Authorization": f"Bearer {service.key}"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=service.app),
+                                 base_url="http://service") as client:
+        assert (await client.get("/connectors")).status_code == 401
+        assert (await client.get("/connectors", headers=headers)).json() == []
+        assert (await client.get("/connectors/x", headers=headers)).status_code == 404
+        assert (await client.get("/google", headers=headers)).status_code == 404
+    await service.close()

@@ -24,8 +24,13 @@ from .task_replies import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def task_tools(build_question: bool = False) -> list[dict]:
-    """``build_question``: a task is waiting for the user's go/no-go on a build."""
+def task_tools(build_question: bool = False,
+               connect_question: bool = False) -> list[dict]:
+    """``build_question``: a task waits for go/no-go on a build.
+
+    ``connect_question``: a task waits for the user's yes/no on connecting
+    an external service (issue #28).
+    """
     start = copy.deepcopy(run_subagent_tool())
     start["function"]["description"] = (
         "Start research, supported file work, or a request that needs a capability "
@@ -55,6 +60,11 @@ def task_tools(build_question: bool = False) -> list[dict]:
                    "build a missing capability: use build when the user says yes "
                    "and skip_build when the user says no. Never choose either "
                    "without the user's answer." if build_question else "")
+                + (" A task with a connect_proposal is asking the user to allow "
+                   "connecting an external service: use connect when the user "
+                   "says yes and skip_connect when the user says no. Never "
+                   "choose either without the user's answer."
+                   if connect_question else "")
             ),
             "parameters": {
                 "type": "object",
@@ -69,6 +79,9 @@ def task_tools(build_question: bool = False) -> list[dict]:
                             "quiet",
                             # Offered only while a build question is waiting.
                             *(["build", "skip_build"] if build_question else []),
+                            # ... and while a connection offer is waiting.
+                            *(["connect", "skip_connect"]
+                              if connect_question else []),
                         ],
                     },
                     "task_id": {"type": "string"},
@@ -147,6 +160,23 @@ async def _control(state, session_id, request_id, arguments, message=""):
             return task
         return snapshot
     task_id = arguments.get("task_id")
+    if operation in {"connect", "skip_connect"}:
+        # Only the user's answer to a pending connection offer reaches the
+        # service (issue #28); the chat's own reply announces it.
+        waiting = [t["task_id"] for t in snapshot["tasks"]
+                   if t.get("connect_proposal")]
+        service = getattr(state, "selfmod", None)
+        if service is None or not waiting:
+            raise ValueError("No connection offer is waiting for an answer.")
+        if not task_id and len(waiting) == 1:
+            task_id = waiting[0]
+        if task_id not in waiting:
+            raise ValueError("That task is not waiting for a connection answer.")
+        decision = await service.decide(session_id, task_id,
+                                        operation == "connect", announce=False)
+        task = next(t for t in (await state.tasks.snapshot(session_id))["tasks"]
+                    if t["task_id"] == task_id)
+        return {**task, "build": decision["build"]}
     if operation in {"build", "skip_build"}:
         # Only the user's answer to a pending build question reaches the service.
         waiting = [t["task_id"] for t in snapshot["tasks"] if t.get("build_proposal")]
@@ -313,6 +343,8 @@ async def stream_task_turn(
                 task for task in context_tasks if task.get("worker_active")
             ]
             build_question = any(task.get("build_proposal") for task in context_tasks)
+            connect_question = any(task.get("connect_proposal")
+                                   for task in context_tasks)
             if question == "files":
                 snapshot = await state.tasks.snapshot(session_id)
                 trace.response_text = artifact_reply(snapshot["tasks"])
@@ -355,7 +387,7 @@ async def stream_task_turn(
                 async for _ in state.generator.stream(
                     messages,
                     trace=trace,
-                    tools=task_tools(build_question),
+                    tools=task_tools(build_question, connect_question),
                     max_tokens=state.config.generator_routing_max_tokens,
                 ):
                     pass
