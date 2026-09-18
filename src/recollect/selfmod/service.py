@@ -1003,4 +1003,10 @@ def _resume_paused_build(service, root):
                 service._run(paused.session_id, paused.task_id, paused.gap,
                              resume=paused))
 
-    asyncio.create_task(claim())
+    task = asyncio.create_task(claim())
+    # Tracked like _retire's teardown: close() must be able to cancel a
+    # claim that has not run yet, so a shutdown during startup can start
+    # no build after the loop is torn down. The record stays for the next
+    # start either way.
+    service._retiring.add(task)
+    task.add_done_callback(service._retiring.discard)

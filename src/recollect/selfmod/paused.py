@@ -121,7 +121,7 @@ def load(root):
         raise ValueError("Unrecognized paused-build record")
     try:
         return from_record(record)
-    except (KeyError, TypeError, AttributeError) as error:
+    except (KeyError, TypeError, AttributeError, IndexError) as error:
         raise ValueError("Malformed paused-build record") from error
 
 
