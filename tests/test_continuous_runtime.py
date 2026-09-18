@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 
 import httpx
@@ -372,4 +373,70 @@ async def test_native_step_checkpoints_continue_only_with_new_evidence(
     assert items[-1].status == ("ok" if productive else "partial")
     if not productive:
         assert "without new evidence" in items[-1].error
+    await native.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_report_with_unissued_revision_bound_to_current_instruction(
+    tmp_path, caplog, monkeypatch,
+):
+    # Live incident: the worker copied the related message ID but wrote a
+    # revision that was never issued (a blocked report at revision 2 for a
+    # revision-1 delegation). The binding names the instruction, so that
+    # report must reach the callback re-stamped; a report bound to some other
+    # instruction must still be dropped - and logged, so the loss is visible.
+    monkeypatch.setattr(
+        "recollect.engine.sandbox.runner._RECONCILE_SECONDS", 0.02)
+    native = NativeProtocol(tmp_path)
+    native.release.set()
+    reports = []
+    blocked_seen = asyncio.Event()
+
+    async def report(value):
+        reports.append(value)
+        if value.kind == "blocked":
+            blocked_seen.set()
+
+    original = native.request
+
+    async def scripted(request):
+        response = await original(request)
+        if (request.method == "POST" and request.url.path.endswith("/message")
+                and len(native.prompts) == 1):
+            native.parts[-1] = report_part(
+                "accepted", revision=1, related="start_one")
+            native.parts.append(report_part(
+                "blocked", revision=2, related="start_one"))
+            native.parts.append(report_part(
+                "finding", revision=3, related="elsewhere"))
+        return response
+
+    native.client._transport = httpx.MockTransport(scripted)
+    commands = asyncio.Queue()
+
+    async def consume():
+        return [item async for item in native.runner.run_continuous(
+            "conversation", "Research", commands=commands, report=report,
+            message_id="start_one",
+        )]
+
+    running = asyncio.create_task(consume())
+    with caplog.at_level(logging.WARNING):
+        await asyncio.wait_for(blocked_seen.wait(), 2)
+        await commands.put(TaskCommand("cancel_one", "cancel"))
+        items = await asyncio.wait_for(running, 3)
+
+    assert [r for r in reports if r.kind == "accepted"]
+    blocked = [r for r in reports if r.kind == "blocked"]
+    assert len(blocked) == 1
+    assert blocked[0].revision == 1
+    assert blocked[0].related_message_id == "start_one"
+    assert [r for r in reports if r.kind == "finding"] == []
+    dropped = [
+        record for record in caplog.records
+        if "dropped subagent report" in record.getMessage()
+    ]
+    assert len(dropped) == 1
+    assert "finding" in dropped[0].getMessage()
+    assert items[-1].status == "partial"
     await native.client.aclose()

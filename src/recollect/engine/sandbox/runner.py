@@ -20,9 +20,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -38,6 +39,16 @@ from .manager import (
     SandboxInvocation,
     SandboxManager,
     SandboxStartError,
+)
+
+_LOG = logging.getLogger(__name__)
+
+#: A report the gate refuses. Dropped reports used to vanish without a trace
+#: (a live capability-gap report was found only in the sqlite store), so every
+#: refusal must land in the deployment log with enough identity to correlate
+#: it with the task and the instruction it claimed to answer.
+_DROPPED_REPORT = (
+    "dropped subagent report: kind=%s revision=%r known=%r related=%r task=%r"
 )
 
 #: The delegation request lives as long as opencode's own turn - bounded by
@@ -296,6 +307,16 @@ class OpenCodeRunner:
             entry = self._report_from_event(event, oc_id, children)
             if entry is not None:
                 key = (entry.native_session_id, entry.call_id)
+                if (
+                    key not in seen_reports
+                    and entry.kind != "accepted"
+                    and entry.revision not in revisions
+                    and entry.related_message_id == revisions[max(revisions)]
+                ):
+                    # The report names the current instruction but carries a
+                    # revision that was never issued: the binding identifies
+                    # the instruction, so re-stamp instead of dropping.
+                    entry = replace(entry, revision=max(revisions))
                 if key not in seen_reports and entry.revision in revisions:
                     valid = entry.kind != "accepted" or (
                         entry.native_session_id == oc_id
@@ -325,6 +346,18 @@ class OpenCodeRunner:
                             waiting_for_input = False
                             result_revisions.add(entry.revision)
                             final_reports[entry.revision] = entry
+                    else:
+                        _LOG.warning(
+                            _DROPPED_REPORT, entry.kind, entry.revision,
+                            sorted(revisions), entry.related_message_id,
+                            task[:120],
+                        )
+                elif key not in seen_reports:
+                    _LOG.warning(
+                        _DROPPED_REPORT, entry.kind, entry.revision,
+                        sorted(revisions), entry.related_message_id,
+                        task[:120],
+                    )
             step = self._apply_event(
                 event, oc_id, children, seen_calls, steps, sources,
                 scope_calls=True,

@@ -876,6 +876,12 @@ class TaskCoordinator:
                     }:
                         return
                     if item.revision > current["revision"]:
+                        _LOG.warning(
+                            "dropped subagent report: task=%s kind=%s "
+                            "revision=%r current=%r related=%r",
+                            task_id, item.kind, item.revision,
+                            current["revision"], item.related_message_id,
+                        )
                         return
                     report_id = item.call_id or uuid.uuid4().hex
                     if item.call_id and item.native_session_id:
