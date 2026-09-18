@@ -33,7 +33,7 @@ class PausedBuild:
     step: dict
     tree: Snapshot
     tests: FrozenTests
-    connections: str
+    connections: str | None
     baseline_sha256: str
 
 
@@ -108,14 +108,21 @@ def save(root, pause):
 
 
 def load(root):
-    """The paused build under ``root``, or None when the file is absent."""
+    """The paused build under ``root``, or None when the file is absent.
+
+    The file was written by an earlier process: anything unreadable or
+    malformed is a ValueError, never a structural exception.
+    """
     target = path_for(root)
     if not target.exists():
         return None
     record = json.loads(target.read_bytes().decode("utf-8"))
-    if record.get("schema") != SCHEMA:
+    if not isinstance(record, dict) or record.get("schema") != SCHEMA:
         raise ValueError("Unrecognized paused-build record")
-    return from_record(record)
+    try:
+        return from_record(record)
+    except (KeyError, TypeError, AttributeError) as error:
+        raise ValueError("Malformed paused-build record") from error
 
 
 def clear(root):

@@ -465,3 +465,68 @@ async def test_develop_resumes_a_paused_attempt_from_its_captured_tree(tmp_path)
     assert "step_requested" in events and "step_resolved" in events
     files = {f.path: f.content for f in candidate.files}
     assert files["recollect/engine/subagent_tools/post.py"] == FIXED.encode()
+
+
+async def test_a_failed_resume_plans_fresh_rather_than_replaying_the_step(tmp_path):
+    """The paused record applies to one attempt: when that attempt fails, the
+    next one re-plans from the baseline with the new feedback, instead of
+    re-requesting the step against the stale plan and tree."""
+    tests = parse_tests(authored())
+    verdict = lambda approved: json.dumps({"approved": approved, "findings": []})  # noqa: E731
+    RESUME_STEP = {"kind": "ask", "question": "which calendar?"}
+    RESUME_TREE = Snapshot((File("recollect/__init__.py", b""),
+                            File("recollect/engine/mcp_research.py",
+                                 b"TOOLS = []\n"),
+                            File("recollect/engine/subagent_tools/post.py",
+                                 b"def post(): ...\n")))
+
+    def boom(workdir, message):
+        raise RuntimeError("the sandbox died")
+
+    def finish(workdir, message):
+        tools = workdir / "source" / "recollect" / "engine" / "subagent_tools"
+        tools.mkdir(parents=True, exist_ok=True)
+        (tools / "post.py").write_bytes(FIXED.encode())
+        (workdir / "source" / "recollect" / "engine" /
+         "mcp_research.py").write_bytes(b"TOOLS = ['post']\n")
+        return "done"
+
+    builder_resumed = Manager(tmp_path, "builder", [boom])
+    reviewer_resumed = Manager(tmp_path, "reviewer", [])
+    builder_fresh = Manager(tmp_path, "builder-fresh", [
+        "Plan: " + json.dumps(PLAN), finish])
+    reviewer_fresh = Manager(tmp_path, "reviewer-fresh",
+                             [verdict(True), verdict(True)])
+    managers = iter([builder_resumed, reviewer_resumed,
+                     builder_fresh, reviewer_fresh])
+    steps, events = [], []
+
+    async def on_step(step, tree, plan):
+        steps.append(step)
+        return "The work one."
+
+    async def on_event(kind, data):
+        events.append(kind)
+
+    developer = AgentDeveloper(
+        request="post it", gap={"missing_capability": "POST"},
+        baseline=BASELINE, policy=POLICY, protected=(),
+        manager_factory=lambda name: next(managers),
+        run_checks=_run_checks_factory(), on_event=on_event, on_step=on_step,
+        resume=(PLAN, RESUME_TREE, RESUME_STEP))
+    with pytest.raises(RuntimeError, match="the sandbox died"):
+        await developer(2, tests, ())
+    # The record was consumed: the step was re-requested exactly once, and it
+    # no longer applies to a later attempt.
+    assert steps == [RESUME_STEP]
+    assert developer._resume is None
+
+    candidate = await developer(3, tests, ("attempt 2: the sandbox died",))
+    # The next attempt planned fresh from the baseline, carrying the failure.
+    assert steps == [RESUME_STEP]
+    assert "plan_approved" in events
+    first = builder_fresh.agent.messages[0]
+    assert "<step_outcome>" not in first
+    assert "<earlier_attempts>" in first
+    files = {f.path: f.content for f in candidate.files}
+    assert files["recollect/engine/subagent_tools/post.py"] == FIXED.encode()

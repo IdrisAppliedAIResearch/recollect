@@ -59,6 +59,19 @@ def test_load_refuses_an_unrecognized_record(tmp_path):
         load(tmp_path)
 
 
+def test_load_treats_a_malformed_record_as_unreadable(tmp_path):
+    # The right schema but a broken structure: still just a ValueError, so a
+    # half-written file cannot take the process down at startup.
+    (tmp_path / "paused_build.json").write_text(
+        json.dumps({"schema": SCHEMA}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load(tmp_path)
+    (tmp_path / "paused_build.json").write_text(
+        json.dumps([1, 2, 3]), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load(tmp_path)
+
+
 def test_clear_drops_the_record_and_is_idempotent(tmp_path):
     save(tmp_path, make_pause())
     clear(tmp_path)

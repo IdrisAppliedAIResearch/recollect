@@ -91,10 +91,10 @@ def test_a_gap_matches_a_shipped_service_even_unconfigured(tmp_path):
     empty = ConnectorManager(ConnectorStore(tmp_path))
     assert isinstance(empty.find(CALENDAR_GAP), GoogleCalendar)
     assert empty.find({"missing_capability": "read a PDF"}) is None
-    value = ConnectorManager(configured_store(tmp_path))
+    store = configured_store(tmp_path)
+    value = ConnectorManager(store)
     assert isinstance(value.find(CALENDAR_GAP), GoogleCalendar)
-    value._store.save("google_calendar",
-                      {"refresh_token": "r", "connected_at": "x"})
+    store.save("google_calendar", {"refresh_token": "r", "connected_at": "x"})
     assert value.find(CALENDAR_GAP) is None  # already connected: nothing to offer
 
 

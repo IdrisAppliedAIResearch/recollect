@@ -784,3 +784,35 @@ async def test_resume_abandons_a_paused_build_whose_tree_drifted(service):
     assert load(service._root) is None
     assert "resume_abandoned" in kinds(service)
     await service.close()
+
+
+async def test_a_resumed_build_is_stored_as_the_tracked_runner(service):
+    """The resume runs through _runner, so stop() and close() can see it."""
+    service.baseline = BASELINE_TREE
+    save(service._root, _pause())
+    _resume_paused_build(service, service._root)
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert service._runner is not None
+    outcome = await service._runner
+    assert outcome.finished
+    assert service.status["state"] == "finished"
+    await service.close()
+
+
+async def test_resume_abandons_while_a_build_is_in_flight(service):
+    """A build started before the resume may claim the slot: only one runs."""
+    service.baseline = BASELINE_TREE
+    save(service._root, _pause())
+    service._runner = asyncio.create_task(asyncio.sleep(60))
+    _resume_paused_build(service, service._root)
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert service._loop is None  # nothing was scheduled
+    assert not service._runner.done()  # the in-flight build kept its slot
+    assert load(service._root) is None  # the stale record is dropped
+    assert "resume_abandoned" in kinds(service)
+    service._runner.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await service._runner
+    await service.close()

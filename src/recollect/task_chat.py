@@ -214,7 +214,10 @@ async def _control(state, session_id, request_id, arguments, message=""):
             task_id = waiting[0]
         if task_id not in waiting:
             raise ValueError("That task is not waiting for an answer.")
-        answer = (arguments.get("text") or "").strip()
+        answer = arguments.get("text")
+        if answer is not None and not isinstance(answer, str):
+            raise ValueError("The answer must be text.")
+        answer = (answer or "").strip()
         if not answer:
             raise ValueError("The answer text was missing or empty.")
         await service.answer_step(session_id, task_id, answer)

@@ -377,6 +377,10 @@ class _Attempt:
         # captured tree with the step's outcome.
         if owner._resume is not None:
             plan, tree, step = owner._resume
+            # Consumed: if this attempt fails, the next one plans fresh from
+            # the baseline with the new feedback instead of replaying the
+            # step against the stale plan and tree.
+            owner._resume = None
             await self._record("step_requested", {"step": step})
             response = await self._request_step(step, tree, plan)
             await self._record("step_resolved", {"step": step,

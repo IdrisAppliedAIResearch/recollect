@@ -867,6 +867,19 @@ async def test_answer_step_without_a_pending_question_changes_nothing(
     assert state.selfmod.answers == []
 
 
+async def test_answer_step_rejects_non_text_without_unblocking(make_task_state):
+    state = make_task_state([
+        tool("task_control", operation="answer_step",
+             text={"calendar": "work"}, status_only=True),
+    ], ["The answer must be text."])
+    session_id = state.sessions.create_session().session_id
+    with_step_question(state, session_id)
+    await chat(state, session_id, "The work one.")
+    handoff = json.loads(state.generator.calls[-1]["messages"][-1]["content"])
+    assert "The answer must be text" in handoff["error"]
+    assert state.selfmod.answers == []
+
+
 async def test_the_task_card_buttons_decide_through_the_api(make_task_state):
     state = make_task_state([])
     session_id = state.sessions.create_session().session_id

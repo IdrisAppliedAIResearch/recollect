@@ -984,5 +984,23 @@ def _resume_paused_build(service, root):
                         {"reason": "baseline changed since the build paused"})
         clear(root)
         return
-    asyncio.create_task(service._run(paused.session_id, paused.task_id,
-                                     paused.gap, resume=paused))
+
+    async def claim():
+        # The claim takes the same lock as handle_gap and decide: a gap
+        # approved in this window would otherwise start a second build at
+        # once, and the runner must be visible to stop() and close().
+        async with service._lock:
+            building = (service._runner is not None
+                        and not service._runner.done())
+            if (building or service._loop is not None
+                    or service._proposal is not None):
+                service._record("resume_abandoned",
+                                {"reason": "a build or proposal is already "
+                                           "in flight"})
+                clear(root)
+                return
+            service._runner = asyncio.create_task(
+                service._run(paused.session_id, paused.task_id, paused.gap,
+                             resume=paused))
+
+    asyncio.create_task(claim())
