@@ -34,6 +34,8 @@ export interface ResearchTask {
   build_proposal?: BuildProposal | null
   /** Set while the task asks to connect an external service (issue #28). */
   connect_proposal?: ConnectProposal | null
+  /** Set while a build is paused on a question the user must answer in chat. */
+  step_proposal?: StepProposal | null
   checkpoint?: { selfmod_continuation?: boolean }
 }
 
@@ -46,6 +48,11 @@ export interface ConnectProposal {
   connector: string
   name: string
   missing_capability: string | null
+}
+
+export interface StepProposal {
+  kind: string
+  question: string
 }
 
 export interface TaskNotification {

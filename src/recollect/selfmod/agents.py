@@ -19,6 +19,7 @@ import io
 import json
 import shutil
 import tarfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..engine.sandbox.configgen import AGENT_NAME
@@ -51,6 +52,29 @@ PLAN = ('{"summary": "...", "changes": [{"path": "recollect/...", '
         '"operation": "modify", "reason": "..."}]}')
 
 
+@dataclass
+class _Candidate:
+    """The approved tree that finishes the attempt."""
+    candidate: Snapshot
+
+
+@dataclass
+class _StepRequest:
+    """The agent paused on a step only a human can take; its work so far."""
+    step: dict
+    tree: Snapshot
+
+
+HUMAN_STEPS = (
+    "If you reach something only a human can do - connecting an external "
+    "service that needs the user's authorization, or a choice only the user can "
+    "make - do not guess, stub or fake it. End your turn with the step as one "
+    'JSON object: {"step": {"kind": "connect", "connector": "<id>", "why": '
+    '"..."}} to ask that a service be connected, or {"step": {"kind": "ask", '
+    '"question": "..."}} to ask the user a question. You will be told the '
+    "outcome and continue from where you left off.")
+
+
 def _tag(name, body):
     return f"<{name}>\n{body}\n</{name}>"
 
@@ -79,6 +103,28 @@ def valid_plan(value):
             and all(type(c) is dict and type(c.get("path")) is str
                     and c.get("operation") in {"modify", "create"}
                     for c in value["changes"]))
+
+
+def valid_step(value):
+    """A step only a human can take: connect a service, or answer a question."""
+    if type(value) is not dict:
+        return False
+    if value.get("kind") == "connect":
+        return (type(value.get("connector")) is str
+                and bool(value["connector"].strip()))
+    if value.get("kind") == "ask":
+        return (type(value.get("question")) is str
+                and bool(value["question"].strip()))
+    return False
+
+
+def parse_step(text):
+    """The step request in a reply's final JSON object, or None."""
+    value = final_json(text, {"step"})
+    if value is None:
+        return None
+    step = value.get("step")
+    return step if valid_step(step) else None
 
 
 def read_tree(root):
@@ -220,21 +266,27 @@ class AgentDeveloper:
     """
 
     def __init__(self, *, request, gap, baseline, policy, protected,
-                 manager_factory, run_checks, on_event=None, connections=None):
+                 manager_factory, run_checks, on_event=None, connections=None,
+                 on_step=None, on_pause=None, resume=None):
         self._request, self._gap = request, gap
         #: How deployed tools reach connected accounts; agents get no live access.
         self._connections = connections
         self._baseline, self._policy, self._protected = baseline, policy, protected
         self._manager_factory, self._run_checks = manager_factory, run_checks
         self._on_event = on_event
+        #: Ask the main chat for a step only a human can take; None if unwired.
+        self._on_step = on_step
+        #: Persist a paused build before it blocks on a step; None if unwired.
+        self._on_pause = on_pause
+        #: (plan, tree, step) a restarted process resumes this attempt from.
+        self._resume = resume
 
     async def __call__(self, attempt, tests, feedback):
         builder = self._manager_factory(f"build-{attempt}")
         reviewer = self._manager_factory(f"review-{attempt}")
-        run = _Attempt(self, attempt, tests, feedback, reviewer)
+        run = _Attempt(self, attempt, tests, feedback, builder, reviewer)
         try:
-            async with AgentSession(builder, f"selfmod-build-{attempt}") as session:
-                return await run.develop(session)
+            return await run.develop()
         finally:
             for manager in (builder, reviewer):
                 with contextlib.suppress(Exception):
@@ -245,9 +297,10 @@ class AgentDeveloper:
 
 
 class _Attempt:
-    def __init__(self, owner, attempt, tests, feedback, reviewer):
+    def __init__(self, owner, attempt, tests, feedback, builder, reviewer):
         self._owner, self._attempt = owner, attempt
-        self._tests, self._feedback, self._reviewer = tests, feedback, reviewer
+        self._tests, self._feedback = tests, feedback
+        self._builder, self._reviewer = builder, reviewer
 
     async def _record(self, kind, data):
         data = {"attempt": self._attempt, **data}
@@ -272,7 +325,7 @@ class _Attempt:
         names = ", ".join(self._tests.names)
         protected = ", ".join(self._owner._protected)
         creatable = ", ".join(p + "/" for p in self._owner._policy.create_under)
-        return _tag("workspace", (
+        notes = _tag("workspace", (
             f"- {SOURCE}/ is the codebase. Only changes inside {SOURCE}/ are kept.\n"
             f"- {CHECKS}/ holds the frozen tests: {names}. Run one with:\n"
             f"  cd /workspace/{SOURCE} && PYTHONPATH=/workspace/{SOURCE}:/opt/python "
@@ -285,7 +338,9 @@ class _Attempt:
             "- Import only the standard library, the codebase, and the packages "
             f"pinned in {SOURCE}/dependencies.lock. The lock is fixed: a package "
             "that is not already there cannot be installed, so build what you "
-            "need from the standard library.")) + (
+            "need from the standard library."))
+        notes += "\n\n" + _tag("human_steps", HUMAN_STEPS)
+        return notes + (
             "\n\n" + _tag("connected_accounts", self._owner._connections + (
                 "\nThis workspace has no connection service: the tool reaches it "
                 "only once deployed. Test against fakes."))
@@ -306,21 +361,91 @@ class _Attempt:
 
     # -- the attempt -----------------------------------------------------
 
-    async def develop(self, session):
+    async def develop(self):
+        """Plan, implement and verify; a step request pauses and resumes later.
+
+        Each pass runs in one fresh session on the builder. When the agent ends a
+        turn asking for a step only a human can take, its work so far is captured,
+        the step is requested of the main chat, and a new session resumes from the
+        captured tree with the step's outcome - so the wait may be long and the
+        process may restart in it.
+        """
         owner = self._owner
-        await self._materialize(session.workspace, owner._baseline)
-        plan = await self._plan(session)
-        await self._record("plan_approved", {"plan": plan})
-        message = "\n\n".join([
+        plan, tree, message = None, owner._baseline, None
+        # A restarted process resumes this attempt: re-request the step the
+        # build paused on (the user may still be away), then continue from the
+        # captured tree with the step's outcome.
+        if owner._resume is not None:
+            plan, tree, step = owner._resume
+            await self._record("step_requested", {"step": step})
+            response = await self._request_step(step, tree, plan)
+            await self._record("step_resolved", {"step": step,
+                                                  "response": response[-EVENT_TEXT:]})
+            message = self._resume_message(plan, step, response)
+        while True:
+            async with AgentSession(self._builder,
+                                    f"selfmod-build-{self._attempt}") as session:
+                if plan is None:
+                    await self._materialize(session.workspace, owner._baseline)
+                    plan = await self._plan(session)
+                    await self._record("plan_approved", {"plan": plan})
+                    message = self._implement_message(plan)
+                else:
+                    await self._materialize(session.workspace, tree)
+                result = await self._implement_loop(session, plan, message)
+            if type(result) is _Candidate:
+                return result.candidate
+            step, tree = result.step, result.tree
+            await self._record("step_requested", {"step": step})
+            if owner._on_pause is not None:
+                await owner._on_pause(step, tree, plan, self._attempt,
+                                      self._tests, tuple(self._feedback))
+            response = await self._request_step(step, tree, plan)
+            await self._record("step_resolved", {"step": step,
+                                                  "response": response[-EVENT_TEXT:]})
+            message = self._resume_message(plan, step, response)
+
+    def _implement_message(self, plan):
+        return "\n\n".join([
             _tag("approved_plan", json.dumps(plan, indent=1)),
             _tag("instructions", (
                 "Your job is to make the solution work.\n"
                 "1. Implement the approved plan in source/.\n"
                 "2. Run every check and fix the code until all of them pass.\n"
                 "3. Reply with a short summary of what you changed."))])
+
+    def _resume_message(self, plan, step, response):
+        return "\n\n".join([
+            self._context(), self._workspace_notes(),
+            _tag("approved_plan", json.dumps(plan, indent=1)),
+            _tag("step_outcome", (
+                "You paused to ask for a step:\n"
+                + json.dumps(step, indent=1)
+                + "\nIt came back as:\n" + response
+                + "\nYour work so far is already in source/. Continue from where "
+                  "you left off: finish the implementation, run every check until "
+                  "they pass, then reply with a short summary."))])
+
+    async def _request_step(self, step, tree, plan):
+        on_step = self._owner._on_step
+        if on_step is not None:
+            return await on_step(step, tree, plan)
+        return ("The step could not be completed right now. Proceed with what you "
+                "can; if the capability cannot work without it, say so plainly in "
+                "your summary.")
+
+    async def _implement_loop(self, session, plan, message):
+        owner = self._owner
         while True:
             reply = await session.send(message)
-            await self._record("implementation_turn", {"reply": reply[-EVENT_TEXT:]})
+            await self._record("implementation_turn",
+                               {"reply": reply[-EVENT_TEXT:]})
+            step = parse_step(reply)
+            if step is not None:
+                files = await asyncio.to_thread(
+                    read_tree, session.workspace / SOURCE)
+                return _StepRequest(step, Snapshot(
+                    tuple(File(p, c) for p, c in files)))
             files = await asyncio.to_thread(read_tree, session.workspace / SOURCE)
             changed = changes(owner._baseline, files)
             broken = violations(owner._policy, changed)
@@ -357,7 +482,7 @@ class _Attempt:
                 await self._record("candidate", {"sha256": candidate.sha256,
                                                  "changes": [f"{o} {p}" for p, o
                                                              in changed]})
-                return candidate
+                return _Candidate(candidate)
             message = _tag("feedback", (
                 "A reviewer rejected the change:\n"
                 + json.dumps(verdict["findings"], indent=1)

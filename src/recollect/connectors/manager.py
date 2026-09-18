@@ -94,10 +94,13 @@ class ConnectorManager:
     # -- lookup ------------------------------------------------------------
 
     def find(self, gap: dict) -> Connector | None:
-        """A connectable, not-yet-connected connector for this capability gap.
+        """A shipped, not-yet-connected connector for this capability gap.
 
-        ``None`` means fall through to the build proposal: an unconfigured
-        connector cannot be connected, and a connected one needs no offer.
+        A matching connector is offered even when its OAuth client is not
+        configured yet: the tool it needs usually already exists behind the
+        connection gate, and rebuilding it is never the quick answer. When
+        the user says connect, :meth:`connect` names the missing credential
+        plainly, and the request stays blocked and askable.
         """
         text = " ".join(str(gap.get(key) or "") for key in
                         ("missing_capability", "modification_request"))
@@ -105,7 +108,7 @@ class ConnectorManager:
         for connector in self._connectors:
             if connector.id in connected:
                 continue
-            if self._store.connectable(connector.id) and connector.matches(text):
+            if connector.matches(text):
                 return connector
         return None
 
@@ -126,6 +129,10 @@ class ConnectorManager:
     def connected(self) -> list[str]:
         return [connector.id for connector in self._connectors
                 if connector.id in set(self._store.connected())]
+
+    def ids(self) -> tuple[str, ...]:
+        """Every connector this build ships, connected or not."""
+        return tuple(connector.id for connector in self._connectors)
 
     # -- consent and credentials --------------------------------------------
 

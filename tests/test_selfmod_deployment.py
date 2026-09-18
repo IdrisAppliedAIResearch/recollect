@@ -153,3 +153,57 @@ async def test_build_reuses_a_verified_image_for_identical_bundle_bytes():
     fake.add(value, image_id)
     # The fake has no commit: building a new image would fail the test.
     assert await BundleImages(fake).build(value) == image_id
+
+
+class SurfaceDocker:
+    """A docker CLI that answers only the serving-surface ``run`` probe."""
+
+    def __init__(self, stdout=b"", code=0, stderr=b""):
+        self.stdout, self.code, self.stderr = stdout, code, stderr
+        self.calls = []
+
+    async def run(self, *args, data=None):
+        self.calls.append(args)
+        return self.code, self.stdout, self.stderr
+
+
+async def test_serving_surface_runs_the_bundle_image_with_the_serving_env():
+    docker = SurfaceDocker(
+        stdout=b'{"ok": false, "tools": ["web_fetch", "web_search"]}\n')
+    result = await BundleImages(docker).serving_surface(
+        IMAGE_B, "add_calendar_event", ())
+    assert result["ok"] is False
+    assert result["tools"] == ["web_fetch", "web_search"]
+    assert "does not expose 'add_calendar_event'" in result["detail"]
+    assert "nothing is connected" in result["detail"]
+    args = docker.calls[0]
+    assert args[:3] == ("run", "--rm", "--pull=never")
+    assert "--network" in args and "none" in args
+    # Every assignment travels as -e KEY=VALUE: a bare KEY=VALUE is parsed
+    # as the image reference and dies with "invalid reference format".
+    env = [args[i:i + 2] for i, a in enumerate(args) if a == "-e"]
+    assert ("-e", "PYTHONPATH=/opt/python:/opt/recollect-bundle") in env
+    assert not any(a.startswith("PYTHONPATH=")
+                   and (args[args.index(a) - 1] != "-e")
+                   for a in args if a.startswith("PYTHONPATH="))
+    assert IMAGE_B in args and "RECOLLECT_CONNECTED_CONNECTORS" not in args
+
+
+async def test_serving_surface_passes_when_the_tool_is_exposed_and_connected():
+    docker = SurfaceDocker(
+        stdout=b'{"ok": true, "tools": ["add_calendar_event", "web_fetch"]}\n')
+    result = await BundleImages(docker).serving_surface(
+        IMAGE_B, "add_calendar_event", ("google_calendar",))
+    assert result == {"ok": True, "tools": ["add_calendar_event", "web_fetch"],
+                      "detail": ""}
+    args = docker.calls[0]
+    assert (args[args.index("RECOLLECT_CONNECTED_CONNECTORS=google_calendar")
+            - 1] == "-e")
+
+
+async def test_serving_surface_surfaces_a_probe_failure():
+    docker = SurfaceDocker(stdout=b"", stderr=b"ModuleNotFoundError: recollect",
+                           code=1)
+    result = await BundleImages(docker).serving_surface(IMAGE_B, "x", ())
+    assert result["ok"] is False
+    assert "surface probe failed" in result["detail"]

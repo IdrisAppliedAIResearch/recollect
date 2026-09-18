@@ -722,6 +722,15 @@ def with_connect_question(state, session_id):
     return task
 
 
+def with_step_question(state, session_id):
+    task = seed_task(state, session_id)
+    state.task_store.update(session_id, task["task_id"], state="blocked",
+                            progress="I need your input to finish the build.")
+    state.selfmod = StepQuestions(session_id, task["task_id"])
+    state.tasks.step_proposal = state.selfmod.step_proposal
+    return task
+
+
 class ConnectOffers(BuildQuestions):
     """A self-modification service with one pending connect offer."""
 
@@ -730,6 +739,26 @@ class ConnectOffers(BuildQuestions):
             return {"connector": "google_calendar", "name": "Google Calendar",
                     "missing_capability": "calendar write"}
         return None
+
+
+class StepQuestions:
+    """A self-modification service paused on one ask step."""
+
+    def __init__(self, session_id, task_id):
+        self.pending = (session_id, task_id)
+        self.answers = []
+
+    def step_proposal(self, session_id, task_id):
+        if (session_id, task_id) == self.pending:
+            return {"kind": "ask", "question": "Which calendar should I use?"}
+        return None
+
+    async def answer_step(self, session_id, task_id, answer):
+        if (session_id, task_id) != self.pending:
+            raise ValueError("No build is waiting for an answer on that task.")
+        self.pending = None
+        self.answers.append((session_id, task_id, answer))
+        return {"task_id": task_id, "answered": True}
 
 
 @pytest.mark.parametrize("operation,approve",
@@ -803,6 +832,41 @@ async def test_build_without_a_pending_question_changes_nothing(make_task_state)
     assert state.selfmod.decisions == []
 
 
+async def test_the_users_answer_in_chat_unblocks_a_paused_build(make_task_state):
+    state = make_task_state([], ["Got it."])
+    session_id = state.sessions.create_session().session_id
+    task = with_step_question(state, session_id)
+    snapshot = await state.tasks.snapshot(session_id)
+    assert snapshot["tasks"][0]["step_proposal"]["kind"] == "ask"
+    assert snapshot["tasks"][0]["step_proposal"]["question"] == (
+        "Which calendar should I use?")
+    context, _ = await state.tasks.context(session_id)
+    assert "step_proposal" in context and "Which calendar" in context
+    state.generator.scripts["main"].append(tool(
+        "task_control", operation="answer_step", text="The work one",
+        status_only=True))
+    events = await chat(state, session_id, "The work one.")
+    assert "error" not in events
+    assert state.selfmod.answers == [(session_id, task["task_id"],
+                                      "The work one")]
+
+
+async def test_answer_step_without_a_pending_question_changes_nothing(
+    make_task_state,
+):
+    state = make_task_state([
+        tool("task_control", operation="answer_step", text="hi",
+             status_only=True),
+    ], ["Nothing is waiting."])
+    session_id = state.sessions.create_session().session_id
+    with_step_question(state, session_id)
+    state.selfmod.pending = None
+    await chat(state, session_id, "The work one.")
+    handoff = json.loads(state.generator.calls[-1]["messages"][-1]["content"])
+    assert "No build is waiting for an answer" in handoff["error"]
+    assert state.selfmod.answers == []
+
+
 async def test_the_task_card_buttons_decide_through_the_api(make_task_state):
     state = make_task_state([])
     session_id = state.sessions.create_session().session_id
@@ -832,9 +896,13 @@ def test_build_operations_are_offered_only_while_a_question_waits():
         operations(api_task_tools(True, True)))
     assert "connect" not in operations(api_task_tools(True, False))
     assert "build" not in operations(api_task_tools(False, True))
+    assert "answer_step" not in operations(api_task_tools())
+    assert "answer_step" in operations(api_task_tools(True, True, True))
+    assert "answer_step" not in operations(api_task_tools(True, True, False))
 
 
-def api_task_tools(build_question=False, connect_question=False):
+def api_task_tools(build_question=False, connect_question=False,
+                   step_question=False):
     from recollect.task_chat import task_tools
 
-    return task_tools(build_question, connect_question)
+    return task_tools(build_question, connect_question, step_question)

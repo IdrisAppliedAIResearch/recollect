@@ -142,6 +142,11 @@ function TaskCard({ task, enabled, notifications, dependents }: {
             onClick={() => void decide(false)}>Don't build</button>
         </div>
       </div>}
+      {task.step_proposal && <div className="callout callout--warn task__build">
+        <p>The build is paused. To finish it I need your answer:{' '}
+          {task.step_proposal.question}</p>
+        <p className="faint">Reply in the chat to continue the build.</p>
+      </div>}
       {(task.findings.length > 0 || task.result) && <details className="task__findings">
         <summary>Saved {task.partial ? 'partial ' : ''}findings</summary>
         <Markdown text={task.result || task.findings.join('\n\n')} />

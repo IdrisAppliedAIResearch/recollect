@@ -84,14 +84,17 @@ async def test_the_store_keeps_grants_until_forgotten(tmp_path):
     assert not store.forget("google_calendar")
 
 
-def test_a_gap_matches_only_a_configured_service(tmp_path):
+def test_a_gap_matches_a_shipped_service_even_unconfigured(tmp_path):
+    # Rebuilding a capability the shipped connector already serves is the
+    # slow dead end; offering the connect, whose failure names the missing
+    # OAuth client, is the quick honest one.
     empty = ConnectorManager(ConnectorStore(tmp_path))
-    assert empty.find(CALENDAR_GAP) is None
-    store = configured_store(tmp_path)
-    value = ConnectorManager(store)
+    assert isinstance(empty.find(CALENDAR_GAP), GoogleCalendar)
+    assert empty.find({"missing_capability": "read a PDF"}) is None
+    value = ConnectorManager(configured_store(tmp_path))
     assert isinstance(value.find(CALENDAR_GAP), GoogleCalendar)
-    assert value.find({"missing_capability": "read a PDF"}) is None
-    store.save("google_calendar", {"refresh_token": "r", "connected_at": "x"})
+    value._store.save("google_calendar",
+                      {"refresh_token": "r", "connected_at": "x"})
     assert value.find(CALENDAR_GAP) is None  # already connected: nothing to offer
 
 

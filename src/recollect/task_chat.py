@@ -25,11 +25,15 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def task_tools(build_question: bool = False,
-               connect_question: bool = False) -> list[dict]:
+               connect_question: bool = False,
+               step_question: bool = False) -> list[dict]:
     """``build_question``: a task waits for go/no-go on a build.
 
     ``connect_question``: a task waits for the user's yes/no on connecting
     an external service (issue #28).
+
+    ``step_question``: a paused build asks the user a question it cannot answer
+    itself; the user's reply unblocks it.
     """
     start = copy.deepcopy(run_subagent_tool())
     start["function"]["description"] = (
@@ -65,6 +69,10 @@ def task_tools(build_question: bool = False,
                    "says yes and skip_connect when the user says no. Never "
                    "choose either without the user's answer."
                    if connect_question else "")
+                + (" A task with a step_proposal is a paused build asking the "
+                   "user a question it cannot answer itself: use answer_step, "
+                   "with the user's reply in text, to unblock it. Never invent "
+                   "the answer." if step_question else "")
             ),
             "parameters": {
                 "type": "object",
@@ -82,6 +90,8 @@ def task_tools(build_question: bool = False,
                             # ... and while a connection offer is waiting.
                             *(["connect", "skip_connect"]
                               if connect_question else []),
+                            # ... and while a paused build asks a question.
+                            *(["answer_step"] if step_question else []),
                         ],
                     },
                     "task_id": {"type": "string"},
@@ -193,6 +203,24 @@ async def _control(state, session_id, request_id, arguments, message=""):
         task = next(t for t in (await state.tasks.snapshot(session_id))["tasks"]
                     if t["task_id"] == task_id)
         return {**task, "build": decision["build"]}
+    if operation == "answer_step":
+        # A paused build's question: only the user's reply text unblocks it.
+        waiting = [t["task_id"] for t in snapshot["tasks"]
+                   if t.get("step_proposal")]
+        service = getattr(state, "selfmod", None)
+        if service is None or not waiting:
+            raise ValueError("No build is waiting for an answer.")
+        if not task_id and len(waiting) == 1:
+            task_id = waiting[0]
+        if task_id not in waiting:
+            raise ValueError("That task is not waiting for an answer.")
+        answer = (arguments.get("text") or "").strip()
+        if not answer:
+            raise ValueError("The answer text was missing or empty.")
+        await service.answer_step(session_id, task_id, answer)
+        task = next(t for t in (await state.tasks.snapshot(session_id))["tasks"]
+                    if t["task_id"] == task_id)
+        return {**task, "build": "answered"}
     if not task_id:
         candidates = snapshot["tasks"]
         if len(candidates) != 1:
@@ -345,6 +373,7 @@ async def stream_task_turn(
             build_question = any(task.get("build_proposal") for task in context_tasks)
             connect_question = any(task.get("connect_proposal")
                                    for task in context_tasks)
+            step_question = any(task.get("step_proposal") for task in context_tasks)
             if question == "files":
                 snapshot = await state.tasks.snapshot(session_id)
                 trace.response_text = artifact_reply(snapshot["tasks"])
@@ -387,7 +416,8 @@ async def stream_task_turn(
                 async for _ in state.generator.stream(
                     messages,
                     trace=trace,
-                    tools=task_tools(build_question, connect_question),
+                    tools=task_tools(build_question, connect_question,
+                                     step_question),
                     max_tokens=state.config.generator_routing_max_tokens,
                 ):
                     pass

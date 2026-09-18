@@ -107,6 +107,9 @@ class TaskCoordinator:
         # (session_id, task_id) -> the connector offered for that task's gap
         # (issue #28), or None.
         self.connect_proposal = None
+        # (session_id, task_id) -> a mid-build step the implementation paused
+        # on (connect/ask), awaiting the user's answer, or None.
+        self.step_proposal = None
         self._held: set[tuple[str, str]] = set()
         self._active_manager = None
         self.enabled = bool(
@@ -553,6 +556,12 @@ class TaskCoordinator:
                     task["session_id"], task["task_id"])}
                 for task in snapshot["tasks"]
             ]
+        if self.step_proposal is not None:
+            snapshot["tasks"] = [
+                {**task, "step_proposal": self.step_proposal(
+                    task["session_id"], task["task_id"])}
+                for task in snapshot["tasks"]
+            ]
         return {"enabled": self.enabled, **snapshot}
 
     async def context(self, session_id) -> tuple[str, list[str]]:
@@ -593,6 +602,7 @@ class TaskCoordinator:
                 "worker_active": self._has_owner(task),
                 "build_proposal": task.get("build_proposal"),
                 "connect_proposal": task.get("connect_proposal"),
+                "step_proposal": task.get("step_proposal"),
                 "activity": task["checkpoint"].get("activity", {}),
                 "objective": task["objective"][:1_000],
                 "progress": task["progress"][:1_000],

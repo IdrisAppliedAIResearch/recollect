@@ -40,6 +40,7 @@ from .deployment import (
 )
 from .docker import pinned_docker, resolve_image
 from .loop import TERMINAL, DeploymentSwitch, Outcome, SelfModificationLoop
+from .paused import PausedBuild, clear, load, save
 from .promotion import PromotionError, promote
 from .subagent_tree import (
     BUNDLE_PYTHONPATH,
@@ -155,6 +156,9 @@ def describe(kind, data):
         return "Candidate ready: " + ", ".join(data.get("changes", []))
     if kind == "attempt_failed":
         return f"Attempt {attempt} failed: {_line(data.get('reason'))}"
+    if kind == "loop_gave_up":
+        return (f"Gave up: {_line(data.get('reason'))} failed "
+                f"{data.get('repeats')} attempts in a row.")
     if kind == "resuming":
         return "The new capability passed. Resuming the request."
     if kind == "attempt_finished":
@@ -234,6 +238,8 @@ class SelfModificationService:
         self._retire_poll = retire_poll
         #: The gap waiting for the user's go/no-go; at most one at a time.
         self._proposal = None
+        #: A mid-build step the implementation paused on, awaiting the user.
+        self._pending_step = None
         self._stop_requested = False
         self._notices = 0
         #: What the running or last loop is doing, for the status API.
@@ -306,6 +312,7 @@ class SelfModificationService:
         self._coordinator.on_cancel = self.cancel_requested
         self._coordinator.build_proposal = self.proposal
         self._coordinator.connect_proposal = self.connect_proposal
+        self._coordinator.step_proposal = self.step_proposal
         self._record("a_serving", {"image_id": verified.image_id,
                                    "removed_images": removed})
         return verified
@@ -360,12 +367,30 @@ class SelfModificationService:
         for path in deployment.paths:
             await asyncio.to_thread(shutil.rmtree, path, ignore_errors=True)
 
-    def _build_loop(self, session_id, task_id, request, gap):
+    def _build_loop(self, session_id, task_id, request, gap, resume=None):
         admitted = {"admission": self._admission, "lane": self._lane}
         author = self._completer(self._role_endpoint, self._role_model,
                                  slot=self._role_slot, **admitted)
         reviewer = self._completer(self._role_endpoint, self._role_model,
                                    slot=self._role_slot, **admitted)
+        def step_handler(step, tree, plan):
+            # The build pauses here until the user acts; this loop owns one
+            # session and task, so capture them rather than read self.status.
+            return self._step(step, session_id=session_id, task_id=task_id)
+
+        async def pause_handler(step, tree, plan, attempt, tests, feedback):
+            # Persist before the build blocks on the step, so a restarted
+            # process can resume it; the record is dropped when the loop ends.
+            await asyncio.to_thread(
+                save, self._root, PausedBuild(
+                    session_id=session_id, task_id=task_id, request=request,
+                    gap=gap, attempt=attempt, feedback=feedback, plan=plan,
+                    step=step, tree=tree, tests=tests,
+                    connections=self._guide(),
+                    baseline_sha256=self.baseline.sha256))
+            self._log("step_paused",
+                      f"Build paused on a {step.get('kind')} step.")
+
         develop = AgentDeveloper(
             request=request, gap=gap,
             baseline=self.baseline, policy=self.policy, protected=PROTECTED,
@@ -373,6 +398,9 @@ class SelfModificationService:
             run_checks=self._run_checks or DockerChecks(
                 self._docker, self._base_image_id),
             on_event=self._on_event, connections=self._guide(),
+            on_step=step_handler, on_pause=pause_handler,
+            resume=(resume.plan, resume.tree, resume.step)
+            if resume is not None else None,
         )
         switch = DeploymentSwitch(
             deployments=self.deployments, images=self._images,
@@ -382,6 +410,13 @@ class SelfModificationService:
             stage=lambda verified: self._deployment(verified, "B"),
             promote=self._promote, discard=self._discard,
             on_event=self._on_event,
+            # The serving-surface check must see what really is connected, and
+            # what the build ships: a tool gated behind a connector is judged
+            # on its registration path once that connector signs in.
+            connected=(lambda: tuple(self._connectors.connected())
+                       if self._connectors is not None else ()),
+            shipped=(lambda: self._connectors.ids()
+                     if self._connectors is not None else ()),
         )
         return SelfModificationLoop(
             author_tests=authoring(
@@ -409,6 +444,19 @@ class SelfModificationService:
             return {"connector": pending["connector"],
                     "name": pending["connector_name"],
                     "missing_capability": pending["gap"].get("missing_capability")}
+        return None
+
+    def step_proposal(self, session_id, task_id):
+        """A paused build's question awaiting the user's answer on this task.
+
+        Only an ``ask`` step needs a chat answer; a ``connect`` step is settled
+        by the sign-in window the user is already shown.
+        """
+        pending = self._pending_step
+        if (pending and pending["session_id"] == session_id
+                and pending["task_id"] == task_id
+                and pending["step"].get("kind") == "ask"):
+            return dict(pending["step"])
         return None
 
     async def handle_gap(self, session_id, gap):
@@ -508,17 +556,35 @@ class SelfModificationService:
         self._runner = asyncio.create_task(self._run(session_id, task_id, gap))
         return {"task_id": task_id, "build": "started"}
 
-    async def _run(self, session_id, task_id, gap):
+    async def _run(self, session_id, task_id, gap, resume=None):
+        if resume is None:
+            clear(self._root)
         try:
             async with self._lock:
-                request = await asyncio.to_thread(
-                    lambda: self._coordinator.store.get(
-                        session_id, task_id)["original_message"])
-                self._loop = self._loop_factory(session_id, task_id, request, gap)
-            self._record("gap_accepted", {
-                "task_id": task_id,
-                "missing_capability": gap.get("missing_capability")})
-            self._job = asyncio.create_task(self._loop.run(gap))
+                if resume is None:
+                    request = await asyncio.to_thread(
+                        lambda: self._coordinator.store.get(
+                            session_id, task_id)["original_message"])
+                else:
+                    request = resume.request
+                self._loop = self._loop_factory(session_id, task_id, request, gap,
+                                                resume=resume)
+            if resume is not None:
+                self.status.update(
+                    state="running", session_id=session_id, task_id=task_id,
+                    attempt=resume.attempt,
+                    missing_capability=gap.get("missing_capability"),
+                    updated_at=datetime.now(UTC).isoformat())
+                self._log("resumed",
+                          f"Resuming the paused build (attempt {resume.attempt}).")
+            else:
+                self._record("gap_accepted", {
+                    "task_id": task_id,
+                    "missing_capability": gap.get("missing_capability")})
+            seed = None if resume is None else {
+                "tests": resume.tests, "attempt": resume.attempt,
+                "feedback": resume.feedback}
+            self._job = asyncio.create_task(self._loop.run(gap, seed=seed))
             outcome = await self._job
         except asyncio.CancelledError:
             if not self._stop_requested:
@@ -527,6 +593,7 @@ class SelfModificationService:
             await self._notice(STOPPED_NOTICE)
         finally:
             self._loop = self._job = None
+            clear(self._root)
         if outcome.finished and self.status.get("continuation_task_id"):
             await self._complete_original(session_id, task_id,
                                           self.status["continuation_task_id"])
@@ -627,6 +694,100 @@ class SelfModificationService:
             self.status.update(state="failed",
                                updated_at=datetime.now(UTC).isoformat())
 
+    # -- a step only a human can take -------------------------------------
+
+    async def _step(self, step, *, session_id, task_id):
+        """Handle the implementation's pause: connect a service or ask a
+        question, then hand the outcome back so the build can resume."""
+        kind = step.get("kind")
+        if kind == "connect":
+            return await self._step_connect(step, session_id, task_id)
+        if kind == "ask":
+            return await self._step_ask(step, session_id, task_id)
+        return ("That step is not something I can do. Proceed with what you "
+                "can, or say plainly in your summary what is missing.")
+
+    async def _step_connect(self, step, session_id, task_id):
+        connector_id = str(step.get("connector") or "").strip()
+        connectors = self._connectors
+        if connectors is None or connector_id not in connectors:
+            return (f"Connecting {connector_id or 'that service'} is not "
+                    "available. Proceed without it if you can, or say plainly "
+                    "in your summary what is missing.")
+        try:
+            name = connectors.get(connector_id).name
+        except Exception:
+            name = connector_id
+        self._log("step_connect_requested", f"Connecting {name}.")
+        await self._notice(
+            f"To build this I need to connect {name}. I'm opening a sign-in "
+            "window - please complete it so I can continue.")
+        try:
+            entry = await connectors.connect(connector_id)
+        except asyncio.CancelledError:
+            raise
+        except (RuntimeError, OSError, ValueError, httpx.HTTPError) as error:
+            self._record("step_connect_failed", {
+                "task_id": task_id, "connector": connector_id,
+                "reason": str(error)[:2048]})
+            self._log("step_connect_failed", f"Connecting {name} failed.")
+            return (f"Connecting {name} did not complete: "
+                    f"{str(error).rstrip('.')}. Proceed without it if you can, "
+                    "or say plainly in your summary what is missing.")
+        self._record("step_connect_succeeded", {
+            "task_id": task_id, "connector": connector_id})
+        self._log("step_connect_succeeded", f"Connected {name}.")
+        await self._notice(f"Connected to {name}. Continuing the build.")
+        tools = ", ".join(str(t) for t in (entry.get("tools") or []))
+        return (f"{name} is now connected"
+                + (f" ({tools})" if tools else "")
+                + ". Continue with the build.")
+
+    async def _step_ask(self, step, session_id, task_id):
+        question = " ".join(str(step.get("question") or "").split())
+        if not question:
+            return ("You asked a question without stating it. State the "
+                    "question, or proceed with what you can.")
+        future = asyncio.get_running_loop().create_future()
+        self._pending_step = {"session_id": session_id, "task_id": task_id,
+                              "step": dict(step), "future": future}
+        self.status["pending_step"] = dict(step)
+        self._log("step_ask_requested", question)
+        self._record("step_ask_requested", {"task_id": task_id,
+                                            "question": question[:2048]})
+        try:
+            await self._notice(f"To finish the build I need your input: "
+                               f"{question}",
+                               message_id="selfmod-step-" + task_id)
+            answer = await future
+        finally:
+            # A stop may land while we are still announcing the question.
+            self._forget_step(future)
+        self._log("step_ask_answered",
+                  " ".join(str(answer).split())[:200])
+        self._record("step_ask_answered", {"task_id": task_id,
+                                           "answer": " ".join(
+                                               str(answer).split())[:2048]})
+        return "You answered: " + " ".join(str(answer).split())
+
+    def _forget_step(self, future):
+        if self._pending_step is not None and \
+                self._pending_step["future"] is future:
+            self._pending_step = None
+            if not future.done():
+                future.cancel()
+        self.status.pop("pending_step", None)
+
+    async def answer_step(self, session_id, task_id, answer):
+        """Resolve a paused build's question with the user's answer."""
+        pending = self._pending_step
+        if (pending is None or pending["session_id"] != session_id
+                or pending["task_id"] != task_id
+                or pending["future"].done()):
+            raise ValueError("No build is waiting for an answer on that task.")
+        pending["future"].set_result(" ".join(str(answer).split()))
+        return {"task_id": task_id, "answered": True}
+
     def _log(self, kind, text):
         self.activity.append({"at": datetime.now(UTC).isoformat(), "kind": kind,
                               "text": text})
@@ -726,6 +887,12 @@ class SelfModificationService:
         elif kind == "resuming":
             self.status["continuation_task_id"] = data.get("task_id")
             await self._notice("The new capability passed. Resuming your request.")
+        elif kind == "loop_gave_up":
+            reason = (str(data.get("reason") or "no reason recorded")
+                      .splitlines()[0][:200].rstrip("."))
+            await self._notice(f"I stopped retrying this build: {reason} "
+                               f"failed {data.get('repeats')} attempts in a "
+                               "row. Ask me again once that changes.")
         elif kind == "loop_stopped":
             await self._notice(STOPPED_NOTICE)
 
@@ -793,4 +960,29 @@ async def install(config, coordinator, *, repository=None, root=None,
         connections=connections,
     )
     await service.prepare()
+    _resume_paused_build(service, root)
     return service
+
+
+def _resume_paused_build(service, root):
+    """Pick up a build that paused on a human step before a restart.
+
+    The record is honored only while the tree it captured still matches the
+    deployed baseline; a drifted tree would resume against the wrong source.
+    """
+    try:
+        paused = load(root)
+    except (OSError, ValueError) as error:
+        _LOG.warning("Could not read the paused-build record: %s", error)
+        clear(root)
+        return
+    if paused is None:
+        return
+    if paused.baseline_sha256 != service.baseline.sha256:
+        _LOG.warning("Paused build's baseline no longer matches; not resuming.")
+        service._record("resume_abandoned",
+                        {"reason": "baseline changed since the build paused"})
+        clear(root)
+        return
+    asyncio.create_task(service._run(paused.session_id, paused.task_id,
+                                     paused.gap, resume=paused))
