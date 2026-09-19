@@ -320,6 +320,46 @@ def test_handoff_withholds_an_objective_until_the_worker_reports():
         assert carried["objective"] == "No reminder service is connected."
 
 
+async def test_a_just_started_task_is_acknowledged_not_answered(make_task_state):
+    """The chat must not answer for a worker that has reported nothing.
+
+    A live turn dispatched the work and then told the user "I don't have a
+    way to set recurring reminders" while its worker was booking five of
+    them. The follow-up had asked it to answer the user's question; with
+    nothing reported, the only honest answer is that work started, and the
+    one certainly-wrong answer is that the request cannot be done.
+    """
+    state = make_task_state([
+        tool("run_subagent", task="Book the Friday reminder.", effort="focused"),
+    ], ["I've started on that."])
+    session_id = state.sessions.create_session().session_id
+    await chat(state, session_id, "Set a reminder every Friday at 1:30 pm.")
+    system = state.generator.calls[-1]["messages"][0]["content"]
+    assert "reported nothing yet" in system
+    assert "do not say the request is impossible" in system
+    # The prompt that invites answering from findings must not be the one used.
+    assert "Include available findings" not in system
+
+
+async def test_a_task_that_has_reported_is_answered_from_its_findings(
+    make_task_state,
+):
+    """The converse: once evidence exists, the reply may use it."""
+    state = make_task_state([
+        tool("task_control", operation="status", status_only=True),
+    ], ["It found five years of coverage."])
+    session_id = state.sessions.create_session().session_id
+    task = seed_task(state, session_id)
+    state.task_store.update(
+        session_id, task["task_id"], state="completed",
+        findings=["The warranty covers five years."],
+    )
+    await chat(state, session_id, "Any news?")
+    system = state.generator.calls[-1]["messages"][0]["content"]
+    assert "Include available findings" in system
+    assert "reported nothing yet" not in system
+
+
 async def test_a_started_task_cannot_answer_the_user_from_its_own_objective(
     make_task_state,
 ):

@@ -15,7 +15,6 @@ same keyless service or immediately repeat a known rate-limited request.
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Annotated, Literal
 
@@ -191,8 +190,13 @@ async def report_message(
     }, ensure_ascii=False)
 
 
-if os.environ.get("RECOLLECT_TASK_REPORTING") == "1":
-    mcp.tool()(report_message)
+# Registered unconditionally, for the reason above. It was gated on
+# RECOLLECT_TASK_REPORTING, which the serving-surface probe never sets, so
+# report_message was missing from every probe surface - making the failure
+# text under-report what the image actually exposes, and making the tool
+# itself unbuildable. A worker that is not in a reporting run simply has no
+# one to report to; that is not a reason to hide the tool.
+mcp.tool()(report_message)
 
 
 def main() -> None:

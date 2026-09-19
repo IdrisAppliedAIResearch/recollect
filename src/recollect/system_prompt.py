@@ -136,6 +136,16 @@ OPERATION_RETURNED = (
     "findings, or say when none have been reported yet."
 )
 
+WORK_STARTED = (
+    "The operation started work and has reported nothing yet. Acknowledge that, "
+    "using task_reply only, and say what is now running. You are not the one "
+    "answering the request: a worker is, and it has tools you cannot see from "
+    "here. So do not answer the question yourself, do not guess at the outcome, "
+    "and above all do not say the request is impossible or that you lack the "
+    "capability - you do not know that, and saying it while the worker succeeds "
+    "is the one reply that is certainly wrong."
+)
+
 
 def _section(tag: str, *parts: str) -> str:
     return f"<{tag}>\n" + "\n\n".join(parts) + f"\n</{tag}>"
@@ -144,6 +154,7 @@ def _section(tag: str, *parts: str) -> str:
 FOLLOW_UPS = {
     "work_not_started": WORK_NOT_STARTED,
     "operation_returned": OPERATION_RETURNED,
+    "work_started": WORK_STARTED,
 }
 
 

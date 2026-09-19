@@ -502,12 +502,24 @@ async def stream_task_turn(
                     if call.name == "task_reply":
                         trace.response_text = _reply_text(arguments)
                         status_only = arguments.get("status_only")
+                        # `question is not None` is load-bearing, not leftover
+                        # coupling: a pure progress question is answered from
+                        # the worker's evidence, and committing that as a
+                        # memory would write the worker's findings into the
+                        # episode store as though the user had said them.
+                        # task_question fullmatches, so a mixed message that
+                        # also carries a new fact does not trigger it and does
+                        # commit. Pinned by test_task_status_reply.py's
+                        # progress-question-cannot-be-reclassified test.
                         display_only = (
                             status_only or question is not None or not memory_response
                         )
                     else:
                         # An operational acknowledgment is not a memory. Mixed
-                        # conversation must supply its substantive reply separately.
+                        # conversation must supply its substantive reply
+                        # separately, and a pure progress question's answer is
+                        # the worker's evidence rather than the user's - see
+                        # the task_reply branch above.
                         display_only = not memory_response or question is not None
                         try:
                             if call.name == "run_subagent":
@@ -555,9 +567,23 @@ async def stream_task_turn(
                         )
                         # Qwen's template permits system messages only before
                         # the conversation, so update the existing preamble.
+                        #
+                        # Which follow-up depends on whether anything has come
+                        # back. Asking a model to "answer the user's question"
+                        # about work that just started invites it to answer
+                        # from its own knowledge - which is how a turn came to
+                        # tell the user "I don't have a way to set recurring
+                        # reminders" while its worker was busy booking five.
                         system = _turn_system_prompt(
                             state.config, prepared.trace.started_at, input_mode,
-                            task_mode=True, follow_up="operation_returned",
+                            task_mode=True,
+                            follow_up=(
+                                "work_started"
+                                if isinstance(result, dict)
+                                and "task_id" in result
+                                and not _worker_reported(result)
+                                else "operation_returned"
+                            ),
                         )
                         messages[0]["content"] = system
                         messages.append(
