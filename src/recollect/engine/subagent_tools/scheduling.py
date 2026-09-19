@@ -132,21 +132,30 @@ def register(mcp) -> None:
     @mcp.tool()
     async def schedule_at(when: str, text: str, session_id: str = "",
                           task_id: str = "", channel: str = "") -> str:
-        """Book one job for a timezone-aware ISO moment (2026-09-18T08:30:00,
-        never a naive time). At that moment the host posts text as a
+        """Book one job for a timezone-aware ISO moment with an explicit
+        offset (2026-09-19T13:30:00-05:00). The user's clock is the
+        host_tz named in your [recollect identity] line: convert spoken
+        times to it — never book in UTC unless the user said UTC, and a
+        naive time is refused. At that moment the host posts text as a
         reminder notice into the conversation named by session_id/task_id —
-        copy both from the [recollect identity] line of your instruction;
-        inventing or omitting them fails the booking. A moment already past
-        is delivered immediately. Optional channel sends the text off-device
-        too, if the user configured one (list them first; the Notice posts
-        either way). Returns the booked job with its id, or an error to
-        report — never claim a booking without an id."""
+        copy both from the identity line; inventing or omitting them fails
+        the booking. The text is what the user reads, verbatim: write the
+        reminder itself, never re-booking instructions or internal ids.
+        A moment already past is delivered immediately. Optional channel
+        sends the text off-device too, if the user configured one (list
+        them first; the Notice posts either way). Returns the booked job
+        with its id, or an error to report — never claim a booking without
+        an id, and never book before list_scheduled has shown the request
+        is not already waiting."""
         return await _book(when, text, session_id, task_id, channel)
 
     @mcp.tool()
     async def list_scheduled() -> str:
-        """Every job currently waiting: id, due_at, payload. Returns JSON;
-        an error field means the connection service is unreachable."""
+        """Every job currently waiting: id, due_at, payload. Call this
+        before booking: never stack a second job for what a waiting one
+        already covers, and when the user changes or cancels a reminder,
+        cancel the superseded id instead of letting both fire. Returns
+        JSON; an error field means the connection service is unreachable."""
         return await _list()
 
     @mcp.tool()

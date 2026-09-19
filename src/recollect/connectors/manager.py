@@ -23,7 +23,6 @@ from .base import (
     UnknownConnector,
     connector_store,
 )
-from .google_calendar import GoogleCalendar
 from .oauth import (
     CallbackCapture,
     authorization_url,
@@ -37,7 +36,16 @@ from .oauth import (
 #: Connectors this build ships with worker tools. The official MCP registry
 #: lookup (issue #28) will propose more; only these can be used after a
 #: connect until the implementation agent writes the glue for new ones.
-CONNECTORS: tuple[Connector, ...] = (GoogleCalendar(),)
+#:
+#: EMPTY SINCE 2026-09-18 (user decision): the Google Calendar connector is
+#: docked. The calendar/reminder story runs on the seams — the local timer
+#: and the implementation agent building capabilities on them — and a live
+#: conversation showed gap matching still offering the old connect, ending
+#: in the doomed "no OAuth client" sign-in instead of the build. The class,
+#: its worker tool, and this connect machinery all stay tested and ready; to
+#: re-ship a connector, add it here (e.g. ``GoogleCalendar()``) and un-dock
+#: its tests in tests/test_connectors.py.
+CONNECTORS: tuple[Connector, ...] = ()
 
 #: How long a browser tab may take to come back with the user's answer. This
 #: is human pacing, not a limit on agent work: an unfinished sign-in fails

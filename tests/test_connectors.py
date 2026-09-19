@@ -70,7 +70,10 @@ def consenting_browser(provider_state):
 
 
 def manager(store, *, transport, browser=None, timeout=10.0):
-    return ConnectorManager(store, transport=transport, browser=browser,
+    # The default registry is docked empty (2026-09-18 pivot); these tests
+    # exercise the connect machinery, so they ship the connector explicitly.
+    return ConnectorManager(store, connectors=(GoogleCalendar(),),
+                            transport=transport, browser=browser,
                             callback_timeout=timeout)
 
 
@@ -84,15 +87,22 @@ async def test_the_store_keeps_grants_until_forgotten(tmp_path):
     assert not store.forget("google_calendar")
 
 
-def test_a_gap_matches_a_shipped_service_even_unconfigured(tmp_path):
-    # Rebuilding a capability the shipped connector already serves is the
-    # slow dead end; offering the connect, whose failure names the missing
-    # OAuth client, is the quick honest one.
-    empty = ConnectorManager(ConnectorStore(tmp_path))
-    assert isinstance(empty.find(CALENDAR_GAP), GoogleCalendar)
-    assert empty.find({"missing_capability": "read a PDF"}) is None
+def test_the_default_registry_offers_no_connector_gaps_go_to_the_build(tmp_path):
+    # Pivot (2026-09-18, user): the calendar/reminder story runs on the
+    # seams, and a live conversation showed the matching offer ending in a
+    # doomed sign-in (no OAuth client) instead of the build path. The
+    # default registry is therefore docked: every gap asks to build.
+    shipped = ConnectorManager(ConnectorStore(tmp_path))
+    assert shipped.find(CALENDAR_GAP) is None
+    assert shipped.find({"missing_capability": "read a PDF"}) is None
+    assert shipped.ids() == ()
+
+
+def test_an_explicitly_shipped_connector_still_matches_even_unconfigured(tmp_path):
+    # The lookup itself is unchanged: when a connector ships, a gap it
+    # covers is offered as a connect — and only until it is connected.
     store = configured_store(tmp_path)
-    value = ConnectorManager(store)
+    value = ConnectorManager(store, connectors=(GoogleCalendar(),))
     assert isinstance(value.find(CALENDAR_GAP), GoogleCalendar)
     store.save("google_calendar", {"refresh_token": "r", "connected_at": "x"})
     assert value.find(CALENDAR_GAP) is None  # already connected: nothing to offer
@@ -186,7 +196,8 @@ async def test_nothing_serves_an_unconnected_or_unknown_connector(tmp_path):
         await value.connection("nope")
     with pytest.raises(UnknownConnector):
         await value.connect("nope")
-    unconfigured = ConnectorManager(ConnectorStore(tmp_path / "empty"))
+    unconfigured = ConnectorManager(ConnectorStore(tmp_path / "empty"),
+                                    connectors=(GoogleCalendar(),))
     with pytest.raises(ValueError, match="no OAuth client"):
         await unconfigured.connect("google_calendar")
     assert [entry["connectable"] for entry in unconfigured.status()] == [False]

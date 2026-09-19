@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 
 import httpx
 import pytest
@@ -70,6 +71,48 @@ async def test_parent_result_receipt_survives_empty_closing_response(
             assert not any(r.kind == "blocked" for r in reports)
     finally:
         await native.client.aclose()
+
+
+async def test_a_second_result_for_the_same_revision_is_dropped(tmp_path, caplog):
+    # A live run appended two results to one task: after delivering the
+    # first, the model made one more report_message call, and the second
+    # "result" re-notified the user on a task the UI already showed as
+    # done. The tail of a delivered revision dies at the gate, logged.
+    native = NativeProtocol(tmp_path)
+    native.release.set()
+    original = native.request
+
+    async def request(req):
+        response = await original(req)
+        if req.method == "POST" and req.url.path.endswith("/message"):
+            tail = report_part("result")
+            tail["callID"] = "call_result_duplicate"  # distinct tool call
+            native.parts.extend([report_part("result"), tail])
+            return httpx.Response(200, json={"parts": []})
+        return response
+
+    native.client._transport = httpx.MockTransport(request)
+    reports = []
+
+    async def report(item):
+        reports.append(item)
+
+    with caplog.at_level(
+        logging.WARNING, logger="recollect.engine.sandbox.runner",
+    ):
+        try:
+            async with asyncio.timeout(8):
+                results = [item async for item in native.runner.run_continuous(
+                    "conversation", "Research", commands=asyncio.Queue(),
+                    report=report,
+                )]
+        finally:
+            await native.client.aclose()
+    assert results[-1].status == "ok"
+    assert results[-1].summary == "Verified report"
+    assert [item.kind for item in reports].count("result") == 1
+    assert any("dropped subagent report" in record.getMessage()
+               for record in caplog.records)
 
 
 async def test_steering_unblocks_children_and_preserves_queued_directions(tmp_path):

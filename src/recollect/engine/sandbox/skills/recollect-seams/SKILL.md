@@ -7,8 +7,11 @@ description: The boundary of what you may build and use here — timer, notices,
 1. Read the `[recollect identity]` line of your instruction. Those ids
    are real; everything you book carries them verbatim.
 2. To act at a moment in time: `schedule_at` with a timezone-aware ISO
-   time and a short text. The host, not you, delivers it when it comes
-   due — possibly after your process is gone.
+   time and a short text. The user's clock is the `host_tz` in the
+   identity line: convert spoken times to it and send an explicit offset
+   — the container's clock is not the user's, and booking "1:30 pm" in
+   UTC delivers five hours early. The host, not you, delivers it when it
+   comes due — possibly after your process is gone.
 3. To keep durable state: your capability's namespaced store (the tools
    you were given expose it; state lives on the host, never in
    `/workspace`, which is scrubbed after every invocation).
@@ -26,8 +29,14 @@ description: The boundary of what you may build and use here — timer, notices,
   channel (off-device). No other surfaces exist for you.
 - New durable state means the store seam; never ask for, or assume, a
   new endpoint.
-- Timers are one-shot. A recurring reminder is re-booked after each
-  fire.
+- Timers are one-shot and nothing re-books a fired job: at delivery
+  time no worker is alive. For a recurring request, book the next few
+  instances explicitly and tell the user plainly what you booked and
+  how far ahead it reaches. Never hide re-booking instructions in the
+  text of one job — the user reads that text verbatim.
+- List before you book: call `list_scheduled` first, never stack a
+  second job for what a waiting one already covers, and when the user
+  changes or cancels a reminder, cancel the superseded job by id.
 - A failed send or booking is reported with its reason, never retried
   in a loop and never claimed without the id that proves it worked.
 - Compose what exists. If a seventh mechanism seems needed, that is

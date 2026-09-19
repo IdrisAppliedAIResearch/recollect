@@ -24,6 +24,7 @@ import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -122,15 +123,23 @@ def identity_note(session_id: str, task_id: str = "") -> str:
     across chats), so the worker copies them from its instruction — the
     route the reminder story names. Self-asserted: for routing notices,
     never as authorization (.agent/seam-architecture-plan.md doctrine 7).
+
+    The host's UTC offset rides along because the worker runs in a sandbox
+    that knows only its own clock, and a live run booked the user's
+    "1:30 pm" in UTC — five hours early — and said so. The host process is
+    the user's machine: its zone is the user's zone.
     """
     if not session_id.strip():
         return ""
     parts = [f"session_id={session_id.strip()}"]
     if task_id.strip():
         parts.append(f"task_id={task_id.strip()}")
+    host = datetime.now().astimezone()
+    parts.append(f"host_tz=UTC{host.strftime('%z')} ({host.tzname()})")
     return ("[recollect identity] " + " ".join(parts)
-            + " — copy these into any schedule or notice booking; never "
-              "invent different ones.")
+            + " — copy the ids into any schedule or notice booking, never "
+              "invent different ones; interpret user-spoken times in "
+              "host_tz and send only explicit offsets.")
 
 
 class OpenCodeRunner:
@@ -350,6 +359,18 @@ class OpenCodeRunner:
                         entry.native_session_id == oc_id
                         and entry.related_message_id == revisions[entry.revision]
                     )
+                    if valid and entry.revision in result_revisions and not (
+                        entry.kind == "accepted" and entry.revision not in accepted
+                    ):
+                        # This revision already had its result: anything
+                        # after it re-notifies the user on a task the UI
+                        # shows as finished (a live run appended a second
+                        # result minutes after "done"). The one exception
+                        # is the acknowledgment a delivered-but-unacknowledged
+                        # result asks for — that is the recovery protocol,
+                        # not a tail. Steering mints a new revision, and
+                        # reports for that one are still welcome.
+                        valid = False
                     if valid and (
                         entry.kind == "accepted" or entry.revision == max(revisions)
                     ):
