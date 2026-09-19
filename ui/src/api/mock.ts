@@ -15,7 +15,6 @@ import type {
   SessionInfo,
 } from '../types/api.ts'
 import type { TurnSummary, TurnTrace } from '../types/trace.ts'
-import { starvedTiers } from '../lib/derive.ts'
 import { buildCorpus } from '../mock/corpus.ts'
 import {
   MOCK_TURN_SEEDS,
@@ -35,18 +34,16 @@ function summarize(trace: TurnTrace): TurnSummary {
     query_preview: trace.query.text.slice(0, 160),
     response_preview: (trace.generation?.response_text ?? '').slice(0, 160),
     episodes_delivered: trace.report.episodes_delivered,
-    episodes_dropped: trace.report.episodes_dropped,
     chars_delivered: trace.report.chars_delivered,
-    budget_chars: trace.report.budget_chars,
     stm_count: trace.report.stm_count,
     k_count: trace.report.k_count,
-    coverage_count: trace.report.coverage_count,
-    starved_tiers: starvedTiers(trace),
+    eligible_count: trace.report.eligible_count,
     trace_trustworthy:
       trace.verification.payload_identical && trace.verification.report_fields_identical,
     recency_count: trace.report.recency_count,
     semantic_count: trace.report.semantic_count,
-    aspect_count: trace.report.aspect_count,
+    relevance_only_count: trace.timeline.relevance_only_count,
+    ceiling_engaged: trace.ceiling.engaged,
   }
 }
 
@@ -93,9 +90,9 @@ export function createMockSource(scenario: MockScenario = 'deployed'): DataSourc
           reachable: false,
           note: 'mock data source — no generator contacted',
         },
-        library_version: '0.2.0',
+        library_version: '0.3.0',
         episodic_config: {
-          aspect_enabled: true,
+          aspect_enabled: false,
           aspect_model: 'en_core_web_sm',
           aspect_share: 0.5,
           bm25_b: 0.75,
@@ -104,6 +101,7 @@ export function createMockSource(scenario: MockScenario = 'deployed'): DataSourc
           candidate_policy: 'full_store',
           embed_call_shape: 'solo',
           k_threshold: 0.48,
+          read_policy: 'timeline',
           recency_window_n: 32,
           retrieval_budget_chars: 32_000,
           semantic_dense_weight: 0.8,
@@ -112,9 +110,11 @@ export function createMockSource(scenario: MockScenario = 'deployed'): DataSourc
           selector_cluster_count: 16,
           selector_cost_exponent: 0,
           selector_lambda: 0.1,
+          timeline_threshold: 0.48,
           unsafe_cosine_top_n: 100,
         },
-        budget_chars: 32_000,
+        library_version_mismatch: null,
+        context_ceiling_chars: 150_000,
       }
     },
 

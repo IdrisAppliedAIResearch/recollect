@@ -2,39 +2,39 @@
  * The always-visible headline. Whatever tab is open, these numbers stay put,
  * because they are the ones you want to notice changing between turns.
  */
-import { chars, ms, pct } from '../lib/format.ts'
+import { chars, ms } from '../lib/format.ts'
 import { headline } from '../lib/derive.ts'
 import { EMPTY_PAYLOAD_CHARS } from '../lib/render.ts'
 import type { TurnTrace } from '../types/trace.ts'
 
 export function Strip({ trace }: { trace: TurnTrace }) {
   const head = headline(trace)
-  const longTermEmpty = head.retrievalCharsDelivered <= EMPTY_PAYLOAD_CHARS
-  const longTermReason =
+  const addedNothing = head.relevanceOnly === 0 && head.eligible > 0
+  const reason =
     trace.store.episode_count === 0
-      ? 'empty · no episodes yet'
-      : head.recency >= trace.store.episode_count
-        ? 'empty · all in recency'
-        : 'empty · nothing admitted'
+      ? 'no episodes yet'
+      : head.recency >= head.eligible
+        ? 'the window holds the whole store'
+        : 'nothing cleared the threshold'
 
   return (
     <div className="strip mono">
       <Cell
         label="delivered"
         value={head.charsDelivered <= EMPTY_PAYLOAD_CHARS ? '—' : chars(head.charsDelivered)}
-        sub={`${head.delivered} episodes · ${head.dropped} dropped`}
+        sub={`${head.delivered} of ${head.eligible} episodes`}
       />
       <Cell
-        label="long-term"
-        value={longTermEmpty ? '—' : `${chars(head.retrievalCharsDelivered)} / ${chars(head.budget)}`}
-        sub={longTermEmpty ? longTermReason : pct(head.utilization)}
+        label="from memory"
+        value={addedNothing ? '—' : String(head.relevanceOnly)}
+        sub={addedNothing ? reason : `beyond the last ${head.window}`}
       />
       <div className="strip__cell">
-        <span className="strip__label">tiers</span>
+        <span className="strip__label">admitted by</span>
         <span className="strip__tiers">
-          <Pip code="N" n={head.recency} tier="recency" />
-          <Pip code="K" n={head.semantic} tier="semantic" />
-          <Pip code="A" n={head.aspect} tier="aspect" />
+          <Pip code="N" n={head.recency} tier="continuity" />
+          <Pip code="K" n={head.relevanceOnly} tier="relevance" />
+          <Pip code="B" n={head.overlap} tier="both" />
         </span>
       </div>
       <Cell label="store" value={String(trace.store.episode_count)} sub="episodes" />
@@ -53,28 +53,36 @@ export function Strip({ trace }: { trace: TurnTrace }) {
           ) : (
             <span className="badge badge--bad">NOT VERIFIED</span>
           )}
-          {head.aspectMode === 'fallback' && (
-            <span
-              className="badge badge--warn"
-              title="The initial half admitted nothing; one CC80 walk owned the whole allowance."
-            >
-              ASPECT fallback
-            </span>
-          )}
-          {head.starved.map((name) => (
-            <span key={name} className="badge badge--warn" title="Proposed episodes the budget never admitted">
-              {name} starved
-            </span>
-          ))}
-          {trace.report.truncated && (
+          {addedNothing && (
             <span
               className="badge badge--warn"
               title={
-                `The paths wanted ${chars(trace.report.chars_wanted)} characters; only ` +
-                `${chars(trace.report.chars_delivered)} fit the budget.`
+                'Every episode that cleared the threshold was already inside ' +
+                `the last ${head.window} exchanges. Long-term memory added ` +
+                'nothing the continuity window would not have supplied.'
               }
             >
-              truncated
+              no long-term gain
+            </span>
+          )}
+          {trace.ceiling.engaged && (
+            <span
+              className="badge badge--warn"
+              title={
+                `The deployment ceiling withheld ${trace.ceiling.withheld_ids.length} ` +
+                'episode(s) that cleared the threshold, to fit the model context. ' +
+                'A hardware limit of this deployment, not the mechanism.'
+              }
+            >
+              ceiling −{trace.ceiling.withheld_ids.length}
+            </span>
+          )}
+          {head.continuityShare === 1 && head.delivered > 0 && (
+            <span
+              className="badge badge--warn"
+              title="The block is exactly the continuity window; retrieval contributed no episode of its own."
+            >
+              continuity only
             </span>
           )}
         </span>

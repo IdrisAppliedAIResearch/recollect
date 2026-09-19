@@ -84,29 +84,39 @@ your message plus the assistant's reply. An episode is written only after the
 reply is finished, because half a turn is not a memory yet.
 
 Then, on every new turn, it throws the old context away and builds a new one
-from scratch. Three paths compete to fill it:
+from scratch. Two conditions let an episode in, and the block is everything
+that satisfies either one:
 
-| path | label in the trace | what it contributes |
+| condition | label in the trace | what it contributes |
 |---|---|---|
-| recency | **RECENT** | the last 32 episodes, in order, always included |
-| semantic | **SEMANTIC** | the best matches from the whole store, by meaning and by keyword |
-| aspect | **ASPECT** | a spread of episodes that each add a *new topic*, not more of the same |
+| relevance | **RELEVANT** | every episode in the whole store that matches the question closely enough |
+| continuity | **RECENT** | the last 32 exchanges, whatever they scored |
 
 A few details that matter:
 
-- **RECENT is never dropped.** It sits outside the character budget, so a busy
-  long-term search can never push out what you just said.
-- **SEMANTIC** is a fixed blend called CC80: 80% meaning-based (vector) search
-  and 20% keyword (BM25) search, run over *every* episode in the store, not
-  over a recent slice of it. Something you said six months ago is as reachable
-  as something you said this morning.
-- **ASPECT** exists because top-ranked results tend to repeat each other. It
-  picks the episodes that cover the most ground you have not covered yet, per
-  character spent.
-- The long-term part of the context gets a budget of **32,000 characters**.
-  That budget is split 50/50 between SEMANTIC and ASPECT. Whatever one side
-  cannot use goes back to the other. Every episode admitted is charged the
-  exact number of characters it actually costs once rendered, not an estimate.
+- **RECENT is never dropped.** What you just said cannot be pushed out by a
+  busy long-term search, because nothing here competes for room.
+- **RELEVANT is a threshold, not a ranking.** Every episode is scored by
+  meaning (vector cosine) against your question, and every one at or above
+  0.48 is delivered — there is no top-N and no cutoff by size. The search runs
+  over *every* episode in the store, not a recent slice, so something you said
+  six months ago is as reachable as something you said this morning.
+- **The two overlap, and that is the interesting part.** A recent episode that
+  also clears the threshold is delivered once, not twice. When *everything*
+  relevant was already recent, long-term memory contributed nothing that turn
+  — the trace says so plainly, and that is a fact worth being able to see.
+- **The mechanism has no budget.** Nothing is ranked, nothing is charged
+  against an allowance, and nothing is dropped. The block is as large as the
+  union needs to be, and the episodes arrive in the order they were said.
+- **Recollect adds one ceiling anyway, and it is honest about it.** An
+  uncapped block will eventually outgrow a local model's context window, and
+  there is no other guard — the request simply fails. So a deployment limit
+  (64,000 characters by default) decides how many episodes are handed to the
+  library. This is a hardware constraint, not a claim about relevance: the
+  research library caps nothing, deliberately. When the limit bites, the
+  weakest-scoring episodes are held back first, what you just said is never
+  held back at all, and the turn's trace says exactly what was withheld and
+  why. Set `RECOLLECT_CONTEXT_CEILING_CHARS=0` to turn it off.
 
 ### Why the context never grows
 
@@ -363,7 +373,7 @@ src/recollect/
     generator.py      the chat client
     sandbox/          container isolation, attestation, and the worker runner
 ui/                   Vite + React inspector
-tests/                shadow-vs-library verification, swept over sizes and budgets
+tests/                shadow-vs-library verification, swept over sizes and windows
 evals/                live evaluation scripts, run by hand rather than in CI
 docs/
 ```
@@ -402,9 +412,10 @@ inputs, and the runtime is not bit-reproducible.
 uv run pytest
 ```
 
-The suite sweeps store sizes against budgets — including the silly ones: zero
-characters, one character, and exactly the cost of an empty block — and
-asserts byte equality between the library and the reconstruction every time.
+The suite sweeps store sizes against continuity windows and thresholds —
+including the silly ones: an empty store, a window of zero, a window larger
+than the store, and a threshold nothing can clear — and asserts byte equality
+between the library and the reconstruction every time.
 It uses a deterministic fake embedder, so it needs no model file and needs
 neither Docker nor a chat model. Tests that do want a real container are opt-in
 behind a `docker` marker.

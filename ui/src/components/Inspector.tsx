@@ -1,37 +1,37 @@
 /**
- * The glass. Six views over one turn, and a headline strip that never moves.
+ * The glass. Four views over one turn, and a headline strip that never moves.
  *
  * Tab order is the order the mechanism runs, not the order of importance:
- * Pipeline (what happened) → Context (what the model saw) → Scores, Aspect
- * (how it was chosen) → Budget (what it cost) → Verify (whether any of this
- * can be believed).
+ * Selection (what was admitted, and what nearly was) → Context (what the
+ * model saw) → Scores (every cosine against the threshold) → Verify
+ * (whether any of this can be believed).
+ *
+ * The Aspect and Budget tabs were removed with the timeline adoption: there
+ * is no facet spread and no allowance to spend, so both would have rendered
+ * a permanent column of zeros.
  */
 import { useState } from 'react'
 
 import { Strip } from './Strip.tsx'
-import { AspectTab } from './tabs/AspectTab.tsx'
-import { BudgetTab } from './tabs/BudgetTab.tsx'
 import { ContextTab } from './tabs/ContextTab.tsx'
-import { PipelineTab } from './tabs/PipelineTab.tsx'
 import { ScoresTab } from './tabs/ScoresTab.tsx'
+import { SelectionTab } from './tabs/SelectionTab.tsx'
 import { VerifyTab } from './tabs/VerifyTab.tsx'
-import { isTrustworthy, starvedTiers } from '../lib/derive.ts'
+import { isTrustworthy } from '../lib/derive.ts'
 import type { DataSource } from '../types/api.ts'
 import type { TurnTrace } from '../types/trace.ts'
 
-type TabId = 'pipeline' | 'context' | 'scores' | 'aspect' | 'budget' | 'verify'
+type TabId = 'selection' | 'context' | 'scores' | 'verify'
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'pipeline', label: 'Pipeline' },
+  { id: 'selection', label: 'Selection' },
   { id: 'context', label: 'Context' },
   { id: 'scores', label: 'Scores' },
-  { id: 'aspect', label: 'Aspect' },
-  { id: 'budget', label: 'Budget' },
   { id: 'verify', label: 'Verify' },
 ]
 
 export function Inspector({ trace, source }: { trace: TurnTrace | null; source: DataSource }) {
-  const [tab, setTab] = useState<TabId>('pipeline')
+  const [tab, setTab] = useState<TabId>('selection')
 
   if (!trace) {
     return (
@@ -50,8 +50,12 @@ export function Inspector({ trace, source }: { trace: TurnTrace | null; source: 
 
   const flag = (id: TabId): string | null => {
     if (id === 'verify' && !isTrustworthy(trace.verification)) return '!'
-    if (id === 'pipeline' && starvedTiers(trace).length > 0) return '!'
-    if (id === 'budget' && trace.report.truncated) return '!'
+    // Nothing cleared the threshold, so the block is pure continuity: the
+    // model saw only the last N exchanges and long-term memory sat this
+    // turn out. Not an error, but the thing most worth noticing.
+    if (id === 'selection' && trace.timeline.relevance_only_count === 0) {
+      return '!'
+    }
     return null
   }
 
@@ -79,11 +83,9 @@ export function Inspector({ trace, source }: { trace: TurnTrace | null; source: 
       </nav>
 
       <div className="tabpanel" role="tabpanel">
-        {tab === 'pipeline' && <PipelineTab trace={trace} />}
+        {tab === 'selection' && <SelectionTab trace={trace} />}
         {tab === 'context' && <ContextTab trace={trace} />}
         {tab === 'scores' && <ScoresTab trace={trace} source={source} />}
-        {tab === 'aspect' && <AspectTab trace={trace} />}
-        {tab === 'budget' && <BudgetTab trace={trace} />}
         {tab === 'verify' && <VerifyTab trace={trace} />}
       </div>
     </div>

@@ -47,8 +47,8 @@ async def test_old_trace_messages_remain_readable_without_relaxing_validation(sa
     turn_id = manager.list_turns(session_id)[0].turn_id
     path = manager.config.traces_dir(session_id) / f"{turn_id}.json"
     document = json.loads(path.read_text(encoding="utf-8"))
-    document["schema_version"] = 1
-    document.pop("cc80_detail")
+    document["schema_version"] = 2
+    document.pop("timeline")
     path.write_text(json.dumps(document), encoding="utf-8")
     assert manager.find_trace(turn_id) is None
     history = manager.chat_history(session_id)

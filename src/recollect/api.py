@@ -45,7 +45,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import __version__, system_prompt
 from .config import RecollectConfig
-from .engine._internals import LIBRARY_VERSION
+from .engine._internals import LIBRARY_VERSION, library_version_mismatch
 from .engine.date_context import research_date_context
 from .engine.embedder import HarnessEmbedder
 from .engine.generator import (
@@ -339,8 +339,10 @@ def create_app(
                 **current.embedder.stats,
             },
             "generator": await current.generator.health(),
-            "budget_chars": current.config.budget_chars,
+            "library_version_mismatch": library_version_mismatch(),
             "episodic_config": json.loads(current.config.episodic.to_json()),
+            # Recollect's own, not the library's - see RecollectConfig.
+            "context_ceiling_chars": current.config.context_ceiling_chars,
         }
 
     @app.get("/api/sessions")

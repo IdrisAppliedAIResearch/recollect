@@ -1,50 +1,59 @@
 /**
- * Hand-written mirror of `src/recollect/trace.py` (schema v2, CC-007 read
+ * Hand-written mirror of `src/recollect/trace.py` (schema v3, timeline read
  * path).
  *
  * Kept field-for-field with the Pydantic models. Two deliberate differences:
  *
  * 1. `datetime` fields arrive as ISO-8601 strings.
- * 2. Pydantic `@property` accessors (`TierTrace.starved`,
- *    `TierTrace.fully_overlapped`, `TierTrace.contributed`,
- *    `ReportTrace.chars_available`, `VerificationTrace.trustworthy`,
- *    `TurnTrace.starved_tiers`, `PromptCacheTrace.cache_hit_ratio`) are
+ * 2. Pydantic `@property` accessors (`VerificationTrace.trustworthy`,
+ *    `TurnTrace.relevance_only_ids`, `PromptCacheTrace.cache_hit_ratio`) are
  *    NOT part of `model_dump()`, so they are absent from the wire. They are
  *    recomputed in `src/lib/derive.ts` from the same definitions.
  */
 
 // ---------------------------------------------------------------------------
-// Tier vocabulary
+// Selection vocabulary
 // ---------------------------------------------------------------------------
 
-export type TierName = 'recency' | 'semantic' | 'aspect'
+/**
+ * How a delivered episode earned its place. The timeline is a union, so an
+ * episode can qualify both ways at once; `both` stays distinct from either
+ * alone because collapsing it would overstate what the threshold retrieved
+ * on its own.
+ */
+export type SelectionPath = 'relevance' | 'continuity' | 'both' | 'anchor'
 
-export const TIER_ORDER: readonly TierName[] = [
-  'recency',
-  'semantic',
-  'aspect',
+export const PATH_ORDER: readonly SelectionPath[] = [
+  'relevance',
+  'both',
+  'continuity',
+  'anchor',
 ] as const
 
-export const TIER_LABELS: Record<TierName, string> = {
-  recency: 'RECENT',
-  semantic: 'SEMANTIC',
-  aspect: 'ASPECT',
+/** The one-letter pips: N continuity, K relevance, B both, A anchor. */
+export const PATH_CODES: Record<SelectionPath, string> = {
+  relevance: 'K',
+  continuity: 'N',
+  both: 'B',
+  anchor: 'A',
 }
 
-/** The report-field shorthand: recency_count / semantic_count / aspect_count. */
-export const TIER_CODES: Record<TierName, string> = {
-  recency: 'N',
-  semantic: 'K',
-  aspect: 'A',
+export const PATH_LABELS: Record<SelectionPath, string> = {
+  relevance: 'RELEVANT',
+  continuity: 'RECENT',
+  both: 'RELEVANT + RECENT',
+  anchor: 'ANCHOR',
 }
 
-export const TIER_DESCRIPTIONS: Record<TierName, string> = {
-  recency:
-    'The last recency_window_n episodes in conversation order. Rendered additively OUTSIDE the long-term budget: always delivered, never dropped, and excluded from long-term admission by identity.',
-  semantic:
-    'Long-term admission ranked by frozen CC80 over the complete store: dense cosine and BM25 each min-max normalized per query, fused 0.8 dense / 0.2 BM25, packed in rank order with skip-on-overflow. On ASPECT turns this is the initial half plus whatever the slack return rescued afterwards.',
-  aspect:
-    'The protected static ASPECT half: a greedy saturation over frozen parser facets (entity, date, number, event, relation, noun) that admits episodes whose facets are not yet covered, scored by CC80 score times facet idf, budgeted to the other half of the allowance.',
+export const PATH_DESCRIPTIONS: Record<SelectionPath, string> = {
+  relevance:
+    'Cleared the relevance threshold on raw cosine against the query, measured over the complete store. No ranking, no capacity: every episode at or above the threshold is delivered.',
+  continuity:
+    'Inside the last recency_window_n exchanges by source order. Delivered as continuity regardless of how it scored, so the immediate conversation is never lost to a low cosine.',
+  both:
+    'Qualified on relevance and fell inside the continuity window. Delivered once; the timeline is a union, not a concatenation.',
+  anchor:
+    'An explicitly protected exchange, admitted regardless of relevance or recency because the caller named its turn.',
 }
 
 // ---------------------------------------------------------------------------
@@ -75,127 +84,87 @@ export interface CandidateTrace {
   preview: string
   assistant_preview: string
 
-  /** Measured cosine, unnormalized. */
-  dense_cosine: number
-  /** The dense term after per-query min-max scaling, as it enters the CC80 fusion. */
-  dense_normalized: number
-  /** Raw Robertson BM25 against the tokenized query, before normalization. */
-  bm25_score: number
-  /** The BM25 term after per-query min-max scaling, as it enters the CC80 fusion. */
-  bm25_normalized: number
-  /** The fused CC80 score: 0.8 * dense_normalized + 0.2 * bm25_normalized. */
-  cc80_score: number
-  /** 1 = highest CC80 score this turn. Ties broken by turn number, then id. */
-  cc80_rank: number
+  /** Measured cosine against the query, float64 over float32 vectors. */
+  cosine: number
+  /** cosine - relevance_threshold. Negative means it missed. */
+  margin: number
 
   render_chars: number
 
+  /** Within the caller's source-order horizon; false only under through_turn. */
+  eligible: boolean
+  /** Cosine at or above the threshold. Independent of the window. */
+  relevant: boolean
+  /** Inside the trailing recency_window_n slice of eligible episodes. */
   in_recency_window: boolean
-  in_semantic_initial: boolean
-  selected_by_aspect: boolean
-  returned_semantic: boolean
+  /** Named by the caller's anchor_turn, so protected either way. */
+  is_anchor: boolean
+  /**
+   * Cleared the threshold and would have been delivered, but the deployment
+   * ceiling excluded it. Kept distinct from a near miss because the two mean
+   * opposite things: one was not relevant enough, the other was relevant and
+   * did not fit.
+   */
+  withheld: boolean
 
   delivered: boolean
-  /** The path that claimed it first; attribution follows decision order. */
-  delivered_via: TierName | null
-  drop_reason: string | null
+  /** Which condition admitted it. `both` when relevance and continuity agree. */
+  delivered_via: SelectionPath | null
 }
 
-/** One greedy step of the ASPECT facet saturation, arithmetic shown. */
-export interface AspectStepTrace {
-  step: number
-  candidate_id: string
-  source_turn: number
-  /** The episode's CC80 score, the multiplier in every facet marginal of the step. */
-  score: number
-  /** Sum, over the episode's facets, of max(0, score * idf - coverage(facet)). */
-  marginal: number
-  /** marginal divided by the episode's additive character cost. */
-  ratio: number
-  additive_chars: number
-  /** The spread's own running spend, against the half allowance. */
-  cumulative_chars: number
-  /** Distinct facets the running selection accounts for after this admission. */
-  covered_total: number
+/**
+ * The selection this turn made, and the settings that produced it.
+ *
+ * No ranking, no capacity and no drops means there is no decision sequence
+ * to show - only the two conditions and what each admitted. The overlap is
+ * the part worth reading: when everything relevant was already recent, the
+ * threshold contributed nothing the window would not have carried anyway.
+ */
+export interface TimelineDetail {
+  read_policy: string
+  relevance_threshold: number
+  recency_window_n: number
+  /** Episodes inside the horizon; the whole store unless through_turn was set. */
+  eligible_count: number
+  /** Cleared the threshold, in source order. Includes any also in the window. */
+  relevant_ids: string[]
+  /** The trailing continuity slice, in source order. */
+  recent_ids: string[]
+  /** The delivered union, chronologically - the order the block renders. */
+  selected_ids: string[]
+  /** Qualified on both counts. */
+  overlap_ids: string[]
+  /** What the threshold added that continuity would not have delivered. */
+  relevance_only_count: number
+  through_turn: number | null
+  anchor_turn: number | null
 }
 
-/** How this turn's CC80 fusion was scaled. */
-export interface CC80Detail {
-  dense_weight: number
-  bm25_k1: number
-  bm25_b: number
-  dense_min: number
-  dense_max: number
-  dense_constant: boolean
-  bm25_min: number
-  bm25_max: number
-  bm25_constant: boolean
-}
-
-export type AspectMode = 'off' | 'protected' | 'fallback'
-
-/** The protected ASPECT half: what it admitted and why it stopped. */
-export interface AspectDetail {
-  enabled: boolean
-  share: number
-  model: string
-  /** off = disabled in config; protected = full pipeline; fallback = one CC80 walk. */
-  mode: AspectMode
-  /** Wall time of parsing the store into facets. Null when no spread ran. */
-  facet_latency_ms: number | null
-  /** Long-term admissions from the initial CC80 half. */
-  initial_ids: string[]
-  /** The ones only the facet saturation produced. */
-  spread_ids: string[]
-  /** Slacked-back CC80 admits after initial plus spread. */
-  returned_ids: string[]
-  /** The spread's own spend against the half. Null when no spread ran. */
-  solo_chars: number | null
-  /** no_complete_candidate_fits or no_positive_marginal. Null when no spread ran. */
-  stopping_reason: string | null
-  steps: AspectStepTrace[]
-}
-
-export interface TierTrace {
-  name: TierName
-  label: string
-  description: string
-  proposed_ids: string[]
-  /** Reached the context AND were credited to this path. */
-  delivered_ids: string[]
-  /** In the context, but credited to an earlier path that also proposed them. */
-  overlapped_ids: string[]
-  /** Absent from the context entirely: the budget was gone. */
-  skipped_ids: string[]
-  chars_delivered: number
-  chars_proposed: number
-}
-
-export type PackPhase = 'full' | 'initial' | 'spread' | 'slack'
-
-export interface PackingDecision {
-  order: number
-  candidate_id: string
-  tier: TierName
-  phase: PackPhase
-  cost_chars: number
-  payload_chars_after: number
-  admitted: boolean
-  reason: string
-}
-
-export interface PackingTrace {
-  policy: string
-  /** The phases that ran this turn, in the order they first made decisions. */
-  phases: PackPhase[]
-  /** The long-term allowance this walk governed. Recent continuity is outside it. */
-  budget_chars: number
-  /** int(budget * aspect_share). Zero when no protected turn ran. */
-  half_chars: number
-  /** Cost of the two empty block tags; a budget below this expresses nothing. */
-  empty_payload_chars: number
-  decisions: PackingDecision[]
-  duplicate_ids: string[]
+/**
+ * Recollect's hardware ceiling — which the library's mechanism has not.
+ *
+ * Deliberately separate from `TimelineDetail` because it is a deviation.
+ * The library delivers every episode at or above the threshold and caps
+ * nothing. That is unrunnable on a 32K-context local model, so Recollect
+ * decides which episodes are *handed to* the library; the library then does
+ * exactly what it always does with the set it is given. Trimming the
+ * payload afterwards would make shadow and authority disagree byte-for-byte
+ * and refuse every turn.
+ *
+ * Continuity is never withheld, so the ceiling can be exceeded by the
+ * recency window alone rather than dropping what was just said.
+ */
+export interface CeilingTrace {
+  /** The ceiling in characters, or null when disabled. */
+  ceiling_chars: number | null
+  /** True only when it actually withheld something. */
+  engaged: boolean
+  /** Episodes in the store. report.pool_size counts only what the library saw. */
+  store_episodes: number
+  considered_episodes: number
+  /** Threshold-qualified episodes excluded, lowest cosine first. */
+  withheld_ids: string[]
+  withheld_chars: number
 }
 
 export interface ContextBlockTrace {
@@ -206,36 +175,33 @@ export interface ContextBlockTrace {
   retrieved_episode_count: number
 }
 
+/**
+ * The library's own ContextReport. Only the fields the timeline populates
+ * are carried: the budget/drop/aspect columns are structurally constant on
+ * this path and are asserted in `shadow._verify` rather than stored, so a
+ * reader is never shown a column of zeros to interpret.
+ */
 export interface ReportTrace {
-  /** Total output. May EXCEED budget_chars: recency renders additively outside the allowance. */
   chars_delivered: number
-  /** How much the proposed long-term selection would have needed. */
   chars_wanted: number
   episodes_delivered: number
-  episodes_dropped: number
-  truncated: boolean
-  /** Legacy names, carried verbatim from the library report. */
+  /** Legacy names, carried verbatim: stm = continuity, k = relevance-only. */
   stm_count: number
   k_count: number
-  coverage_count: number
   latency_ms: number
   /** The whole store. */
   pool_size: number
-  /** Long-term candidates that never reached the context, in rank order. */
-  dropped_ids: string[]
-  drop_policy: string
-  /** The long-term allowance. */
-  budget_chars: number
-  /** Null on pre-CC-007 reports; the CC-007 path always carries the pair. */
+  read_policy: string
+  relevance_threshold: number
+  eligible_count: number
+  selected_ids: string[]
   retrieval_chars_delivered: number | null
-  retrieval_budget_chars: number | null
   recency_count: number
   semantic_count: number
-  aspect_count: number
-  returned_semantic_count: number
-  aspect_enabled: boolean
   recent_ids: string[]
   recency_additive: boolean
+  through_turn: number | null
+  anchor_turn: number | null
 }
 
 export interface VerificationTrace {
@@ -314,7 +280,7 @@ export interface GenerationTrace {
 // ---------------------------------------------------------------------------
 
 export interface TurnTrace {
-  schema_version: 2
+  schema_version: 3
   turn_id: string
   session_id: string
   turn_index: number
@@ -326,10 +292,8 @@ export interface TurnTrace {
   store: StoreTrace
 
   candidates: CandidateTrace[]
-  tiers: TierTrace[]
-  cc80_detail: CC80Detail
-  aspect_detail: AspectDetail
-  packing: PackingTrace
+  timeline: TimelineDetail
+  ceiling: CeilingTrace
 
   context_block: ContextBlockTrace
   report: ReportTrace
@@ -347,15 +311,14 @@ export interface TurnSummary {
   query_preview: string
   response_preview: string
   episodes_delivered: number
-  episodes_dropped: number
   chars_delivered: number
-  budget_chars: number
   stm_count: number
   k_count: number
-  coverage_count: number
-  starved_tiers: string[]
+  eligible_count: number
   trace_trustworthy: boolean
   recency_count: number
   semantic_count: number
-  aspect_count: number
+  relevance_only_count: number
+  /** The ceiling withheld episodes the mechanism would have delivered. */
+  ceiling_engaged: boolean
 }

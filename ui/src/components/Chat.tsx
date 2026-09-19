@@ -172,18 +172,24 @@ export function Chat({
                   <span title={stamp(exchange.trace.started_at)}>
                     {clock(exchange.trace.started_at)}
                   </span>
-                  <span>{int(exchange.trace.report.episodes_delivered)} episodes</span>
                   <span>
-                    {chars(
-                      exchange.trace.report.retrieval_chars_delivered ??
-                        exchange.trace.report.chars_delivered,
-                    )}/
-                    {chars(exchange.trace.report.budget_chars)}
+                    {int(exchange.trace.report.episodes_delivered)}/
+                    {int(exchange.trace.report.eligible_count)} episodes
                   </span>
+                  <span>{chars(exchange.trace.report.chars_delivered)}</span>
                   <span className="msg__flags">
-                    <TierPip code="N" n={exchange.trace.report.recency_count} tier="recency" />
-                    <TierPip code="K" n={exchange.trace.report.semantic_count} tier="semantic" />
-                    <TierPip code="A" n={exchange.trace.report.aspect_count} tier="aspect" />
+                    <TierPip
+                      code="N"
+                      n={exchange.trace.report.recency_count}
+                      tier="continuity"
+                      label="delivered by continuity"
+                    />
+                    <TierPip
+                      code="K"
+                      n={exchange.trace.timeline.relevance_only_count}
+                      tier="relevance"
+                      label="delivered on relevance alone"
+                    />
                   </span>
                   {!exchange.trace.verification.payload_identical && (
                     <span className="badge badge--bad">unverified</span>
@@ -365,9 +371,19 @@ function proposalTask(tasks: TaskSnapshot, update: TaskNotification): ResearchTa
   return task && (task.connect_proposal || task.build_proposal) ? task : null
 }
 
-function TierPip({ code, n, tier }: { code: string; n: number; tier: string }) {
+function TierPip({
+  code,
+  n,
+  tier,
+  label,
+}: {
+  code: string
+  n: number
+  tier: string
+  label: string
+}) {
   return (
-    <span className="tiermark" data-tier={tier} title={`${code} tier delivered ${n}`}>
+    <span className="tiermark" data-tier={tier} title={`${label}: ${n}`}>
       <span className="tiermark__code">{code}</span>
       {n}
     </span>

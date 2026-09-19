@@ -10,8 +10,8 @@
 import { useMemo, useState } from 'react'
 
 import { chars } from '../../lib/format.ts'
-import { orderedTiers } from '../../lib/derive.ts'
-import type { TierName, TurnTrace } from '../../types/trace.ts'
+import { candidateIndex } from '../../lib/derive.ts'
+import type { SelectionPath, TurnTrace } from '../../types/trace.ts'
 
 interface ParsedEpisode {
   turn: number
@@ -31,7 +31,7 @@ export function ContextTab({ trace }: { trace: TurnTrace }) {
   const blocks = useMemo(() => parseBlocks(payload), [payload])
 
   const tierOfTurn = useMemo(() => {
-    const map = new Map<number, TierName | null>()
+    const map = new Map<number, SelectionPath | null>()
     for (const candidate of trace.candidates) {
       if (candidate.delivered) map.set(candidate.turn_number, candidate.delivered_via)
     }
@@ -140,55 +140,64 @@ export function ContextTab({ trace }: { trace: TurnTrace }) {
   )
 }
 
+/**
+ * What the block is made of, by character cost.
+ *
+ * There is no allowance to show utilization against, so the bar answers a
+ * different question: how much of what the model read did long-term memory
+ * actually supply? A bar that is almost entirely continuity is a turn where
+ * retrieval did nothing, and no delivered count would have said so.
+ */
 function Ruler({ trace }: { trace: TurnTrace }) {
-  const report = trace.report
-  const budget = Math.max(report.budget_chars, 1)
-  const total = report.chars_delivered
-  // Recent continuity renders past the allowance, so the track is scaled to
-  // the larger of the two and the allowance is placed, not pinned.
-  const scale = Math.max(total, budget, 1)
-  const tiers = orderedTiers(trace)
+  const index = candidateIndex(trace)
+  const recent = new Set(trace.timeline.recent_ids)
+  const relevant = new Set(trace.timeline.relevant_ids)
+
+  const segments: { path: SelectionPath; label: string; chars: number }[] = [
+    { path: 'relevance', label: 'RELEVANT only', chars: 0 },
+    { path: 'both', label: 'both', chars: 0 },
+    { path: 'continuity', label: 'RECENT only', chars: 0 },
+  ]
+  for (const id of trace.timeline.selected_ids) {
+    const candidate = index.get(id)
+    if (!candidate) continue
+    const isRecent = recent.has(id)
+    const isRelevant = relevant.has(id)
+    const slot = isRecent && isRelevant ? 1 : isRelevant ? 0 : 2
+    segments[slot].chars += candidate.render_chars
+  }
+  const scale = Math.max(
+    segments.reduce((sum, segment) => sum + segment.chars, 0),
+    1,
+  )
 
   return (
     <div className="ruler">
       {/* The track is its own bounded box: the fill's segment percentages are
           relative to it, and the legend sits under it rather than inside an
           overflow-clipped bar. */}
-      <div
-        className="ruler__track"
-        title={
-          total > budget
-            ? `Total ${chars(total)} chars exceeds the long-term allowance: recent continuity renders additively outside it.`
-            : undefined
-        }
-      >
+      <div className="ruler__track">
         <div className="ruler__fill">
-          {tiers.map((tier) => (
+          {segments.map((segment) => (
             <div
-              key={tier.name}
+              key={segment.path}
               className="ruler__seg"
-              data-tier={tier.name}
-              style={{ width: `${(tier.chars_delivered / scale) * 100}%` }}
-              title={`${tier.label}: ${chars(tier.chars_delivered)} chars`}
+              data-tier={segment.path}
+              style={{ width: `${(segment.chars / scale) * 100}%` }}
+              title={`${segment.label}: ${chars(segment.chars)} chars`}
             />
           ))}
-          <div
-            className="ruler__cap"
-            style={{ left: `${(budget / scale) * 100}%` }}
-            title={`long-term allowance: ${chars(budget)} chars`}
-          />
         </div>
       </div>
       <div className="ruler__legend mono">
-        {tiers.map((tier) => (
-          <span key={tier.name}>
-            <span className="swatch" data-tier={tier.name} /> {tier.label}{' '}
-            {chars(tier.chars_delivered)}
+        {segments.map((segment) => (
+          <span key={segment.path}>
+            <span className="swatch" data-tier={segment.path} /> {segment.label}{' '}
+            {chars(segment.chars)}
           </span>
         ))}
         <span className="ruler__total">
-          {chars(report.retrieval_chars_delivered ?? total)} / {chars(budget)} allowance
-          {total > budget && ` · ${chars(total)} total (+${chars(total - budget)} additive)`}
+          {chars(trace.report.chars_delivered)} delivered · no ceiling
         </span>
       </div>
     </div>
