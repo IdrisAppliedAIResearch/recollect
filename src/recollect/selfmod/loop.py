@@ -218,20 +218,13 @@ class DeploymentSwitch:
 
     def __init__(self, *, deployments, images, coordinator, session_id,
                  parent_task_id, request, base_image_id, launch, stage, promote,
-                 discard, poll_seconds=1.0, on_event=None, connected=(),
-                 shipped=()):
+                 discard, poll_seconds=1.0, on_event=None):
         self._deployments, self._images = deployments, images
         self._coordinator, self._session_id = coordinator, session_id
         self._parent, self._request = parent_task_id, request
         self._base_image_id, self._launch = base_image_id, launch
         self._stage, self._promote, self._discard = stage, promote, discard
         self._poll, self._on_event = poll_seconds, on_event
-        #: The really-connected connectors, as the serving container will see them.
-        self._connected = connected if callable(connected) else \
-            (lambda: tuple(connected))
-        #: The connectors this build ships, connected or not: a tool gated
-        #: behind one is judged on its registration path once the user signs in.
-        self._shipped = shipped if callable(shipped) else (lambda: tuple(shipped))
         #: A B image built this attempt that no deployment owns yet.
         self._unstaged = None
 
@@ -239,23 +232,13 @@ class DeploymentSwitch:
         bundle = SubagentBundle(candidate, self._base_image_id, self._launch)
         self._unstaged = await self._images.build(bundle)
         verified = await self._images.verify(bundle, self._unstaged)
-        # The frozen checks fake the connection, so they cannot see a tool that
-        # is registered behind a gate. Settle reachability in the serving env
-        # before B serves: a build whose new tool is unreachable is a failure
-        # with feedback, not a staged deployment. A gated tool is invisible
-        # until the user signs in, so a probe with only what is really
-        # connected cannot settle it without damning the correct build; the
-        # fallback probe claims the shipped connectors, and a tool that shows
-        # up then is reachable the moment the user approves the connection.
-        tool = tests.interface["tool_name"]
-        connected = tuple(self._connected())
+        # Settle reachability in the serving env before B serves: a build
+        # whose new tool is unreachable is a failure with feedback, not a
+        # staged deployment. One probe settles it, because tools register
+        # unconditionally - there is no connection state that could make a
+        # correct build look broken, and no claim to fake to rescue it.
         surface = await self._images.serving_surface(
-            self._unstaged, tool, connected)
-        claim = connected + tuple(c for c in self._shipped()
-                                  if c not in connected)
-        if not surface["ok"] and claim != connected:
-            surface = await self._images.serving_surface(
-                self._unstaged, tool, claim)
+            self._unstaged, tests.interface["tool_name"])
         if not surface["ok"]:
             return Outcome(False, surface["detail"])
         self._deployments.stage_b(await asyncio.to_thread(self._stage, verified))

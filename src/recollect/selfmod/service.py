@@ -264,9 +264,6 @@ class SelfModificationService:
                                      None if self._connections is None else
                                      (self._connections.base_url,
                                       self._connections.key)),
-                                 connected=(lambda: tuple(
-                                     self._connectors.connected())
-                                     if self._connectors is not None else ()),
                                  deployment=SandboxDeployment(
                                      verified.image_id, skills,
                                      self._directory("root-" + name),
@@ -409,13 +406,6 @@ class SelfModificationService:
             stage=lambda verified: self._deployment(verified, "B"),
             promote=self._promote, discard=self._discard,
             on_event=self._on_event,
-            # The serving-surface check must see what really is connected, and
-            # what the build ships: a tool gated behind a connector is judged
-            # on its registration path once that connector signs in.
-            connected=(lambda: tuple(self._connectors.connected())
-                       if self._connectors is not None else ()),
-            shipped=(lambda: self._connectors.ids()
-                     if self._connectors is not None else ()),
         )
         return SelfModificationLoop(
             author_tests=authoring(

@@ -119,15 +119,10 @@ class SandboxManager:
         deployment: SandboxDeployment | None = None,
         development: bool = False,
         connections: tuple[str, str] | None = None,
-        connected=(),
     ) -> None:
         self._config = config
         #: Connected-account service (host URL, key) for worker tool processes.
         self._connections = connections
-        #: Connector ids handed to each tool process (issue #28); a callable
-        #: is asked at config time, so a mid-session connect reaches the
-        #: next tool process without a restart.
-        self._connected = connected
         #: Stock OpenCode for self-modification agents (see configgen).
         self._development = development
         # A deployment (A or B bundle) owns its own image, skills and root.
@@ -403,8 +398,6 @@ class SandboxManager:
                 container_model_url(self._connections[0])
                 if self._commands is None else self._connections[0],
                 self._connections[1])),
-            connected=tuple(self._connected() if callable(self._connected)
-                            else self._connected),
             **({
                 "development": True,
                 "context_limit": cfg.generator_context_tokens,

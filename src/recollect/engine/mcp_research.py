@@ -23,7 +23,9 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from .subagent_tools.google_calendar import register as _register_calendar
 from .subagent_tools.http_request import http_request as _http_request
+from .subagent_tools.scheduling import register as _register_scheduling
 from .webtools import (
     PublicWebTransport,
     SearchProviderState,
@@ -117,32 +119,22 @@ async def http_request(
     )
 
 
-def _connected_services() -> set:
-    """Connector services this tool process was launched with (issue #28).
-
-    The host lists what is connected in this process's environment when it
-    writes the configuration; asking the relay here would stall every tool
-    process for the length of the timeout. A service connected later joins
-    on the next tool process. A worker tool for a service that disconnects
-    mid-task answers with a clear "not connected" error rather than a guess.
-    """
-    listed = os.environ.get("RECOLLECT_CONNECTED_CONNECTORS", "")
-    return {name.strip() for name in listed.split(",") if name.strip()}
-
-
-if "google_calendar" in _connected_services():
-    from .subagent_tools.google_calendar import register as _register_calendar
-
-    _register_calendar(mcp)
-
-# The generic timer is reachable wherever the connection relay is: the
-# env pair is what the host writes when it starts the relay, so the tools
-# appear exactly when bookings can succeed.
-if (os.environ.get("RECOLLECT_CONNECTIONS_URL")
-        and os.environ.get("RECOLLECT_CONNECTIONS_TOKEN")):
-    from .subagent_tools.scheduling import register as _register_scheduling
-
-    _register_scheduling(mcp)
+# Registered unconditionally, on purpose.
+#
+# The sandbox is the safety boundary; that is what it is for. Gating a
+# tool's *registration* on the relay env adds nothing on top of it and
+# takes away the thing the container exists to allow - a worker that can
+# build and test the capability it was asked for. A tool that is invisible
+# cannot be developed against, and the serving-surface probe runs without
+# the relay, so an env-gated tool could never be shipped at all.
+#
+# Authorization lives at the point of use, not here: every call goes
+# through the relay's bearer token, and without it `_access`/`_relay`
+# return an explicit "no connection service is available to this worker"
+# document rather than a guess. That is the honest failure, and it is
+# already implemented.
+_register_calendar(mcp)
+_register_scheduling(mcp)
 
 
 #: A result blaming the toolset is a capability gap, not a finished request.

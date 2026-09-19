@@ -153,9 +153,9 @@ class Images:
     async def verify(self, value, image_id):
         return await BundleImages(self.fake).verify(value, image_id)
 
-    async def serving_surface(self, image_id, tool_name, connected):
+    async def serving_surface(self, image_id, tool_name):
         self.serving_calls = getattr(self, "serving_calls", [])
-        self.serving_calls.append((image_id, tool_name, tuple(connected)))
+        self.serving_calls.append((image_id, tool_name))
         queued = getattr(self, "surfaces", None)
         if queued:
             return dict(queued.pop(0) if len(queued) > 1 else queued[0])
@@ -241,7 +241,7 @@ async def test_a_build_whose_new_tool_is_not_served_is_failed_not_staged():
     images.surface = {
         "ok": False, "tools": ["web_fetch", "web_search"],
         "detail": "the serving build does not expose 'create_event'; "
-                  "nothing is connected; it exposes: web_fetch, web_search"}
+                  "it exposes: web_fetch, web_search"}
     staged = []
     coordinator = Coordinator(deployments, ["completed"])
 
@@ -253,8 +253,7 @@ async def test_a_build_whose_new_tool_is_not_served_is_failed_not_staged():
         deployments=deployments, images=images, coordinator=coordinator,
         session_id="s", parent_task_id="task-a", request="the request",
         base_image_id=bundle().base_image_id, launch=(("entrypoint", "research"),),
-        stage=stage, promote=None, discard=None, poll_seconds=0,
-        connected=("google_calendar",))
+        stage=stage, promote=None, discard=None, poll_seconds=0)
     outcome = await switch.activate(
         1, candidate("first"), parse_tests(authored()), GAP)
     assert not outcome.finished
@@ -262,45 +261,44 @@ async def test_a_build_whose_new_tool_is_not_served_is_failed_not_staged():
     assert staged == [] and deployments.b is None  # never staged
     assert coordinator.calls == []  # the request was never resumed
     assert images.serving_calls == [
-        ("sha256:" + format(1, "064x"), "create_event", ("google_calendar",))]
+        ("sha256:" + format(1, "064x"), "create_event")]
     await switch.reset(outcome.detail)
     assert images.removed == ["sha256:" + format(1, "064x")]
 
 
-async def test_a_tool_gated_behind_a_shipped_connector_is_settled_by_claiming_it():
-    # Nothing is connected yet, so the first probe cannot see the gated tool;
-    # claiming the connectors the build ships judges the registration path
-    # the user's sign-in will enable, instead of damning the build forever.
-    a = Deployment("A", await receipt(bundle(), "sha256:" + "b" * 64), object())
-    deployments = Deployments(a)
+async def test_one_probe_settles_reachability_with_no_connector_claim():
+    """There is no connection state that could hide a correct build.
+
+    This used to probe twice: once with what was really connected and,
+    if that failed, again claiming the shipped connectors - because
+    registration was gated and an unconnected but correct build would
+    otherwise be damned. Tools register unconditionally now, so a second
+    probe could only ever repeat the first.
+    """
+    deployments = Deployments(
+        Deployment("A", await receipt(bundle(), "sha256:" + "b" * 64), object()))
     deployments.bind("task-a")
-    images = Images()
-    miss = {"ok": False, "tools": ["web_fetch"],
-            "detail": "the serving build does not expose 'create_event'"}
-    images.surfaces = [miss, {"ok": True, "tools": ["create_event", "web_fetch"],
-                              "detail": ""}]
-    staged, promoted = [], []
     coordinator = Coordinator(deployments, ["completed"])
+    images, staged = Images(), []
+    images.surface = {"ok": True, "tools": ["create_event"], "detail": ""}
 
     def stage(receipt):
         staged.append(receipt)
         return Deployment("B", receipt, object())
 
     async def promote(value, tests):
-        promoted.append(value)
+        pass
 
     switch = DeploymentSwitch(
         deployments=deployments, images=images, coordinator=coordinator,
         session_id="s", parent_task_id="task-a", request="the request",
         base_image_id=bundle().base_image_id, launch=(("entrypoint", "research"),),
-        stage=stage, promote=promote, discard=None, poll_seconds=0,
-        connected=(), shipped=("google_calendar",))
+        stage=stage, promote=promote, discard=None, poll_seconds=0)
     outcome = await switch.activate(
         1, candidate("first"), parse_tests(authored()), GAP)
     assert outcome.finished and staged
     assert images.serving_calls == [
-        ("sha256:" + format(1, "064x"), "create_event", ()),
-        ("sha256:" + format(1, "064x"), "create_event", ("google_calendar",))]
+        ("sha256:" + format(1, "064x"), "create_event")]
 
 
 async def test_a_b_image_that_never_staged_is_removed_on_reset():

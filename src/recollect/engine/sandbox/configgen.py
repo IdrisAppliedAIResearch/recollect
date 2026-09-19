@@ -114,7 +114,6 @@ def build_config(
     unbounded: bool = False,
     bundle_pythonpath: str | None = None,
     connections: tuple[str, str] | None = None,
-    connected: tuple[str, ...] = (),
 ) -> dict:
     """Return a local-provider-only config using native OpenCode agents.
 
@@ -122,8 +121,10 @@ def build_config(
     tool host runs the bundle's own tool server, and the base image's packaged
     copy is left off the import path. ``connections`` is the connected-account
     service URL and key, given only to the tool process's environment.
-    ``connected`` names the connected connectors (issue #28); the tool process
-    registers their tools from this list instead of probing the relay at import.
+
+    There is no connected-connector list: the tool process registers every
+    tool unconditionally and each one reports its own unavailability when
+    called without a relay.
     """
     skill_root = (prompt_dir or str(workdir)).rstrip("/\\") + "/skills"
     environment = {"RECOLLECT_TASK_REPORTING": "1"} if continuous else {}
@@ -134,8 +135,6 @@ def build_config(
     if connections is not None:
         environment["RECOLLECT_CONNECTIONS_URL"] = connections[0]
         environment["RECOLLECT_CONNECTIONS_TOKEN"] = connections[1]
-        if connected:
-            environment["RECOLLECT_CONNECTED_CONNECTORS"] = ",".join(connected)
     model_ref = f"{PROVIDER_ID}/{model}"
     runtime_workdir = runtime_workdir or str(workdir)
     if context_limit <= output_limit or output_limit < 1:
@@ -229,7 +228,6 @@ def write_config(
     bundle_pythonpath: str | None = None,
     development: bool = False,
     connections: tuple[str, str] | None = None,
-    connected: tuple[str, ...] = (),
 ) -> Path:
     """Write configuration and bundled skills into the read-only config mount.
 
@@ -265,7 +263,6 @@ def write_config(
         unbounded=unbounded,
         bundle_pythonpath=bundle_pythonpath,
         connections=connections,
-        connected=connected,
     )
     config_path.write_text(
         json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

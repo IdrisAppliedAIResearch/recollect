@@ -171,11 +171,11 @@ async def test_serving_surface_runs_the_bundle_image_with_the_serving_env():
     docker = SurfaceDocker(
         stdout=b'{"ok": false, "tools": ["web_fetch", "web_search"]}\n')
     result = await BundleImages(docker).serving_surface(
-        IMAGE_B, "add_calendar_event", ())
+        IMAGE_B, "add_calendar_event")
     assert result["ok"] is False
     assert result["tools"] == ["web_fetch", "web_search"]
     assert "does not expose 'add_calendar_event'" in result["detail"]
-    assert "nothing is connected" in result["detail"]
+    assert "it exposes: web_fetch, web_search" in result["detail"]
     args = docker.calls[0]
     assert args[:3] == ("run", "--rm", "--pull=never")
     assert "--network" in args and "none" in args
@@ -189,21 +189,20 @@ async def test_serving_surface_runs_the_bundle_image_with_the_serving_env():
     assert IMAGE_B in args and "RECOLLECT_CONNECTED_CONNECTORS" not in args
 
 
-async def test_serving_surface_passes_when_the_tool_is_exposed_and_connected():
+async def test_serving_surface_passes_when_the_tool_is_exposed():
+    """No connector claim is needed, or possible: tools always register."""
     docker = SurfaceDocker(
         stdout=b'{"ok": true, "tools": ["add_calendar_event", "web_fetch"]}\n')
     result = await BundleImages(docker).serving_surface(
-        IMAGE_B, "add_calendar_event", ("google_calendar",))
+        IMAGE_B, "add_calendar_event")
     assert result == {"ok": True, "tools": ["add_calendar_event", "web_fetch"],
                       "detail": ""}
-    args = docker.calls[0]
-    assert (args[args.index("RECOLLECT_CONNECTED_CONNECTORS=google_calendar")
-            - 1] == "-e")
+    assert not any("CONNECT" in str(a) for a in docker.calls[0])
 
 
 async def test_serving_surface_surfaces_a_probe_failure():
     docker = SurfaceDocker(stdout=b"", stderr=b"ModuleNotFoundError: recollect",
                            code=1)
-    result = await BundleImages(docker).serving_surface(IMAGE_B, "x", ())
+    result = await BundleImages(docker).serving_surface(IMAGE_B, "x")
     assert result["ok"] is False
     assert "surface probe failed" in result["detail"]

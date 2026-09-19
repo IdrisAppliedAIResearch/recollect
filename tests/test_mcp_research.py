@@ -127,11 +127,28 @@ async def test_tools_refuse_bad_arguments_and_private_hosts(mcp: Rpc) -> None:
     assert "only public http/https pages may be fetched" in refused
 
 
-def test_the_connected_hint_names_the_connectors_to_register(monkeypatch) -> None:
-    # The tool process registers connector tools from its environment, never
-    # from a network probe at import (issue #28).
+def test_every_tool_registers_without_any_connection(monkeypatch) -> None:
+    """The sandbox is the boundary; registration is not a second one.
+
+    Tools used to appear only when their relay env or connector was present,
+    which meant a worker could not develop against them and the
+    serving-surface probe - which runs with neither - could never pass a
+    build that needed one. They register unconditionally now; a call without
+    the relay is what reports the unavailability.
+    """
     from recollect.engine import mcp_research
-    monkeypatch.setenv("RECOLLECT_CONNECTED_CONNECTORS", "google_calendar, other")
-    assert mcp_research._connected_services() == {"google_calendar", "other"}
-    monkeypatch.delenv("RECOLLECT_CONNECTED_CONNECTORS")
-    assert mcp_research._connected_services() == set()
+    for variable in ("RECOLLECT_CONNECTIONS_URL", "RECOLLECT_CONNECTIONS_TOKEN",
+                     "RECOLLECT_CONNECTED_CONNECTORS"):
+        monkeypatch.delenv(variable, raising=False)
+    names = {tool.name for tool in mcp_research.mcp._tool_manager.list_tools()}
+    assert {"schedule_at", "list_scheduled", "cancel_scheduled"} <= names
+    assert {"calendar_create_event", "calendar_list_events"} <= names
+    assert {"http_request", "web_fetch", "web_search"} <= names
+
+
+async def test_a_schedule_call_without_a_relay_reports_instead_of_pretending():
+    """The honest failure that makes unconditional registration safe."""
+    from recollect.engine.subagent_tools import scheduling
+    document = await scheduling._relay("schedule_at", "POST", "/schedules")
+    assert "no connection service is available" in document.lower()
+    assert "do not pretend" in document.lower()

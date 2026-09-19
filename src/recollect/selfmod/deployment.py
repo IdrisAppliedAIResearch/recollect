@@ -209,13 +209,18 @@ class BundleImages:
             raise IntegrityError("Served bundle bytes differ from the accepted digest")
         return VerifiedImage(bundle, image_id)
 
-    async def serving_surface(self, image_id, tool_name, connected):
+    async def serving_surface(self, image_id, tool_name):
         """Does the built image expose the new tool when it actually serves?
 
-        A tool can be registered behind a connection gate and still pass the
-        frozen checks, which fake the connection. Only the serving environment -
-        the bundle import path plus whatever is really connected - settles it,
-        so B is never staged while its new tool would be unreachable.
+        The bundle import path is the whole serving environment that matters
+        here: tools register unconditionally, so what the surface shows is
+        what a worker gets. B is never staged while its new tool would be
+        unreachable.
+
+        This used to also claim connected connectors, because registration
+        was gated on connection state and a correct build was otherwise
+        unprobeable. The gates are gone (see mcp_research), so the claim has
+        nothing left to fake.
         """
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
             raise IntegrityError("serving-surface check needs an immutable image ID")
@@ -223,9 +228,6 @@ class BundleImages:
         # is parsed as the image reference, and every probe dies with
         # "docker: invalid reference format".
         env = ["-e", "PYTHONPATH=" + BUNDLE_PYTHONPATH]
-        connected = tuple(connected)
-        if connected:
-            env += ["-e", "RECOLLECT_CONNECTED_CONNECTORS=" + ",".join(connected)]
         snippet = (
             "import json, recollect.engine.mcp_research as m\n"
             "names = sorted({t.name for t in m.mcp._tool_manager.list_tools()})\n"
@@ -248,11 +250,9 @@ class BundleImages:
         tools = [str(t) for t in (payload.get("tools") or [])]
         if payload.get("ok"):
             return {"ok": True, "tools": tools, "detail": ""}
-        note = ("; connected: " + ", ".join(connected) if connected
-                else "; nothing is connected")
         return {"ok": False, "tools": tools,
                 "detail": "the serving build does not expose " + repr(tool_name)
-                          + note + "; it exposes: "
+                          + "; it exposes: "
                           + (", ".join(tools) if tools else "nothing")}
 
     async def remove(self, image_id):
