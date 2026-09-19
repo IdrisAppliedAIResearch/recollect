@@ -1,21 +1,23 @@
 /**
- * The CC80 ranking — for every episode in the store, not just the ones that
+ * Every episode in the store against the threshold, not just the ones that
  * arrived.
  *
- * The undelivered rows are the point. An episode that ranked third by fused
- * score and never reached the model is the single most informative thing this
- * screen can show, and it exists nowhere in the delivered set.
+ * The undelivered rows are the point. Nothing competes for room on this
+ * path, so an episode that did not arrive has exactly one reason — it
+ * scored below the threshold — and the only remaining question is by how
+ * much. That is what `margin` is for, and it exists nowhere in the
+ * delivered set.
  */
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
-import { chars, cosine, gain, int, truncate } from '../../lib/format.ts'
-import { proposingTiers } from '../../lib/derive.ts'
+import { chars, cosine, int, truncate } from '../../lib/format.ts'
+import { qualifyingPaths } from '../../lib/derive.ts'
 import type { DataSource, EpisodeBody } from '../../types/api.ts'
-import { TIER_CODES } from '../../types/trace.ts'
-import type { CandidateTrace, TierName, TurnTrace } from '../../types/trace.ts'
+import { PATH_CODES } from '../../types/trace.ts'
+import type { CandidateTrace, SelectionPath, TurnTrace } from '../../types/trace.ts'
 
-type SortKey = 'cc80' | 'dense' | 'bm25' | 'turn_number' | 'render_chars'
-type Filter = 'all' | 'delivered' | 'dropped' | 'proposed'
+type SortKey = 'cosine' | 'margin' | 'turn_number' | 'render_chars'
+type Filter = 'all' | 'delivered' | 'missed' | 'withheld'
 
 export function ScoresTab({
   trace,
@@ -24,16 +26,17 @@ export function ScoresTab({
   trace: TurnTrace
   source: DataSource
 }) {
-  const [sort, setSort] = useState<SortKey>('cc80')
+  const [sort, setSort] = useState<SortKey>('cosine')
   const [descending, setDescending] = useState(true)
   const [filter, setFilter] = useState<Filter>('all')
-  const [tierFilter, setTierFilter] = useState<TierName | 'any'>('any')
+  const [pathFilter, setPathFilter] = useState<SelectionPath | 'any'>('any')
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [episodeBody, setEpisodeBody] = useState<EpisodeBody | null>(null)
   const [bodyLoading, setBodyLoading] = useState(false)
   const [bodyError, setBodyError] = useState<string | null>(null)
   const bodyRequests = useRef(0)
+  const threshold = trace.timeline.relevance_threshold
 
   // A new turn is a new table: any fetched body belongs to the old one.
   useEffect(() => {
@@ -74,9 +77,12 @@ export function ScoresTab({
     const needle = search.trim().toLowerCase()
     let list = trace.candidates.filter((candidate) => {
       if (filter === 'delivered' && !candidate.delivered) return false
-      if (filter === 'dropped' && candidate.delivered) return false
-      if (filter === 'proposed' && proposingTiers(candidate).length === 0) return false
-      if (tierFilter !== 'any' && !proposingTiers(candidate).includes(tierFilter)) {
+      // "missed" means the mechanism turned it away, which withheld is not.
+      if (filter === 'missed' && (candidate.delivered || candidate.withheld)) {
+        return false
+      }
+      if (filter === 'withheld' && !candidate.withheld) return false
+      if (pathFilter !== 'any' && !qualifyingPaths(candidate).includes(pathFilter)) {
         return false
       }
       if (needle) {
@@ -93,7 +99,7 @@ export function ScoresTab({
       return descending ? -order : order
     })
     return list
-  }, [trace.candidates, sort, descending, filter, tierFilter, search])
+  }, [trace.candidates, sort, descending, filter, pathFilter, search])
 
   const toggle = (key: SortKey) => {
     if (key === sort) setDescending((value) => !value)
@@ -112,7 +118,7 @@ export function ScoresTab({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        {(['all', 'delivered', 'dropped', 'proposed'] as Filter[]).map((option) => (
+        {(['all', 'delivered', 'missed', 'withheld'] as Filter[]).map((option) => (
           <button
             key={option}
             type="button"
@@ -123,12 +129,12 @@ export function ScoresTab({
           </button>
         ))}
         <span className="faint">·</span>
-        {(['any', 'recency', 'semantic', 'aspect'] as const).map((option) => (
+        {(['any', 'relevance', 'continuity'] as const).map((option) => (
           <button
             key={option}
             type="button"
-            className={tierFilter === option ? 'ctl ctl--on' : 'ctl'}
-            onClick={() => setTierFilter(option)}
+            className={pathFilter === option ? 'ctl ctl--on' : 'ctl'}
+            onClick={() => setPathFilter(option)}
           >
             {option}
           </button>
@@ -142,12 +148,10 @@ export function ScoresTab({
         <table className="grid">
           <thead>
             <tr>
-              <th>#</th>
-              <Header label="dense" active={sort === 'dense'} desc={descending} onClick={() => toggle('dense')} />
-              <Header label="bm25" active={sort === 'bm25'} desc={descending} onClick={() => toggle('bm25')} />
-              <Header label="cc80" active={sort === 'cc80'} desc={descending} onClick={() => toggle('cc80')} />
+              <Header label="cosine" active={sort === 'cosine'} desc={descending} onClick={() => toggle('cosine')} />
+              <Header label="margin" active={sort === 'margin'} desc={descending} onClick={() => toggle('margin')} />
               <Header label="turn" active={sort === 'turn_number'} desc={descending} onClick={() => toggle('turn_number')} />
-              <th>paths</th>
+              <th>admitted by</th>
               <Header label="chars" active={sort === 'render_chars'} desc={descending} onClick={() => toggle('render_chars')} />
               <th>outcome</th>
               <th>episode</th>
@@ -157,45 +161,77 @@ export function ScoresTab({
             {rows.map((candidate) => (
               <Fragment key={candidate.id}>
                 <tr data-delivered={candidate.delivered}>
-                  <td className="n faint">{candidate.cc80_rank}</td>
-                  <td className="n" title="raw cosine, before per-query min-max scaling">
-                    {cosine(candidate.dense_cosine)}
-                  </td>
-                  <td className="n" title="raw Robertson BM25, before per-query min-max scaling">
-                    {gain(candidate.bm25_score)}
-                  </td>
                   <td>
                     <span
                       className="relbar"
-                      title={`fused ${candidate.cc80_score.toFixed(4)} = ${trace.cc80_detail.dense_weight} dense + ${1 - trace.cc80_detail.dense_weight} bm25, each min-max normalized`}
+                      title={
+                        `cosine ${candidate.cosine.toFixed(4)} against a ` +
+                        `threshold of ${threshold.toFixed(2)}; measured, not scaled`
+                      }
                     >
                       <span
                         className="relbar__fill"
-                        style={{ width: `${Math.max(0, Math.min(1, candidate.cc80_score)) * 100}%` }}
+                        style={{ width: `${clamp(candidate.cosine) * 100}%` }}
+                      />
+                      {/* Where the threshold falls on the same scale, so a
+                          near miss is visible without reading the number. */}
+                      <span
+                        className="relbar__cap"
+                        style={{ left: `${clamp(threshold) * 100}%` }}
                       />
                     </span>
-                    {cosine(candidate.cc80_score)}
+                    {cosine(candidate.cosine)}
+                  </td>
+                  <td
+                    className={candidate.margin >= 0 ? 'n' : 'n faint'}
+                    title="cosine minus the threshold; negative means it missed"
+                  >
+                    {candidate.margin >= 0 ? '+' : ''}
+                    {candidate.margin.toFixed(4)}
                   </td>
                   <td className="n">{candidate.turn_number}</td>
                   <td>
-                    {proposingTiers(candidate).map((tier) => (
-                      <span key={tier} className="tiermark" data-tier={tier}>
-                        <span className="tiermark__code">{TIER_CODES[tier]}</span>
+                    {qualifyingPaths(candidate).map((path) => (
+                      <span key={path} className="tiermark" data-tier={path}>
+                        <span className="tiermark__code">{PATH_CODES[path]}</span>
                       </span>
                     ))}
-                    {proposingTiers(candidate).length === 0 && <span className="faint">—</span>}
+                    {qualifyingPaths(candidate).length === 0 && (
+                      <span className="faint">—</span>
+                    )}
                   </td>
                   <td className="n">{chars(candidate.render_chars)}</td>
                   <td>
                     {candidate.delivered ? (
                       <span className="tiermark" data-tier={candidate.delivered_via ?? 'none'}>
                         <span className="tiermark__code">
-                          {candidate.delivered_via ? TIER_CODES[candidate.delivered_via] : '—'}
+                          {candidate.delivered_via
+                            ? PATH_CODES[candidate.delivered_via]
+                            : '—'}
                         </span>
                       </span>
+                    ) : candidate.withheld ? (
+                      <span
+                        className="badge badge--bad"
+                        title={
+                          'Cleared the threshold by ' +
+                          `${candidate.margin.toFixed(4)} and would have been ` +
+                          'delivered, but the deployment ceiling excluded it ' +
+                          'before the library saw it. Not a relevance decision.'
+                        }
+                      >
+                        withheld
+                      </span>
                     ) : (
-                      <span className="badge badge--warn" title={candidate.drop_reason ?? ''}>
-                        dropped
+                      <span
+                        className="badge badge--warn"
+                        title={
+                          candidate.eligible
+                            ? `Missed the threshold by ${Math.abs(candidate.margin).toFixed(4)}.`
+                            : 'Outside the caller’s source-order horizon.'
+                        }
+                      >
+                        {candidate.eligible ? 'below threshold' : 'out of horizon'}
                       </span>
                     )}
                   </td>
@@ -223,7 +259,7 @@ export function ScoresTab({
                 </tr>
                 {expandedId === candidate.id && (
                   <tr className="epbody-row">
-                    <td colSpan={10}>
+                    <td colSpan={7}>
                       <div className="epbody">
                         {bodyLoading && <div className="epbody__state faint">fetching full body…</div>}
                         {bodyError && <div className="callout callout--bad">{bodyError}</div>}
@@ -278,14 +314,17 @@ function Header({
   )
 }
 
+/** Cosine runs [-1, 1]; the bar is a [0, 1] box, so negatives read as empty. */
+function clamp(value: number): number {
+  return Math.max(0, Math.min(1, value))
+}
+
 function value(candidate: CandidateTrace, key: SortKey): number {
   switch (key) {
-    case 'cc80':
-      return candidate.cc80_score
-    case 'dense':
-      return candidate.dense_cosine
-    case 'bm25':
-      return candidate.bm25_score
+    case 'cosine':
+      return candidate.cosine
+    case 'margin':
+      return candidate.margin
     case 'turn_number':
       return candidate.turn_number
     case 'render_chars':

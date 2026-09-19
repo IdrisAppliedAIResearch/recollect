@@ -42,6 +42,11 @@ RUN groupadd --gid 65532 sandbox \
 
 COPY src/recollect/engine/mcp_research.py /opt/recollect/recollect/engine/
 COPY src/recollect/engine/webtools.py /opt/recollect/recollect/engine/
+COPY src/recollect/engine/subagent_tools/__init__.py \
+     src/recollect/engine/subagent_tools/http_request.py \
+     src/recollect/engine/subagent_tools/google_calendar.py \
+     src/recollect/engine/subagent_tools/scheduling.py \
+     /opt/recollect/recollect/engine/subagent_tools/
 
 ENV PYTHONPATH=/opt/python:/opt/recollect \
     PYTHONDONTWRITEBYTECODE=1 \

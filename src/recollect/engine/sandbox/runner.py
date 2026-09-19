@@ -20,9 +20,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -38,6 +40,16 @@ from .manager import (
     SandboxInvocation,
     SandboxManager,
     SandboxStartError,
+)
+
+_LOG = logging.getLogger(__name__)
+
+#: A report the gate refuses. Dropped reports used to vanish without a trace
+#: (a live capability-gap report was found only in the sqlite store), so every
+#: refusal must land in the deployment log with enough identity to correlate
+#: it with the task and the instruction it claimed to answer.
+_DROPPED_REPORT = (
+    "dropped subagent report: kind=%s revision=%r known=%r related=%r task=%r"
 )
 
 #: The delegation request lives as long as opencode's own turn - bounded by
@@ -104,6 +116,32 @@ def _looks_like_cap_banner(text: str) -> bool:
     )
 
 
+def identity_note(session_id: str, task_id: str = "") -> str:
+    """The identity line appended to a delegation's instruction.
+
+    The tool process env cannot carry these ids (one warm server is shared
+    across chats), so the worker copies them from its instruction — the
+    route the reminder story names. Self-asserted: for routing notices,
+    never as authorization (.agent/seam-architecture-plan.md doctrine 7).
+
+    The host's UTC offset rides along because the worker runs in a sandbox
+    that knows only its own clock, and a live run booked the user's
+    "1:30 pm" in UTC — five hours early — and said so. The host process is
+    the user's machine: its zone is the user's zone.
+    """
+    if not session_id.strip():
+        return ""
+    parts = [f"session_id={session_id.strip()}"]
+    if task_id.strip():
+        parts.append(f"task_id={task_id.strip()}")
+    host = datetime.now().astimezone()
+    parts.append(f"host_tz=UTC{host.strftime('%z')} ({host.tzname()})")
+    return ("[recollect identity] " + " ".join(parts)
+            + " — copy the ids into any schedule or notice booking, never "
+              "invent different ones; interpret user-spoken times in "
+              "host_tz and send only explicit offsets.")
+
+
 class OpenCodeRunner:
     """Yield steps as they happen and a single result, like run_subagent."""
 
@@ -133,7 +171,11 @@ class OpenCodeRunner:
         task: str,
         *,
         effort: SubagentEffort = "focused",
+        task_id: str = "",
     ) -> AsyncIterator[SubagentStep | SubagentResult]:
+        note = identity_note(session_id, task_id)
+        if note:
+            task = f"{task}\n\n{note}"
         started = time.perf_counter()
         try:
             invocation = await self._manager.begin_invocation(session_id)
@@ -197,16 +239,22 @@ class OpenCodeRunner:
         restore_workspace: WorkspaceCallback | None = None,
         save_workspace: WorkspaceCallback | None = None,
         message_id: str = "",
+        task_id: str = "",
     ) -> AsyncIterator[SubagentStep | SubagentResult]:
         """Run owned work independently of a foreground response's lifetime.
 
         ``message_id`` is the durable ID of the instruction that established
         ``revision``; reports copy it, which binds them to that instruction.
+        ``task_id`` names the task whose notices this work may book; it
+        travels inside the instruction, never in the shared env.
 
         Per-request admission belongs to the manager's configured model ingress.
         Native sessions live for this invocation; later invocations restore only
         validated workspace files and the caller's structured checkpoint.
         """
+        note = identity_note(session_id, task_id)
+        if note:
+            task = f"{task}\n\n{note}"
         started = time.perf_counter()
         try:
             invocation = await self._manager.begin_invocation(
@@ -296,11 +344,33 @@ class OpenCodeRunner:
             entry = self._report_from_event(event, oc_id, children)
             if entry is not None:
                 key = (entry.native_session_id, entry.call_id)
+                if (
+                    key not in seen_reports
+                    and entry.kind != "accepted"
+                    and entry.revision not in revisions
+                    and entry.related_message_id == revisions[max(revisions)]
+                ):
+                    # The report names the current instruction but carries a
+                    # revision that was never issued: the binding identifies
+                    # the instruction, so re-stamp instead of dropping.
+                    entry = replace(entry, revision=max(revisions))
                 if key not in seen_reports and entry.revision in revisions:
                     valid = entry.kind != "accepted" or (
                         entry.native_session_id == oc_id
                         and entry.related_message_id == revisions[entry.revision]
                     )
+                    if valid and entry.revision in result_revisions and not (
+                        entry.kind == "accepted" and entry.revision not in accepted
+                    ):
+                        # This revision already had its result: anything
+                        # after it re-notifies the user on a task the UI
+                        # shows as finished (a live run appended a second
+                        # result minutes after "done"). The one exception
+                        # is the acknowledgment a delivered-but-unacknowledged
+                        # result asks for — that is the recovery protocol,
+                        # not a tail. Steering mints a new revision, and
+                        # reports for that one are still welcome.
+                        valid = False
                     if valid and (
                         entry.kind == "accepted" or entry.revision == max(revisions)
                     ):
@@ -325,6 +395,18 @@ class OpenCodeRunner:
                             waiting_for_input = False
                             result_revisions.add(entry.revision)
                             final_reports[entry.revision] = entry
+                    else:
+                        _LOG.warning(
+                            _DROPPED_REPORT, entry.kind, entry.revision,
+                            sorted(revisions), entry.related_message_id,
+                            task[:120],
+                        )
+                elif key not in seen_reports:
+                    _LOG.warning(
+                        _DROPPED_REPORT, entry.kind, entry.revision,
+                        sorted(revisions), entry.related_message_id,
+                        task[:120],
+                    )
             step = self._apply_event(
                 event, oc_id, children, seen_calls, steps, sources,
                 scope_calls=True,

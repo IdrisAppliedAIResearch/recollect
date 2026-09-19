@@ -156,7 +156,8 @@ def test_notifications_and_cursor_preserve_display_referents(tasks):
     assert store.messages(first, task_id, direction="main")[-1]["payload"] == {
         "text": "The second one", "reply_to": "notice",
     }
-    assert store.all_messages(first, after=notice["seq"], limit=1)[0]["kind"] == "steer"
+    assert store.messages(first, task_id,
+                          after=notice["seq"], limit=1)[0]["kind"] == "steer"
     assert store.get_notification(first, "reply") is None
     json.dumps(replay)
 

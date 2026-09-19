@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import time
 from types import SimpleNamespace
@@ -266,6 +267,36 @@ async def test_owned_question_steers_same_execution_and_deduplicates_reports(
     )
     assert final["findings"] == ["B meets the request"]
     assert len(state.calls) == 1
+
+
+async def test_over_revision_report_is_dropped_and_logged(environment, caplog):
+    # The runner is the primary gate; this is the coordinator's backstop. A
+    # report beyond the task's revision must not land, and the loss must be
+    # logged instead of vanishing (the silent drop that lost a live
+    # capability-gap report).
+    state = environment
+
+    async def behavior(**kwargs):
+        await kwargs["report"](
+            TaskReport("accepted", "Accepted", 1, call_id="accept"))
+        await kwargs["report"](
+            TaskReport("finding", "Too far ahead", 3, call_id="ahead"))
+        await kwargs["report"](
+            TaskReport("result", "Done", 1, call_id="result"))
+        yield SubagentResult("task", "ok", "{}", "Done")
+
+    state.behavior = behavior
+    with caplog.at_level(logging.WARNING):
+        task = await submit(state)
+        await state.coordinator.start()
+        final = await wait_state(state, task["task_id"], "completed")
+    assert final["findings"] == []
+    dropped = [
+        record for record in caplog.records
+        if "dropped subagent report" in record.getMessage()
+    ]
+    assert len(dropped) == 1
+    assert "finding" in dropped[0].getMessage()
 
 
 async def test_late_steering_after_native_completion_creates_one_saved_followup(

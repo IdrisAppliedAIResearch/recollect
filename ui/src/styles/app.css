@@ -1630,6 +1630,7 @@ table,
 
 /* score micro-bar inside a cell */
 .relbar {
+  position: relative;
   display: inline-block;
   width: 54px;
   height: 6px;
@@ -1643,6 +1644,18 @@ table,
   display: block;
   height: 100%;
   background: var(--accent);
+}
+/* Where the relevance threshold falls, on the same 0..1 scale as the fill.
+   With no capacity to run out of, the distance between fill and cap is the
+   entire reason an episode did or did not land. */
+.relbar__cap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: currentColor;
+  opacity: 0.6;
 }
 
 /* ==========================================================================

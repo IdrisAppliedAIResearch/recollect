@@ -94,8 +94,8 @@ its bundled FFmpeg components also retain their own package notices.
 
 ## 3. Frontend dependencies
 
-The inspector UI (`ui/`) builds on React, Vite, TypeScript, and
-`@tanstack/react-table`. The resolved dependency tree is MIT, Apache-2.0,
+The inspector UI (`ui/`) builds on React, Vite, and TypeScript. The
+resolved dependency tree is MIT, Apache-2.0,
 MPL-2.0, ISC, and BSD-3-Clause. `ui/package.json` is marked `private` and
 `AGPL-3.0-or-later`, matching the repository; it is not published to npm.
 

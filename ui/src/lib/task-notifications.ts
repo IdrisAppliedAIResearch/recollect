@@ -1,5 +1,13 @@
 import type { ResearchTask, TaskNotification } from '../types/tasks.ts'
 
+/**
+ * The notification id the selfmod service posts when it asks a connect/build
+ * decision. src/recollect/selfmod/service.py builds it as
+ * "selfmod-proposal-" + task_id, and the decision card anchors to that one
+ * notification — a cross-layer contract, so change both ends together.
+ */
+export const SELFMOD_PROPOSAL_PREFIX = 'selfmod-proposal-'
+
 /** Coalesce unattended progress without losing a final result or question. */
 export function pendingNotifications(
   pending: TaskNotification[], incoming: TaskNotification[], tasks: ResearchTask[], now = Date.now(),

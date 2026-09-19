@@ -51,7 +51,8 @@ def _permission_table(*, subagent: bool, continuous: bool = False) -> dict:
         "external_directory": "deny",
         "question": "deny",
         "skill": ({"*": "deny", "recollect-reporting": "allow",
-                   "recollect-files": "allow", "recollect-research": "allow"}
+                   "recollect-files": "allow", "recollect-research": "allow",
+                   "recollect-seams": "allow"}
                   if continuous else "deny"),
         "lsp": "deny",
         "task": "deny",
@@ -120,6 +121,10 @@ def build_config(
     tool host runs the bundle's own tool server, and the base image's packaged
     copy is left off the import path. ``connections`` is the connected-account
     service URL and key, given only to the tool process's environment.
+
+    There is no connected-connector list: the tool process registers every
+    tool unconditionally and each one reports its own unavailability when
+    called without a relay.
     """
     skill_root = (prompt_dir or str(workdir)).rstrip("/\\") + "/skills"
     environment = {"RECOLLECT_TASK_REPORTING": "1"} if continuous else {}

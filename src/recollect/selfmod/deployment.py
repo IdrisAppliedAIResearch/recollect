@@ -25,6 +25,7 @@ from .contracts import (
     sha256,
     write_tree,
 )
+from .subagent_tree import BUNDLE_PYTHONPATH
 
 BUNDLE_ROOT = "recollect-bundle"
 BUNDLE_PARENT = "/opt"
@@ -207,6 +208,52 @@ class BundleImages:
         if served != accepted or manifest != encode(bundle.manifest):
             raise IntegrityError("Served bundle bytes differ from the accepted digest")
         return VerifiedImage(bundle, image_id)
+
+    async def serving_surface(self, image_id, tool_name):
+        """Does the built image expose the new tool when it actually serves?
+
+        The bundle import path is the whole serving environment that matters
+        here: tools register unconditionally, so what the surface shows is
+        what a worker gets. B is never staged while its new tool would be
+        unreachable.
+
+        This used to also claim connected connectors, because registration
+        was gated on connection state and a correct build was otherwise
+        unprobeable. The gates are gone (see mcp_research), so the claim has
+        nothing left to fake.
+        """
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+            raise IntegrityError("serving-surface check needs an immutable image ID")
+        # Each assignment needs its own -e: a bare KEY=VALUE after the flags
+        # is parsed as the image reference, and every probe dies with
+        # "docker: invalid reference format".
+        env = ["-e", "PYTHONPATH=" + BUNDLE_PYTHONPATH]
+        snippet = (
+            "import json, recollect.engine.mcp_research as m\n"
+            "names = sorted({t.name for t in m.mcp._tool_manager.list_tools()})\n"
+            "print(json.dumps({'ok': " + repr(tool_name)
+            + " in names, 'tools': names}))\n"
+        )
+        code, out, err = await self._docker.run(
+            "run", "--rm", "--pull=never", "--network", "none",
+            *env, image_id, "python", "-c", snippet)
+        stdout = (out or b"").decode(errors="replace").strip()
+        stderr = (err or b"").decode(errors="replace").strip()
+        if code:
+            return {"ok": False, "detail": "surface probe failed: "
+                    + (stderr or stdout)[-512:]}
+        try:
+            payload = json.loads(stdout.splitlines()[-1])
+        except (ValueError, IndexError):
+            return {"ok": False, "detail": "surface probe was unreadable: "
+                    + stdout[-512:]}
+        tools = [str(t) for t in (payload.get("tools") or [])]
+        if payload.get("ok"):
+            return {"ok": True, "tools": tools, "detail": ""}
+        return {"ok": False, "tools": tools,
+                "detail": "the serving build does not expose " + repr(tool_name)
+                          + "; it exposes: "
+                          + (", ".join(tools) if tools else "nothing")}
 
     async def remove(self, image_id):
         """Delete a bundle image and any container still made from it."""

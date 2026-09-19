@@ -24,8 +24,17 @@ from .task_replies import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def task_tools(build_question: bool = False) -> list[dict]:
-    """``build_question``: a task is waiting for the user's go/no-go on a build."""
+def task_tools(build_question: bool = False,
+               connect_question: bool = False,
+               step_question: bool = False) -> list[dict]:
+    """``build_question``: a task waits for go/no-go on a build.
+
+    ``connect_question``: a task waits for the user's yes/no on connecting
+    an external service (issue #28).
+
+    ``step_question``: a paused build asks the user a question it cannot answer
+    itself; the user's reply unblocks it.
+    """
     start = copy.deepcopy(run_subagent_tool())
     start["function"]["description"] = (
         "Start research, supported file work, or a request that needs a capability "
@@ -55,6 +64,15 @@ def task_tools(build_question: bool = False) -> list[dict]:
                    "build a missing capability: use build when the user says yes "
                    "and skip_build when the user says no. Never choose either "
                    "without the user's answer." if build_question else "")
+                + (" A task with a connect_proposal is asking the user to allow "
+                   "connecting an external service: use connect when the user "
+                   "says yes and skip_connect when the user says no. Never "
+                   "choose either without the user's answer."
+                   if connect_question else "")
+                + (" A task with a step_proposal is a paused build asking the "
+                   "user a question it cannot answer itself: use answer_step, "
+                   "with the user's reply in text, to unblock it. Never invent "
+                   "the answer." if step_question else "")
             ),
             "parameters": {
                 "type": "object",
@@ -69,6 +87,11 @@ def task_tools(build_question: bool = False) -> list[dict]:
                             "quiet",
                             # Offered only while a build question is waiting.
                             *(["build", "skip_build"] if build_question else []),
+                            # ... and while a connection offer is waiting.
+                            *(["connect", "skip_connect"]
+                              if connect_question else []),
+                            # ... and while a paused build asks a question.
+                            *(["answer_step"] if step_question else []),
                         ],
                     },
                     "task_id": {"type": "string"},
@@ -147,6 +170,23 @@ async def _control(state, session_id, request_id, arguments, message=""):
             return task
         return snapshot
     task_id = arguments.get("task_id")
+    if operation in {"connect", "skip_connect"}:
+        # Only the user's answer to a pending connection offer reaches the
+        # service (issue #28); the chat's own reply announces it.
+        waiting = [t["task_id"] for t in snapshot["tasks"]
+                   if t.get("connect_proposal")]
+        service = getattr(state, "selfmod", None)
+        if service is None or not waiting:
+            raise ValueError("No connection offer is waiting for an answer.")
+        if not task_id and len(waiting) == 1:
+            task_id = waiting[0]
+        if task_id not in waiting:
+            raise ValueError("That task is not waiting for a connection answer.")
+        decision = await service.decide(session_id, task_id,
+                                        operation == "connect", announce=False)
+        task = next(t for t in (await state.tasks.snapshot(session_id))["tasks"]
+                    if t["task_id"] == task_id)
+        return {**task, "build": decision["build"]}
     if operation in {"build", "skip_build"}:
         # Only the user's answer to a pending build question reaches the service.
         waiting = [t["task_id"] for t in snapshot["tasks"] if t.get("build_proposal")]
@@ -163,6 +203,27 @@ async def _control(state, session_id, request_id, arguments, message=""):
         task = next(t for t in (await state.tasks.snapshot(session_id))["tasks"]
                     if t["task_id"] == task_id)
         return {**task, "build": decision["build"]}
+    if operation == "answer_step":
+        # A paused build's question: only the user's reply text unblocks it.
+        waiting = [t["task_id"] for t in snapshot["tasks"]
+                   if t.get("step_proposal")]
+        service = getattr(state, "selfmod", None)
+        if service is None or not waiting:
+            raise ValueError("No build is waiting for an answer.")
+        if not task_id and len(waiting) == 1:
+            task_id = waiting[0]
+        if task_id not in waiting:
+            raise ValueError("That task is not waiting for an answer.")
+        answer = arguments.get("text")
+        if answer is not None and not isinstance(answer, str):
+            raise ValueError("The answer must be text.")
+        answer = (answer or "").strip()
+        if not answer:
+            raise ValueError("The answer text was missing or empty.")
+        await service.answer_step(session_id, task_id, answer)
+        task = next(t for t in (await state.tasks.snapshot(session_id))["tasks"]
+                    if t["task_id"] == task_id)
+        return {**task, "build": "answered"}
     if not task_id:
         candidates = snapshot["tasks"]
         if len(candidates) != 1:
@@ -187,6 +248,19 @@ async def _control(state, session_id, request_id, arguments, message=""):
     )
 
 
+def _worker_reported(result: dict) -> bool:
+    """Whether anything has come back from the worker that holds the brief.
+
+    Until it has, the objective is only what this turn just wrote. Quoted
+    back to the reply it reads as a finding, so an objective that states a
+    conclusion gets answered to the user before anything was checked.
+    """
+    return any((
+        result.get("accepted_revision"), result.get("progress"),
+        result.get("findings"), result.get("result"), result.get("error"),
+    ))
+
+
 def _task_handoff(result: dict) -> str:
     if "task_id" not in result:
         return json.dumps(result, ensure_ascii=False)
@@ -201,6 +275,8 @@ def _task_handoff(result: dict) -> str:
                        ("result", 4_000), ("error", 500)):
         value = result.get(key)
         snapshot[key] = value[:limit] if isinstance(value, str) else value
+    if not _worker_reported(result):
+        snapshot["objective"] = None
     snapshot["findings"] = [text[:500] for text in result.get("findings", [])[-4:]]
     snapshot["sources"] = [
         text for text in result.get("sources", [])[-8:] if len(text) <= 300
@@ -313,6 +389,9 @@ async def stream_task_turn(
                 task for task in context_tasks if task.get("worker_active")
             ]
             build_question = any(task.get("build_proposal") for task in context_tasks)
+            connect_question = any(task.get("connect_proposal")
+                                   for task in context_tasks)
+            step_question = any(task.get("step_proposal") for task in context_tasks)
             if question == "files":
                 snapshot = await state.tasks.snapshot(session_id)
                 trace.response_text = artifact_reply(snapshot["tasks"])
@@ -355,7 +434,8 @@ async def stream_task_turn(
                 async for _ in state.generator.stream(
                     messages,
                     trace=trace,
-                    tools=task_tools(build_question),
+                    tools=task_tools(build_question, connect_question,
+                                     step_question),
                     max_tokens=state.config.generator_routing_max_tokens,
                 ):
                     pass
@@ -422,12 +502,24 @@ async def stream_task_turn(
                     if call.name == "task_reply":
                         trace.response_text = _reply_text(arguments)
                         status_only = arguments.get("status_only")
+                        # `question is not None` is load-bearing, not leftover
+                        # coupling: a pure progress question is answered from
+                        # the worker's evidence, and committing that as a
+                        # memory would write the worker's findings into the
+                        # episode store as though the user had said them.
+                        # task_question fullmatches, so a mixed message that
+                        # also carries a new fact does not trigger it and does
+                        # commit. Pinned by test_task_status_reply.py's
+                        # progress-question-cannot-be-reclassified test.
                         display_only = (
                             status_only or question is not None or not memory_response
                         )
                     else:
                         # An operational acknowledgment is not a memory. Mixed
-                        # conversation must supply its substantive reply separately.
+                        # conversation must supply its substantive reply
+                        # separately, and a pure progress question's answer is
+                        # the worker's evidence rather than the user's - see
+                        # the task_reply branch above.
                         display_only = not memory_response or question is not None
                         try:
                             if call.name == "run_subagent":
@@ -456,19 +548,42 @@ async def stream_task_turn(
                                 conversation_task_id = target_id
                                 if target_id not in task_ids:
                                     task_ids.append(target_id)
+                        echoed = arguments
+                        if (call.name == "run_subagent"
+                                and isinstance(result, dict)
+                                and not _worker_reported(result)):
+                            # The handoff already withholds the objective; the
+                            # echoed call must not hand the same unchecked
+                            # conclusion back under a different framing.
+                            echoed = {key: value for key, value in
+                                      arguments.items() if key != "task"}
                         messages.append(
                             {
                                 "role": "assistant",
                                 "content": json.dumps({
-                                    "name": call.name, "arguments": arguments,
+                                    "name": call.name, "arguments": echoed,
                                 }, ensure_ascii=False),
                             }
                         )
                         # Qwen's template permits system messages only before
                         # the conversation, so update the existing preamble.
+                        #
+                        # Which follow-up depends on whether anything has come
+                        # back. Asking a model to "answer the user's question"
+                        # about work that just started invites it to answer
+                        # from its own knowledge - which is how a turn came to
+                        # tell the user "I don't have a way to set recurring
+                        # reminders" while its worker was busy booking five.
                         system = _turn_system_prompt(
                             state.config, prepared.trace.started_at, input_mode,
-                            task_mode=True, follow_up="operation_returned",
+                            task_mode=True,
+                            follow_up=(
+                                "work_started"
+                                if isinstance(result, dict)
+                                and "task_id" in result
+                                and not _worker_reported(result)
+                                else "operation_returned"
+                            ),
                         )
                         messages[0]["content"] = system
                         messages.append(

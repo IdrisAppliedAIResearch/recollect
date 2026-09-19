@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 from recollect.engine.sandbox import configgen
 
@@ -84,6 +85,35 @@ def test_mcp_wraps_the_recollect_tools_with_the_running_interpreter(tmp_path):
     assert mcp["enabled"] is True
 
 
+def test_connections_and_the_connected_hint_reach_only_the_tool_process(tmp_path):
+    path = configgen.write_config(
+        tmp_path / "s2",
+        base_url="http://127.0.0.1:8000/v1",
+        model="local",
+        api_key="not-needed",
+        steps=24,
+        connections=("http://127.0.0.1:60000", "svc-key"),
+    )
+    config = json.loads(path.read_text(encoding="utf-8"))
+    env = config["mcp"][configgen.MCP_SERVER]["environment"]
+    assert env["RECOLLECT_CONNECTIONS_URL"] == "http://127.0.0.1:60000"
+    assert env["RECOLLECT_CONNECTIONS_TOKEN"] == "svc-key"
+
+    # No connector hint is written at all: tools register unconditionally
+    # and report their own unavailability when called without the relay.
+    plain = configgen.write_config(
+        tmp_path / "s3",
+        base_url="http://127.0.0.1:8000/v1",
+        model="local",
+        api_key="not-needed",
+        steps=24,
+    )
+    config = json.loads(plain.read_text(encoding="utf-8"))
+    env = config["mcp"][configgen.MCP_SERVER].get("environment", {})
+    assert "RECOLLECT_CONNECTED_CONNECTORS" not in env
+    assert "RECOLLECT_CONNECTIONS_URL" not in env
+
+
 def test_container_paths_are_written_without_prompt_overrides(tmp_path):
     workdir = tmp_path / "config"
     path = configgen.write_config(
@@ -102,3 +132,14 @@ def test_container_paths_are_written_without_prompt_overrides(tmp_path):
     )
     assert config["mcp"][configgen.MCP_SERVER]["cwd"] == "/workspace"
     assert sorted(path.parent.iterdir()) == [path]
+
+
+def test_the_seams_envelope_ships_with_the_bundled_skills():
+    """The implementation agent is *told* its boundary (seam plan)."""
+    path = (Path(configgen.__file__).with_name("skills")
+            / "recollect-seams" / "SKILL.md")
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("---\n")
+    assert "name: recollect-seams" in text
+    assert "[recollect identity]" in text
+    assert "capability_gap" in text

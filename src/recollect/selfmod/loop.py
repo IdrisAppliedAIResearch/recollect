@@ -3,8 +3,9 @@
 Tests are authored and frozen first. Each attempt develops from A's unchanged
 tree, then switches to a B image that resumes the same request. Any failure
 discards B and becomes feedback for the next attempt. When B finishes the
-request, B becomes A. Attempts continue until one finishes or the user stops
-the run; there is no elapsed-time or attempt limit.
+request, B becomes A. Attempts have no elapsed-time or count limit, but they
+do end: the same failure a third time in a row is deterministic, and the
+build gives up and says so rather than retrying forever.
 """
 
 import asyncio
@@ -17,6 +18,11 @@ BUGS = (TypeError, AttributeError, NameError, ImportError, IndentationError)
 FEEDBACK = 8
 #: Longest pause between attempts that keep failing the same way.
 MAX_PAUSE = 300.0
+#: Consecutive identical failures before the build gives up. Backing off is
+#: pacing for a failure that might clear; the same failure a third time in a
+#: row is deterministic, and an endless retry just looks like a build that
+#: never ends. The user can always ask again.
+MAX_REPEATS = 3
 TERMINAL = {"completed", "blocked", "canceled", "interrupted"}
 
 
@@ -124,24 +130,37 @@ class SelfModificationLoop:
         await self._record("loop_stopped", {})
         return Outcome(False, "stopped by the user", stopped=True)
 
-    async def run(self, gap):
+    async def run(self, gap, seed=None):
+        """Run from a fresh authoring pass, or resume a paused build.
+
+        ``seed`` is ``{"tests", "attempt", "feedback"}``: the frozen contract and
+        the in-flight attempt a restarted process is picking the build back up
+        from. ``attempt`` is the attempt to resume, so the loop counts it, not
+        the one after.
+        """
         await self._record("loop_started", {"gap": gap})
-        tests = None
-        while tests is None:
-            if self._stop.is_set():
-                return await self._stopped()
-            try:
-                tests = await self._author_tests(gap, self._stop.is_set, self._record)
-            except BUGS as error:
-                # A defect in this harness never becomes a transient failure to
-                # retry: it would call the model forever and never succeed.
-                await self._record("loop_failed", {"reason": _reason(error)})
-                return Outcome(False, _reason(error))
-            except Exception as error:
-                await self._record("tests_failed", {"reason": _reason(error)})
-                # A pause between failed passes, not a limit on agent work.
-                await asyncio.sleep(self._retry_pause)
-        feedback, attempt = [], 0
+        if seed is not None:
+            tests, feedback = seed["tests"], list(seed["feedback"])
+            attempt = seed["attempt"] - 1
+        else:
+            tests = None
+            feedback, attempt = [], 0
+        if tests is None:
+            while tests is None:
+                if self._stop.is_set():
+                    return await self._stopped()
+                try:
+                    tests = await self._author_tests(
+                        gap, self._stop.is_set, self._record)
+                except BUGS as error:
+                    # A defect in this harness never becomes a transient failure
+                    # to retry: it would call the model forever and never succeed.
+                    await self._record("loop_failed", {"reason": _reason(error)})
+                    return Outcome(False, _reason(error))
+                except Exception as error:
+                    await self._record("tests_failed", {"reason": _reason(error)})
+                    # A pause between failed passes, not a limit on agent work.
+                    await asyncio.sleep(self._retry_pause)
         last_reason, repeats = None, 0
         while not self._stop.is_set():
             attempt += 1
@@ -176,8 +195,15 @@ class SelfModificationLoop:
             pause = min(self._retry_pause * 2 ** (repeats - 1), MAX_PAUSE)
             await self._record("attempt_failed", {"attempt": attempt,
                                                   "reason": outcome.detail,
-                                                  "repeats": repeats,
-                                                  "pause_s": pause})
+                                                  "repeats": repeats})
+            if repeats >= MAX_REPEATS:
+                # Retrying the identical failure again only delays the honest
+                # word: this build cannot pass as things stand.
+                await self._record("loop_gave_up", {"attempt": attempt,
+                                                    "reason": outcome.detail,
+                                                    "repeats": repeats})
+                return Outcome(False, f"gave up after {repeats} identical "
+                                      f"failures: {outcome.detail}")
             await asyncio.sleep(pause)
         return await self._stopped()
 
@@ -206,6 +232,15 @@ class DeploymentSwitch:
         bundle = SubagentBundle(candidate, self._base_image_id, self._launch)
         self._unstaged = await self._images.build(bundle)
         verified = await self._images.verify(bundle, self._unstaged)
+        # Settle reachability in the serving env before B serves: a build
+        # whose new tool is unreachable is a failure with feedback, not a
+        # staged deployment. One probe settles it, because tools register
+        # unconditionally - there is no connection state that could make a
+        # correct build look broken, and no claim to fake to rescue it.
+        surface = await self._images.serving_surface(
+            self._unstaged, tests.interface["tool_name"])
+        if not surface["ok"]:
+            return Outcome(False, surface["detail"])
         self._deployments.stage_b(await asyncio.to_thread(self._stage, verified))
         self._unstaged = None
         task = await self._coordinator.submit(

@@ -88,6 +88,32 @@ async def test_loop_freezes_tests_once_and_retries_with_feedback(events):
     assert kinds(events)[-1] == "attempt_finished"
 
 
+async def test_a_seeded_run_resumes_the_paused_attempt_without_reauthoring(events):
+    tests = parse_tests(authored())
+    authoring_calls, developed = [], []
+
+    async def author_tests(gap, stopped, record):
+        authoring_calls.append(gap)
+        return tests
+
+    async def develop(attempt, frozen, feedback):
+        developed.append((attempt, frozen, feedback))
+        return candidate(f"attempt {attempt}")
+
+    switch = Switch([Outcome(True, "done")])
+    loop = SelfModificationLoop(author_tests=author_tests, develop=develop,
+                                switch=switch, retry_pause=0, on_event=events)
+    # The build paused on attempt 3 after two failures; a restart resumes it.
+    seed = {"tests": tests, "attempt": 3,
+            "feedback": ("attempt 1: boom", "attempt 2: crash")}
+    outcome = await loop.run(GAP, seed=seed)
+    assert outcome == Outcome(True, "done")
+    # No fresh authoring: the frozen contract and in-flight attempt carried over.
+    assert authoring_calls == []
+    assert developed == [(3, tests, ("attempt 1: boom", "attempt 2: crash"))]
+    assert switch.activated == [3]
+
+
 async def test_user_stop_ends_the_loop_without_a_new_attempt(events):
     tests = parse_tests(authored())
     loop = None
@@ -126,6 +152,15 @@ class Images:
 
     async def verify(self, value, image_id):
         return await BundleImages(self.fake).verify(value, image_id)
+
+    async def serving_surface(self, image_id, tool_name):
+        self.serving_calls = getattr(self, "serving_calls", [])
+        self.serving_calls.append((image_id, tool_name))
+        queued = getattr(self, "surfaces", None)
+        if queued:
+            return dict(queued.pop(0) if len(queued) > 1 else queued[0])
+        return dict(getattr(self, "surface", None) or
+                    {"ok": True, "tools": [tool_name], "detail": ""})
 
     async def remove(self, image_id):
         self.removed.append(image_id)
@@ -198,6 +233,74 @@ async def test_switch_resumes_on_b_discards_a_failure_and_promotes_a_success():
         ("submit", "task-selfmod-task-a-2"), ("release", "task-selfmod-task-a-2")]
 
 
+async def test_a_build_whose_new_tool_is_not_served_is_failed_not_staged():
+    a = Deployment("A", await receipt(bundle(), "sha256:" + "b" * 64), object())
+    deployments = Deployments(a)
+    deployments.bind("task-a")
+    images = Images()
+    images.surface = {
+        "ok": False, "tools": ["web_fetch", "web_search"],
+        "detail": "the serving build does not expose 'create_event'; "
+                  "it exposes: web_fetch, web_search"}
+    staged = []
+    coordinator = Coordinator(deployments, ["completed"])
+
+    def stage(receipt):
+        staged.append(receipt)
+        return Deployment("B", receipt, object())
+
+    switch = DeploymentSwitch(
+        deployments=deployments, images=images, coordinator=coordinator,
+        session_id="s", parent_task_id="task-a", request="the request",
+        base_image_id=bundle().base_image_id, launch=(("entrypoint", "research"),),
+        stage=stage, promote=None, discard=None, poll_seconds=0)
+    outcome = await switch.activate(
+        1, candidate("first"), parse_tests(authored()), GAP)
+    assert not outcome.finished
+    assert "does not expose 'create_event'" in outcome.detail
+    assert staged == [] and deployments.b is None  # never staged
+    assert coordinator.calls == []  # the request was never resumed
+    assert images.serving_calls == [
+        ("sha256:" + format(1, "064x"), "create_event")]
+    await switch.reset(outcome.detail)
+    assert images.removed == ["sha256:" + format(1, "064x")]
+
+
+async def test_one_probe_settles_reachability_with_no_connector_claim():
+    """There is no connection state that could hide a correct build.
+
+    This used to probe twice: once with what was really connected and,
+    if that failed, again claiming the shipped connectors - because
+    registration was gated and an unconnected but correct build would
+    otherwise be damned. Tools register unconditionally now, so a second
+    probe could only ever repeat the first.
+    """
+    deployments = Deployments(
+        Deployment("A", await receipt(bundle(), "sha256:" + "b" * 64), object()))
+    deployments.bind("task-a")
+    coordinator = Coordinator(deployments, ["completed"])
+    images, staged = Images(), []
+    images.surface = {"ok": True, "tools": ["create_event"], "detail": ""}
+
+    def stage(receipt):
+        staged.append(receipt)
+        return Deployment("B", receipt, object())
+
+    async def promote(value, tests):
+        pass
+
+    switch = DeploymentSwitch(
+        deployments=deployments, images=images, coordinator=coordinator,
+        session_id="s", parent_task_id="task-a", request="the request",
+        base_image_id=bundle().base_image_id, launch=(("entrypoint", "research"),),
+        stage=stage, promote=promote, discard=None, poll_seconds=0)
+    outcome = await switch.activate(
+        1, candidate("first"), parse_tests(authored()), GAP)
+    assert outcome.finished and staged
+    assert images.serving_calls == [
+        ("sha256:" + format(1, "064x"), "create_event")]
+
+
 async def test_a_b_image_that_never_staged_is_removed_on_reset():
     a = Deployment("A", await receipt(bundle(), "sha256:" + "b" * 64), object())
     images = Images()
@@ -255,7 +358,7 @@ async def test_identical_failures_back_off_and_a_new_reason_resets(events,
     async def author_tests(gap, stopped, record):
         return tests
 
-    reasons = iter(["same", "same", "same", "different", "different"])
+    reasons = iter(["same", "same", "different", "different"])
 
     async def develop(attempt, frozen, feedback):
         reason = next(reasons, None)
@@ -268,10 +371,33 @@ async def test_identical_failures_back_off_and_a_new_reason_resets(events,
                                 switch=switch, retry_pause=1.0,
                                 on_event=events)
     assert (await loop.run({})).finished
-    assert pauses == [1.0, 2.0, 4.0, 1.0, 2.0]
+    assert pauses == [1.0, 2.0, 1.0, 2.0]
     failed = [data for kind, data in events if kind == "attempt_failed"]
-    assert [f["repeats"] for f in failed] == [1, 2, 3, 1, 2]
+    assert [f["repeats"] for f in failed] == [1, 2, 1, 2]
     assert loop_module.MAX_PAUSE == 300.0
+
+
+async def test_the_third_identical_failure_gives_up_instead_of_retrying(events):
+    import recollect.selfmod.loop as loop_module
+
+    tests = parse_tests(authored())
+
+    async def author_tests(gap, stopped, record):
+        return tests
+
+    async def develop(attempt, frozen, feedback):
+        return candidate("x")
+
+    switch = Switch([Outcome(False, "surface probe failed: docker: invalid "
+                                    "reference format")] * 9)
+    loop = SelfModificationLoop(author_tests=author_tests, develop=develop,
+                                switch=switch, retry_pause=0, on_event=events)
+    outcome = await loop.run(GAP)
+    assert not outcome.finished and not outcome.stopped
+    assert "gave up after 3 identical failures" in outcome.detail
+    assert switch.activated == [1, 2, 3]  # not a fourth
+    assert kinds(events)[-1] == "loop_gave_up"
+    assert loop_module.MAX_REPEATS == 3
 
 
 async def test_a_harness_defect_ends_the_loop_instead_of_retrying(events):

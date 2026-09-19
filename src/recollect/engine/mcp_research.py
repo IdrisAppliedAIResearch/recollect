@@ -15,7 +15,6 @@ same keyless service or immediately repeat a known rate-limited request.
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Annotated, Literal
 
@@ -23,7 +22,9 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from .subagent_tools.google_calendar import register as _register_calendar
 from .subagent_tools.http_request import http_request as _http_request
+from .subagent_tools.scheduling import register as _register_scheduling
 from .webtools import (
     PublicWebTransport,
     SearchProviderState,
@@ -117,6 +118,24 @@ async def http_request(
     )
 
 
+# Registered unconditionally, on purpose.
+#
+# The sandbox is the safety boundary; that is what it is for. Gating a
+# tool's *registration* on the relay env adds nothing on top of it and
+# takes away the thing the container exists to allow - a worker that can
+# build and test the capability it was asked for. A tool that is invisible
+# cannot be developed against, and the serving-surface probe runs without
+# the relay, so an env-gated tool could never be shipped at all.
+#
+# Authorization lives at the point of use, not here: every call goes
+# through the relay's bearer token, and without it `_access`/`_relay`
+# return an explicit "no connection service is available to this worker"
+# document rather than a guess. That is the honest failure, and it is
+# already implemented.
+_register_calendar(mcp)
+_register_scheduling(mcp)
+
+
 #: A result blaming the toolset is a capability gap, not a finished request.
 _MISSING_TOOL = re.compile(
     r"\b(?:tool|tools|tooling|toolset)\b[^.]{0,60}\b(?:does not|doesn't|do not|"
@@ -171,8 +190,13 @@ async def report_message(
     }, ensure_ascii=False)
 
 
-if os.environ.get("RECOLLECT_TASK_REPORTING") == "1":
-    mcp.tool()(report_message)
+# Registered unconditionally, for the reason above. It was gated on
+# RECOLLECT_TASK_REPORTING, which the serving-surface probe never sets, so
+# report_message was missing from every probe surface - making the failure
+# text under-report what the image actually exposes, and making the tool
+# itself unbuildable. A worker that is not in a reporting run simply has no
+# one to report to; that is not a reason to hide the tool.
+mcp.tool()(report_message)
 
 
 def main() -> None:

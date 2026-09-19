@@ -17,17 +17,13 @@ deployment convenience from silently becoming a mechanism change.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
 from episodic import EpisodicConfig
 
 from .limits import validate_identifier
-
-#: The deployed context budget, in characters. This is the value the studies
-#: ran at; the library enforces it as a hard ceiling with no tolerance.
-DEFAULT_BUDGET_CHARS = 32_000
 
 #: Threads for the in-process embedder. Measured bit-identical to the pinned
 #: single-threaded output across 1/2/4/8/16 threads on 21 texts, while cutting
@@ -105,14 +101,38 @@ class RecollectConfig:
     voice_interrupt_threshold: float = 0.8
 
     # -- memory -------------------------------------------------------------
-    budget_chars: int = DEFAULT_BUDGET_CHARS
+    #: The mechanism's own constants, taken from the library rather than
+    #: re-declared here. The threshold and continuity window are mechanism,
+    #: not deployment, and stay on the far side of that line.
     episodic: EpisodicConfig = field(default_factory=EpisodicConfig)
-    #: Deployment choice (D1, locked 2026-08-25): the protected static
-    #: ASPECT spread runs by default here, so the base dependency carries
-    #: the [aspect] extra. It overrides the library's own aspect_enabled,
-    #: which defaults off; a store created under an explicit config keeps
-    #: pinning it at first open.
-    aspect_enabled: bool = True
+
+    #: A deployment ceiling on the rendered context block, in characters.
+    #:
+    #: **This is a deviation from the library's mechanism, and it is here
+    #: for hardware, not for retrieval quality.** The timeline delivers
+    #: every episode at or above the threshold with no capacity limit; the
+    #: library is explicit that its "output is also uncapped and has no
+    #: established latency horizon". A local 32K-context model cannot
+    #: accept an uncapped block, and Recollect has no other guard - an
+    #: oversized prompt is simply an HTTP error from llama-server and a
+    #: failed turn.
+    #:
+    #: Derivation, against the verified deployment in AGENTS.md §7.1
+    #: (llama-server --ctx-size 32768):
+    #:   32,768 tokens x 3.2 chars/token  = ~104,900 chars of window.
+    #:     (3.2, not the ~4 of English prose: mixed code and quoted text
+    #:      tokenizes denser, and the conservative direction is the safe one.)
+    #:   reserved: 5,078 task-mode system prompt + 16,000 task-handoff cap
+    #:             + 2,000 user message + ~4,000 reply/thinking headroom
+    #:                                    = ~27,100 chars.
+    #:   leaves ~77,800; rounded down to 64,000 for margin.
+    #:
+    #: For reference, the retired CC80 path allowed 32,000 characters of
+    #: long-term block with recency rendered additively on top, so this is
+    #: the more generous ceiling of the two - it simply exists where the
+    #: library's does not. Set to 0 to disable it and take the library's
+    #: behaviour unmodified.
+    context_ceiling_chars: int = 64_000
 
     # -- subagent ---------------------------------------------------------------
     # Deployment bounds for the ephemeral subagent. These cap cost,
@@ -211,8 +231,8 @@ class RecollectConfig:
             raise ValueError(
                 "voice thresholds must satisfy 0 < speech <= interrupt < 1"
             )
-        if self.budget_chars < 0:
-            raise ValueError("budget_chars must be non-negative")
+        if self.context_ceiling_chars < 0:
+            raise ValueError("context_ceiling_chars must be non-negative")
         if self.generator_max_tokens < 1:
             raise ValueError("generator_max_tokens must be positive")
         if self.generator_routing_max_tokens < 1:
@@ -253,19 +273,10 @@ class RecollectConfig:
             raise ValueError("sandbox_container_pids must be at least 16")
         if self.sandbox_container_cpus <= 0:
             raise ValueError("sandbox_container_cpus must be positive")
-        if not isinstance(self.aspect_enabled, bool):
-            raise ValueError("aspect_enabled must be a boolean")
         if not isinstance(self.experiment_unbounded, bool):
             raise ValueError("experiment_unbounded must be a boolean")
         if not isinstance(self.selfmod_enabled, bool):
             raise ValueError("selfmod_enabled must be a boolean")
-        # The deployment owns switch on or off; the mechanism constants stay
-        # frozen. Frozen dataclass, hence the setattr.
-        object.__setattr__(
-            self,
-            "episodic",
-            replace(self.episodic, aspect_enabled=self.aspect_enabled),
-        )
 
     @property
     def sessions_dir(self) -> Path:
@@ -384,10 +395,9 @@ class RecollectConfig:
             task_relay_max_tokens=int(
                 os.environ.get("RECOLLECT_TASK_RELAY_MAX_TOKENS", 320)
             ),
-            budget_chars=int(
-                os.environ.get("RECOLLECT_BUDGET_CHARS", DEFAULT_BUDGET_CHARS)
+            context_ceiling_chars=int(
+                os.environ.get("RECOLLECT_CONTEXT_CEILING_CHARS", 64_000)
             ),
-            aspect_enabled=_flag(os.environ.get("RECOLLECT_ASPECT_ENABLED", "1")),
             data_dir=Path(os.environ.get("RECOLLECT_DATA_DIR", "var")),
             downloads_dir=(Path(os.environ["RECOLLECT_DOWNLOADS_DIR"])
                            if os.environ.get("RECOLLECT_DOWNLOADS_DIR") else None),

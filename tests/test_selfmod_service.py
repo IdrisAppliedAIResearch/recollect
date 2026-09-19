@@ -8,15 +8,22 @@ import pytest
 
 import recollect.selfmod.service as service_module
 from recollect.engine.sandbox.manager import SandboxDeployment
+from recollect.selfmod.contracts import File, Snapshot
 from recollect.selfmod.deployment import Deployments, materialize_skills
 from recollect.selfmod.loop import Outcome
-from recollect.selfmod.service import SelfModificationService
+from recollect.selfmod.paused import PausedBuild, load, save
+from recollect.selfmod.service import SelfModificationService, _resume_paused_build
+from recollect.selfmod.subagent_tree import change_policy
+from recollect.selfmod.tests_first import parse_tests
 from tests.selfmod_fake_images import BASE
 from tests.test_selfmod_loop import Images
+from tests.test_selfmod_tests_first import authored
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 GAP = {"task_id": "task-a", "missing_capability": "calendar write",
        "modification_request": "add a calendar tool"}
+BASELINE_TREE = Snapshot((File("recollect/__init__.py", b""),
+                          File("recollect/engine/mcp_research.py", b"TOOLS = []\n")))
 
 
 class Coordinator:
@@ -37,9 +44,11 @@ class Loop:
     def __init__(self, outcome, entered=None, release=None):
         self.outcome, self.entered, self.release = outcome, entered, release
         self.runs, self.stopped = [], False
+        self.seed = self.resume = None
 
-    async def run(self, gap):
+    async def run(self, gap, seed=None):
         self.runs.append(gap)
+        self.seed = seed
         if self.entered is not None:
             self.entered.set()
             await self.release.wait()
@@ -59,10 +68,11 @@ def service(tmp_path):
         return SimpleNamespace(deployment=SandboxDeployment(
             receipt.image_id, skills, tmp_path / ("root-" + name)))
 
-    def loop_factory(session_id, task_id, request, gap):
+    def loop_factory(session_id, task_id, request, gap, resume=None):
         if not loops:
             loops.append(Loop(Outcome(True, "done")))
         loops[0].request = request
+        loops[0].resume = resume
         return loops[0]
 
     value = SelfModificationService(
@@ -305,7 +315,7 @@ async def test_a_finished_build_completes_the_original_task(service):
         lambda session_id, task_id, **changes: updates.append((task_id, changes)))
 
     class Resuming(Loop):
-        async def run(self, gap):
+        async def run(self, gap, seed=None):
             await service._on_event("resuming", {"attempt": 1, "task_id": "task-b"})
             return Outcome(True, "done")
 
@@ -424,4 +434,385 @@ async def test_a_failed_save_still_serves_b_until_restart(service, tmp_path):
     assert service.deployments.a is b
     assert "no identity" in service.activity[-1]["text"]
     assert "commit" not in service.status
+    await service.close()
+
+
+class FakeConnectors:
+    """The issue #28 seam: a connector offered, granted, or failed on demand."""
+
+    def __init__(self, found=None, error=None):
+        self.found, self.error = found, error
+        self.connected_ids = []
+
+    def find(self, gap):
+        return self.found
+
+    def connected(self):
+        return list(self.connected_ids)
+
+    def __contains__(self, connector_id):
+        return connector_id == "google_calendar"
+
+    def get(self, connector_id):
+        if connector_id != "google_calendar":
+            raise KeyError(connector_id)
+        return CALENDAR
+
+    async def connect(self, connector_id):
+        if self.error is not None:
+            raise self.error
+        self.connected_ids.append(connector_id)
+        return {"connector_id": connector_id, "name": "Google Calendar",
+                "tools": ["calendar_list_events", "calendar_create_event"]}
+
+    async def close(self):
+        pass
+
+
+CALENDAR = SimpleNamespace(id="google_calendar", name="Google Calendar")
+
+
+def resume_service(service, connectors):
+    """A coordinator that accepts a continuation and finishes it completed."""
+    service._connectors = connectors
+    service._continuation_poll = 0
+    submitted = []
+
+    async def submit(session_id, client_id, brief, request, *,
+                     parent_task_id=None, continuation=False):
+        submitted.append({"client_id": client_id, "brief": brief,
+                          "request": request, "parent_task_id": parent_task_id,
+                          "continuation": continuation})
+        return {"task_id": "task-cont"}
+
+    async def release_held(session_id, task_id):
+        submitted.append({"released": task_id})
+
+    def get(session_id, task_id):
+        if task_id == "task-cont":
+            return {"state": "completed"}
+        return {"original_message": "book the room"}
+
+    service.coordinator.submit, service.coordinator.release_held = (submit,
+                                                                    release_held)
+    service.coordinator.store.get = get
+    return submitted
+
+
+async def test_a_gap_with_a_connector_offers_to_connect_instead_of_build(service):
+    resume_service(service, FakeConnectors(found=CALENDAR))
+    await service.prepare()
+    assert await service.coordinator.on_gap("session", GAP) is None
+    question = service_module.connect_notice(GAP, "Google Calendar")
+    assert "Google Calendar can" in question and "allow it" in question
+    assert service.coordinator.interrupts == [("task-a", question)]
+    assert service.status["state"] == "awaiting_connect"
+    assert service.proposal("session", "task-a") is None
+    assert service.connect_proposal("session", "task-a") == {
+        "connector": "google_calendar", "name": "Google Calendar",
+        "missing_capability": "calendar write"}
+    assert service.coordinator.connect_proposal == service.connect_proposal
+    assert "connect_proposed" in kinds(service)
+    assert not service.loops
+    await service.close()
+
+
+async def test_yes_connects_then_resumes_the_request_on_the_connector(service):
+    submitted = resume_service(service, FakeConnectors(found=CALENDAR))
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    assert await service.decide("session", "task-a", True) == {
+        "task_id": "task-a", "build": "started"}
+    await service._runner
+    assert service._connectors.connected_ids == ["google_calendar"]
+    assert not service.loops  # nothing was built
+    brief = [entry for entry in submitted if "brief" in entry][0]
+    assert brief["continuation"] and brief["parent_task_id"] == "task-a"
+    assert brief["request"] == "book the room"
+    assert "calendar_list_events" in brief["brief"]
+    assert "don't report the same gap again" in brief["brief"]
+    assert {"released": "task-cont"} in submitted
+    assert service.status["state"] == "finished"
+    assert "connect_decision" in kinds(service)
+    assert "connect_succeeded" in kinds(service)
+    assert "connect_resumed" in kinds(service)
+    assert any("Connected to Google Calendar" in notice[3]
+               for notice in service.coordinator.notices)
+    await service.close()
+
+
+async def test_declining_the_connection_says_what_stays_blocked(service):
+    submitted = resume_service(service, FakeConnectors(found=CALENDAR))
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    assert await service.decide("session", "task-a", False,
+                                announce=False) == {
+        "task_id": "task-a", "build": "declined"}
+    assert service.status["state"] == "declined"
+    assert not submitted and not service.loops
+    assert service.coordinator.progress[-1] == service_module.connect_declined_notice(
+        GAP, "Google Calendar")
+    assert "calendar write" in service.coordinator.progress[-1]
+    await service.close()
+
+
+async def test_a_continuation_that_fails_gives_the_request_a_last_word(service):
+    submitted = resume_service(service, FakeConnectors(found=CALENDAR))
+
+    def failed_get(session_id, task_id):
+        if task_id == "task-cont":
+            return {"state": "blocked", "error": "the calendar said no."}
+        return {"original_message": "book the room"}
+
+    service.coordinator.store.get = failed_get
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    assert await service.decide("session", "task-a", True) == {
+        "task_id": "task-a", "build": "started"}
+    await service._runner
+    assert {"released": "task-cont"} in submitted
+    assert service.status["state"] == "failed"
+    assert service.coordinator.progress[-1] == (
+        "Google Calendar is connected, but the request could not be finished: "
+        "the calendar said no. Ask me again whenever you're ready.")
+    await service.close()
+
+
+async def test_a_failed_connect_fails_only_the_connection(service):
+    connectors = FakeConnectors(
+        found=CALENDAR,
+        error=RuntimeError("The Google Calendar sign-in was not completed "
+                           "in time."))
+    submitted = resume_service(service, connectors)
+    await service.prepare()
+    await service.handle_gap("session", GAP)
+    assert await service.decide("session", "task-a", True) == {
+        "task_id": "task-a", "build": "started"}
+    await service._runner
+    assert service.status["state"] == "failed"
+    assert "connect_failed" in kinds(service)
+    assert not submitted  # the request was never resumed
+    assert service.coordinator.progress[-1] == (
+        "The connection to Google Calendar didn't complete: The Google "
+        "Calendar sign-in was not completed in time. Ask me again whenever "
+        "you're ready.")
+    await service.close()
+
+
+def running_status(service):
+    service.status = {"state": "running", "session_id": "session",
+                      "task_id": "task-a", "continuation_task_id": None}
+
+
+async def test_a_connect_step_connects_the_service_and_reports_it(service):
+    running_status(service)
+    connectors = FakeConnectors()
+    service._connectors = connectors
+    response = await service._step(
+        {"kind": "connect", "connector": "google_calendar", "why": "calendar"},
+        session_id="session", task_id="task-a")
+    assert connectors.connected_ids == ["google_calendar"]
+    assert "Google Calendar is now connected" in response
+    assert "calendar_list_events" in response
+    texts = [n[3] for n in service.coordinator.notices]
+    assert texts[0].startswith("To build this I need to connect Google Calendar")
+    assert texts[-1] == "Connected to Google Calendar. Continuing the build."
+    assert "step_connect_succeeded" in kinds(service)
+    await service.close()
+
+
+async def test_a_connect_step_without_a_connector_says_so(service):
+    running_status(service)
+    service._connectors = None
+    response = await service._step(
+        {"kind": "connect", "connector": "google_calendar"},
+        session_id="session", task_id="task-a")
+    assert "not available" in response
+    assert not service.coordinator.notices
+    await service.close()
+
+
+async def test_a_failed_connect_step_tells_the_agent_to_go_on(service):
+    running_status(service)
+    service._connectors = FakeConnectors(
+        error=RuntimeError("The Google Calendar sign-in was not completed "
+                           "in time."))
+    response = await service._step(
+        {"kind": "connect", "connector": "google_calendar"},
+        session_id="session", task_id="task-a")
+    assert "did not complete" in response
+    assert "step_connect_failed" in kinds(service)
+    await service.close()
+
+
+async def test_an_ask_step_waits_for_the_answer_then_resumes(service):
+    running_status(service)
+    step = {"kind": "ask", "question": "Which calendar should I use?"}
+    task = asyncio.create_task(service._step(step, session_id="session",
+                                             task_id="task-a"))
+    for _ in range(100):
+        if service._pending_step is not None:
+            break
+        await asyncio.sleep(0)
+    assert service.status["pending_step"] == step
+    assert "Which calendar should I use?" in service.coordinator.notices[-1][3]
+    assert await service.answer_step("session", "task-a", "The work one") == {
+        "task_id": "task-a", "answered": True}
+    assert await task == "You answered: The work one"
+    assert service._pending_step is None and "pending_step" not in service.status
+    assert "step_ask_answered" in kinds(service)
+    await service.close()
+
+
+async def test_an_ask_step_with_no_question_does_not_wait(service):
+    running_status(service)
+    response = await service._step(
+        {"kind": "ask", "question": "   "}, session_id="session",
+        task_id="task-a")
+    assert "without stating it" in response
+    assert service._pending_step is None
+    await service.close()
+
+
+async def test_answer_step_rejects_when_nothing_is_waiting(service):
+    running_status(service)
+    with pytest.raises(ValueError):
+        await service.answer_step("session", "task-a", "hi")
+    await service.close()
+
+
+async def test_answer_step_rejects_the_wrong_task(service):
+    running_status(service)
+    task = asyncio.create_task(service._step(
+        {"kind": "ask", "question": "Which one?"},
+        session_id="session", task_id="task-a"))
+    for _ in range(100):
+        if service._pending_step is not None:
+            break
+        await asyncio.sleep(0)
+    with pytest.raises(ValueError):
+        await service.answer_step("session", "other-task", "hi")
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await service.close()
+
+
+async def test_stopping_during_an_ask_step_clears_it(service):
+    running_status(service)
+    task = asyncio.create_task(service._step(
+        {"kind": "ask", "question": "Which one?"},
+        session_id="session", task_id="task-a"))
+    for _ in range(100):
+        if service._pending_step is not None:
+            break
+        await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert service._pending_step is None and "pending_step" not in service.status
+    await service.close()
+
+
+def _pause(**changes):
+    base = dict(session_id="session", task_id="task-a", request="book the room",
+                gap=GAP, attempt=3, feedback=("attempt 1: boom",),
+                plan={"summary": "s", "changes": []},
+                step={"kind": "ask", "question": "which calendar?"},
+                tree=Snapshot(()), tests=parse_tests(authored()),
+                connections=None, baseline_sha256=BASELINE_TREE.sha256)
+    base.update(changes)
+    return PausedBuild(**base)
+
+
+async def test_a_resumed_run_seeds_the_loop_and_clears_the_record(service):
+    save(service._root, _pause())
+    assert load(service._root) is not None
+    outcome = await service._run("session", "task-a", GAP,
+                                 resume=_pause())
+    assert outcome == Outcome(True, "done")
+    assert service.loops[0].resume is not None
+    assert service.loops[0].seed == {
+        "tests": service.loops[0].resume.tests, "attempt": 3,
+        "feedback": ("attempt 1: boom",)}
+    assert load(service._root) is None  # dropped once the build has run
+    assert service.status["state"] == "finished"
+    await service.close()
+
+
+async def test_build_loop_wires_an_on_pause_that_persists_to_root(service):
+    service.baseline = BASELINE_TREE
+    service.policy = change_policy(BASELINE_TREE)
+
+    async def _complete(*args, **kwargs):
+        return "{}"
+
+    service._completer = lambda *args, **kwargs: _complete
+    loop = service._build_loop("session", "task-a", "book the room", GAP)
+    on_pause = loop._develop._on_pause
+    assert on_pause is not None
+    step = {"kind": "ask", "question": "which calendar?"}
+    tree = Snapshot((File("recollect/engine/subagent_tools/post.py", b"x\n"),))
+    await on_pause(step, tree, {"summary": "s", "changes": []}, 2,
+                   parse_tests(authored()), ("attempt 1: boom",))
+    record = load(service._root)
+    assert record is not None and record.step == step
+    assert record.attempt == 2 and record.feedback == ("attempt 1: boom",)
+    assert record.session_id == "session" and record.task_id == "task-a"
+    assert record.baseline_sha256 == BASELINE_TREE.sha256
+    assert record.tree == tree and record.tests == parse_tests(authored())
+    await service.close()
+
+
+async def test_resume_picks_up_a_matching_paused_build(service):
+    service.baseline = BASELINE_TREE
+    save(service._root, _pause())
+    _resume_paused_build(service, service._root)
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert service.loops[0].resume is not None
+    assert service.loops[0].seed["attempt"] == 3
+    assert load(service._root) is None  # consumed by the resumed run
+    await service.close()
+
+
+async def test_resume_abandons_a_paused_build_whose_tree_drifted(service):
+    service.baseline = BASELINE_TREE
+    save(service._root, _pause(baseline_sha256="ff" * 32))
+    _resume_paused_build(service, service._root)
+    assert service._loop is None  # nothing was scheduled
+    assert load(service._root) is None
+    assert "resume_abandoned" in kinds(service)
+    await service.close()
+
+
+async def test_a_resumed_build_is_stored_as_the_tracked_runner(service):
+    """The resume runs through _runner, so stop() and close() can see it."""
+    service.baseline = BASELINE_TREE
+    save(service._root, _pause())
+    _resume_paused_build(service, service._root)
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert service._runner is not None
+    outcome = await service._runner
+    assert outcome.finished
+    assert service.status["state"] == "finished"
+    await service.close()
+
+
+async def test_resume_abandons_while_a_build_is_in_flight(service):
+    """A build started before the resume may claim the slot: only one runs."""
+    service.baseline = BASELINE_TREE
+    save(service._root, _pause())
+    service._runner = asyncio.create_task(asyncio.sleep(60))
+    _resume_paused_build(service, service._root)
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert service._loop is None  # nothing was scheduled
+    assert not service._runner.done()  # the in-flight build kept its slot
+    assert load(service._root) is None  # the stale record is dropped
+    assert "resume_abandoned" in kinds(service)
+    service._runner.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await service._runner
     await service.close()

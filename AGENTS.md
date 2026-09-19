@@ -8,7 +8,7 @@ compaction. It is the only rules file — `CLAUDE.md` just points here.
 
 ## 0. Boot sequence — do this before anything else
 
-Run these four steps at the start of a session **and immediately after
+Run these five steps at the start of a session **and immediately after
 every compaction or context reset.** They take under a minute and they are
 what keeps you from redoing finished work or undoing it.
 
@@ -21,6 +21,9 @@ what keeps you from redoing finished work or undoing it.
    ```
 4. Update `.agent/TODO.md` so it matches what step 3 actually showed. Move
    finished items to `## Done`. Then continue.
+5. Check that `.agent/` is under its 50 MB cap (§4). If it is over, clean
+   the oldest evidence first before continuing — `TODO.md` and the
+   plan/contract docs are never deleted.
 
 For a request to start, launch, or bring up the local application, follow
 the complete runtime sequence in §7.1. The agent owns that sequence;
@@ -77,18 +80,58 @@ Recollect makes a researched conversational-memory mechanism usable, and
 shows what it is doing while it runs.
 
 Each turn, instead of resending the whole chat transcript, the system
-rebuilds a small context window from stored episodes. **RECENT** (last N)
-is additive: rendered outside the character budget and never dropped. The
-long-term block spends the budget under a protected 50/50 split: **CC80**
-(0.8 dense / 0.2 BM25 over the complete store, skip-on-overflow) walks one
-half, and a static **ASPECT** facet spread takes the other, admitting the
-episodes with the most uncovered topical value per character; whatever the
-split leaves over is returned to CC80 in rank order. When no eligible
-episode remains for the split, a single CC80 walk owns the whole budget.
+rebuilds a context window from stored episodes. Two conditions admit an
+episode, and the delivered block is their **union**, rendered in source
+order: **relevance** (raw cosine against the query at or above
+`timeline_threshold`, 0.48, measured over the complete store) and
+**continuity** (the last `recency_window_n`, 32, exchanges by
+`(turn_number, id)`). An episode can satisfy both; it is delivered once.
+
+There is no budget, no ranking, no capacity and no drops. Nothing competes
+for an allowance, so nothing can be starved by packing order. The number
+worth watching is how much the threshold contributed that continuity would
+not have carried anyway - a block can look full and be nothing but the last
+32 exchanges.
+
+### The one deviation: a deployment ceiling
+
+The library caps nothing, and says so: *"the current timeline output is also
+uncapped and has no established latency horizon."* That is a defensible
+research position and this repo does not argue with it. It is also
+unrunnable on a 32K-context local model, and Recollect has no other guard -
+an oversized prompt is an HTTP error from `llama-server` and a failed turn.
+
+So `RecollectConfig.context_ceiling_chars` (64,000, derived in that file
+from the deployed `--ctx-size 32768`) bounds the rendered block. **It is a
+hardware constraint, not a retrieval opinion**, and three things keep it
+honest:
+
+1. **It is a pre-filter, never a trim.** It decides which episodes are
+   *handed to* `build_timeline_context`; the library then does exactly what
+   it always does with the set it is given, and the shadow verifies against
+   that same set. Trimming the payload afterwards would make the two
+   computations disagree byte-for-byte - see §3 rule 2.
+2. **Continuity is never withheld.** A recency window that alone exceeds the
+   ceiling is delivered anyway. Losing what was just said, to make room for
+   something older that merely scored well, is the worse failure.
+3. **Every turn says whether it engaged.** `trace.ceiling` is its own record,
+   deliberately not folded into `timeline`, and carries the true store size
+   because `report.pool_size` counts only what the library was shown.
+
+Set it to `0` to disable it and take the library's behaviour unmodified.
 
 The mechanism itself lives in a separate library called `episodic`, at
 `../contextDecayWindow/episodic`. **This repo does not contain it and must
 not change it.**
+
+That library's 0.3.0 release replaced the previous CC80/ASPECT budget
+pipeline with the timeline above and kept the old path as `legacy_cc80`.
+Recollect adopted the timeline on 2026-09-19 and does not read the legacy
+path at all. Two things guard the boundary, and both exist because the
+0.3.0 upgrade landed under a running deployment and nothing said so:
+`_internals.EXPECTED_LIBRARY_VERSION` is compared at startup by `doctor`
+and `/api/health`, and `SessionManager._offer_config` refuses to open any
+store not pinned to `read_policy="timeline"`.
 
 The thing that makes this repo unusual: every turn is computed **twice** —
 once through the library untouched (the authority), once through an
@@ -116,6 +159,10 @@ If `TraceDivergenceError` fires, the instrumentation is wrong or stale —
 - wrapping it in `try`/`except`
 - passing `strict=False`
 - skipping, xfailing, or deleting the test that caught it
+- trimming, truncating or re-rendering the context block *after* the
+  library returned it - including to fit the deployment ceiling. The
+  ceiling is a pre-filter on the episodes the library is shown (§2), and
+  moving it after the fact would diverge on every turn
 
 A green suite bought with any of those is worse than a red one, because
 every number the UI shows becomes unverified while still looking verified.
@@ -193,6 +240,15 @@ stale screenshot from a current one — leftovers from an old task read as
 evidence of the current one. Anything test-only created *inside* the repo
 (e.g. a throwaway session under `var/`) must be deleted or explicitly
 pointed out to the user before you report done.
+
+`.agent/` is scratch, not project history: it ends every session under
+**50 MB**. Live-run evidence is disposable by default — write a run's
+scratch into one timestamped temp root and delete it on teardown, instead
+of leaving named bundles behind. The only standing residents are `TODO.md`
+and the plan/contract docs; if a piece of evidence must outlive the
+session, leave a one-line dated pointer in `TODO.md` saying why. Bulk
+cleanup of `.agent/` evidence is user-sanctioned (2026-09-18): size-gate
+cleanups need no special approval.
 
 ---
 
@@ -363,8 +419,9 @@ docker image inspect recollect-opencode-sandbox:1.18.18
 ```
 
 Build it only if absent or stale relative to the Dockerfile, locked image
-requirements, `src/recollect/engine/mcp_research.py`, or
-`src/recollect/engine/webtools.py`. These are the image's build inputs, so
+requirements, `src/recollect/engine/mcp_research.py`,
+`src/recollect/engine/subagent_tools/`, or `src/recollect/engine/webtools.py`.
+These are the image's build inputs, so
 a tag alone does not establish that it contains current research-tool changes:
 
 ```powershell
@@ -512,9 +569,10 @@ Notes that save time:
 
 - Tests use a **fake embedder** and need no model file. Keep it that way; a
   suite requiring a 639 MB download stops being run.
-- When touching packing or budgets, test the degenerate values too: `0`,
-  `1`, `EMPTY_PAYLOAD_CHARS - 1`, `EMPTY_PAYLOAD_CHARS`. Every off-by-one in
-  this system has surfaced there.
+- When touching selection, test the degenerate values too: an empty store,
+  `recency_window_n` of `0` and `1`, a window larger than the store, a
+  threshold of `0.0` and `1.0`, and every episode tying on cosine. Every
+  off-by-one in this system has surfaced at a boundary like these.
 - Blocking work (embedding, SQLite, retrieval) must run via
   `asyncio.to_thread`, never directly on the event loop.
 - `uv.lock` is generated. Change dependencies in `pyproject.toml` and run

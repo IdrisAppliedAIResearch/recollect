@@ -18,7 +18,7 @@ from tests.conftest import FakeEmbedder
 def manager(tmp_path):
     return SessionManager(RecollectConfig(
         embedding_model_path=tmp_path / "unused.gguf", data_dir=tmp_path / "data",
-        aspect_enabled=False, subagent_enabled=False,
+        subagent_enabled=False,
     ), FakeEmbedder())
 
 

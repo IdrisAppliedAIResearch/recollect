@@ -185,7 +185,7 @@ def _load_config():
 
 
 async def _doctor() -> int:
-    from .engine._internals import LIBRARY_VERSION, load_aspect_model
+    from .engine._internals import LIBRARY_VERSION, library_version_mismatch
     from .engine.embedder import EXPECTED_SENTINEL_SHA256, HarnessEmbedder
     from .engine.generator import Generator, GeneratorSettings
 
@@ -194,8 +194,24 @@ async def _doctor() -> int:
 
     print("recollect doctor\n")
     print(f"  episodic library : {LIBRARY_VERSION}")
-    print(f"  budget           : {config.budget_chars} chars")
+    print(f"  read policy      : {config.episodic.read_policy}")
+    print(f"  threshold        : cosine >= {config.episodic.timeline_threshold}")
+    print(f"  continuity       : last {config.episodic.recency_window_n} exchanges")
+    ceiling = config.context_ceiling_chars
+    print(
+        "  context ceiling  : "
+        + (
+            f"{ceiling:,} chars (deployment deviation; the library caps nothing)"
+            if ceiling
+            else "disabled - the library's uncapped block is taken as-is"
+        )
+    )
     print(f"  model file       : {config.embedding_model_path}")
+
+    upgrade = library_version_mismatch()
+    if upgrade is not None:
+        ok = False
+        print(f"\n  FAIL: {upgrade}")
 
     if not config.embedding_model_path.is_file():
         print("  FAIL: the embedding model file does not exist.")
@@ -223,21 +239,6 @@ async def _doctor() -> int:
     except Exception as error:  # noqa: BLE001 - doctor reports, never raises
         ok = False
         print(f"  FAIL: {error}")
-
-    print("\naspect (protected spread, frozen parser)")
-    if not config.aspect_enabled:
-        print("  disabled by deployment (RECOLLECT_ASPECT_ENABLED=0); no model needed.")
-    else:
-        try:
-            model = await asyncio.to_thread(
-                load_aspect_model, config.episodic.aspect_model
-            )
-            version = str(model.meta.get("version"))
-            print(f"  parser model     : {config.episodic.aspect_model} {version}")
-            print("  OK: the frozen ASPECT parser loads and is version-checked.")
-        except Exception as error:  # noqa: BLE001 - doctor reports, never raises
-            ok = False
-            print(f"  FAIL: {error}")
 
     print("\ngenerator (HTTP, OpenAI-compatible)")
     generator = Generator(
@@ -315,31 +316,19 @@ async def _chat(session_id: str | None) -> int:
                         elif event == "retrieval":
                             trace = json.loads(payload)
                             report = trace["report"]
-                            # Starved means proposals the budget never
-                            # admitted - not merely proposals an earlier
-                            # tier had already claimed.
-                            starved = [
-                                t["name"]
-                                for t in trace["tiers"]
-                                if t["skipped_ids"] and not t["delivered_ids"]
-                            ]
-                            note = (
-                                f" · starved: {','.join(starved)}"
-                                if starved
-                                else ""
-                            )
-                            allowance = report.get(
-                                "retrieval_budget_chars"
-                            ) or report["budget_chars"]
+                            timeline = trace["timeline"]
+                            # What the threshold contributed that the
+                            # continuity window would not have carried
+                            # anyway - the only number here that says
+                            # whether retrieval earned its place.
+                            earned = timeline["relevance_only_count"]
                             print(
-                                f"  [memory] {report['episodes_delivered']} episodes"
-                                f" · {report['chars_delivered']}/"
-                                f"{allowance} chars"
-                                f" + {report['recency_count']} recent (additive)"
-                                f" · S={report['semantic_count']}"
-                                f" A={report['aspect_count']}"
-                                f" (+{report['returned_semantic_count']} returned)"
-                                + note
+                                f"  [memory] {report['episodes_delivered']}"
+                                f"/{report['eligible_count']} episodes"
+                                f" · {report['chars_delivered']} chars"
+                                f" · {report['recency_count']} recent"
+                                f" · {earned} on relevance alone"
+                                f" (cosine >= {report['relevance_threshold']})"
                             )
                         elif event == "error":
                             print(f"  [error] {json.loads(payload)['message']}")

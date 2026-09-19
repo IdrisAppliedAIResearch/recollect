@@ -15,6 +15,7 @@ import recollect.tasks as tasks_module
 from recollect.config import RecollectConfig
 from recollect.engine.generator import GenerationError
 from recollect.engine.subagent import SubagentResult, SubagentStep
+from recollect.task_chat import _task_handoff
 from recollect.task_store import TaskStore
 from recollect.tasks import TaskCoordinator
 from tests.test_subagent import _episode_rows, _make_state, _parse_sse
@@ -301,6 +302,78 @@ async def test_new_task_handoff_records_its_identity_and_prompt_cost(make_task_s
     assert any(record["kind"] == "conversation" for record in (
         state.task_store.messages(session_id, task["task_id"])
     ))
+
+
+def test_handoff_withholds_an_objective_until_the_worker_reports():
+    started = {
+        "task_id": "task-1", "objective": "No reminder service is connected.",
+        "accepted_revision": 0, "progress": "", "findings": [], "sources": [],
+        "result": "", "error": None,
+    }
+    assert json.loads(_task_handoff(started))["objective"] is None
+    for field, value in (
+        ("accepted_revision", 1), ("progress", "Attempt 1: checks passed."),
+        ("findings", ["The seam is absent."]), ("result", "None available."),
+        ("error", "The worker stopped."),
+    ):
+        carried = json.loads(_task_handoff({**started, field: value}))
+        assert carried["objective"] == "No reminder service is connected."
+
+
+async def test_a_just_started_task_is_acknowledged_not_answered(make_task_state):
+    """The chat must not answer for a worker that has reported nothing.
+
+    A live turn dispatched the work and then told the user "I don't have a
+    way to set recurring reminders" while its worker was booking five of
+    them. The follow-up had asked it to answer the user's question; with
+    nothing reported, the only honest answer is that work started, and the
+    one certainly-wrong answer is that the request cannot be done.
+    """
+    state = make_task_state([
+        tool("run_subagent", task="Book the Friday reminder.", effort="focused"),
+    ], ["I've started on that."])
+    session_id = state.sessions.create_session().session_id
+    await chat(state, session_id, "Set a reminder every Friday at 1:30 pm.")
+    system = state.generator.calls[-1]["messages"][0]["content"]
+    assert "reported nothing yet" in system
+    assert "do not say the request is impossible" in system
+    # The prompt that invites answering from findings must not be the one used.
+    assert "Include available findings" not in system
+
+
+async def test_a_task_that_has_reported_is_answered_from_its_findings(
+    make_task_state,
+):
+    """The converse: once evidence exists, the reply may use it."""
+    state = make_task_state([
+        tool("task_control", operation="status", status_only=True),
+    ], ["It found five years of coverage."])
+    session_id = state.sessions.create_session().session_id
+    task = seed_task(state, session_id)
+    state.task_store.update(
+        session_id, task["task_id"], state="completed",
+        findings=["The warranty covers five years."],
+    )
+    await chat(state, session_id, "Any news?")
+    system = state.generator.calls[-1]["messages"][0]["content"]
+    assert "Include available findings" in system
+    assert "reported nothing yet" not in system
+
+
+async def test_a_started_task_cannot_answer_the_user_from_its_own_objective(
+    make_task_state,
+):
+    verdict = "No calendar service is connected, so report it as missing."
+    state = make_task_state([
+        tool("run_subagent", task=verdict, effort="focused"),
+    ], ["I have started checking."])
+    session_id = state.sessions.create_session().session_id
+    await chat(state, session_id, "Set a reminder every Friday at 1:30 pm.")
+    final = state.generator.calls[-1]["messages"]
+    assert json.loads(final[-1]["content"])["objective"] is None
+    # Neither quoted as the operation's evidence nor echoed back as the call.
+    assert not any(verdict in item.get("content", "") for item in final)
+    assert state.task_store.list(session_id)[0]["objective"] == verdict
 
 
 @pytest.mark.parametrize("operation", ["cancel", "steer"])
@@ -713,6 +786,89 @@ def with_build_question(state, session_id):
     return task
 
 
+def with_connect_question(state, session_id):
+    task = seed_task(state, session_id)
+    state.task_store.update(session_id, task["task_id"], state="blocked",
+                            progress="Want me to connect Google Calendar?")
+    state.selfmod = ConnectOffers(session_id, task["task_id"])
+    state.tasks.connect_proposal = state.selfmod.connect_proposal
+    return task
+
+
+def with_step_question(state, session_id):
+    task = seed_task(state, session_id)
+    state.task_store.update(session_id, task["task_id"], state="blocked",
+                            progress="I need your input to finish the build.")
+    state.selfmod = StepQuestions(session_id, task["task_id"])
+    state.tasks.step_proposal = state.selfmod.step_proposal
+    return task
+
+
+class ConnectOffers(BuildQuestions):
+    """A self-modification service with one pending connect offer."""
+
+    def connect_proposal(self, session_id, task_id):
+        if (session_id, task_id) == self.pending:
+            return {"connector": "google_calendar", "name": "Google Calendar",
+                    "missing_capability": "calendar write"}
+        return None
+
+
+class StepQuestions:
+    """A self-modification service paused on one ask step."""
+
+    def __init__(self, session_id, task_id):
+        self.pending = (session_id, task_id)
+        self.answers = []
+
+    def step_proposal(self, session_id, task_id):
+        if (session_id, task_id) == self.pending:
+            return {"kind": "ask", "question": "Which calendar should I use?"}
+        return None
+
+    async def answer_step(self, session_id, task_id, answer):
+        if (session_id, task_id) != self.pending:
+            raise ValueError("No build is waiting for an answer on that task.")
+        self.pending = None
+        self.answers.append((session_id, task_id, answer))
+        return {"task_id": task_id, "answered": True}
+
+
+@pytest.mark.parametrize("operation,approve",
+                         [("connect", True), ("skip_connect", False)])
+async def test_the_users_answer_in_chat_decides_the_pending_connection(
+    make_task_state, operation, approve,
+):
+    state = make_task_state([], ["Got it."])
+    session_id = state.sessions.create_session().session_id
+    task = with_connect_question(state, session_id)
+    snapshot = await state.tasks.snapshot(session_id)
+    assert snapshot["tasks"][0]["connect_proposal"]["connector"] == (
+        "google_calendar")
+    context, _ = await state.tasks.context(session_id)
+    assert "connect_proposal" in context and "google_calendar" in context
+    state.generator.scripts["main"].append(tool(
+        "task_control", operation=operation, status_only=True))
+    events = await chat(state, session_id, "Yes, connect it." if approve
+                        else "No, skip it.")
+    assert "error" not in events
+    assert state.selfmod.decisions == [(session_id, task["task_id"], approve)]
+    assert state.selfmod.announced is False
+
+
+async def test_connect_without_a_pending_offer_changes_nothing(make_task_state):
+    state = make_task_state([
+        tool("task_control", operation="connect", status_only=True),
+    ], ["Nothing is waiting."])
+    session_id = state.sessions.create_session().session_id
+    with_connect_question(state, session_id)
+    state.selfmod.pending = None
+    await chat(state, session_id, "Connect it.")
+    handoff = json.loads(state.generator.calls[-1]["messages"][-1]["content"])
+    assert "No connection offer is waiting" in handoff["error"]
+    assert state.selfmod.decisions == []
+
+
 @pytest.mark.parametrize("operation,approve", [("build", True), ("skip_build", False)])
 async def test_the_users_answer_in_chat_decides_the_pending_build(
     make_task_state, operation, approve,
@@ -749,6 +905,54 @@ async def test_build_without_a_pending_question_changes_nothing(make_task_state)
     assert state.selfmod.decisions == []
 
 
+async def test_the_users_answer_in_chat_unblocks_a_paused_build(make_task_state):
+    state = make_task_state([], ["Got it."])
+    session_id = state.sessions.create_session().session_id
+    task = with_step_question(state, session_id)
+    snapshot = await state.tasks.snapshot(session_id)
+    assert snapshot["tasks"][0]["step_proposal"]["kind"] == "ask"
+    assert snapshot["tasks"][0]["step_proposal"]["question"] == (
+        "Which calendar should I use?")
+    context, _ = await state.tasks.context(session_id)
+    assert "step_proposal" in context and "Which calendar" in context
+    state.generator.scripts["main"].append(tool(
+        "task_control", operation="answer_step", text="The work one",
+        status_only=True))
+    events = await chat(state, session_id, "The work one.")
+    assert "error" not in events
+    assert state.selfmod.answers == [(session_id, task["task_id"],
+                                      "The work one")]
+
+
+async def test_answer_step_without_a_pending_question_changes_nothing(
+    make_task_state,
+):
+    state = make_task_state([
+        tool("task_control", operation="answer_step", text="hi",
+             status_only=True),
+    ], ["Nothing is waiting."])
+    session_id = state.sessions.create_session().session_id
+    with_step_question(state, session_id)
+    state.selfmod.pending = None
+    await chat(state, session_id, "The work one.")
+    handoff = json.loads(state.generator.calls[-1]["messages"][-1]["content"])
+    assert "No build is waiting for an answer" in handoff["error"]
+    assert state.selfmod.answers == []
+
+
+async def test_answer_step_rejects_non_text_without_unblocking(make_task_state):
+    state = make_task_state([
+        tool("task_control", operation="answer_step",
+             text={"calendar": "work"}, status_only=True),
+    ], ["The answer must be text."])
+    session_id = state.sessions.create_session().session_id
+    with_step_question(state, session_id)
+    await chat(state, session_id, "The work one.")
+    handoff = json.loads(state.generator.calls[-1]["messages"][-1]["content"])
+    assert "The answer must be text" in handoff["error"]
+    assert state.selfmod.answers == []
+
+
 async def test_the_task_card_buttons_decide_through_the_api(make_task_state):
     state = make_task_state([])
     session_id = state.sessions.create_session().session_id
@@ -773,9 +977,18 @@ def test_build_operations_are_offered_only_while_a_question_waits():
 
     assert "build" not in operations(api_task_tools())
     assert {"build", "skip_build"} <= set(operations(api_task_tools(True)))
+    assert "connect" not in operations(api_task_tools())
+    assert {"connect", "skip_connect"} <= set(
+        operations(api_task_tools(True, True)))
+    assert "connect" not in operations(api_task_tools(True, False))
+    assert "build" not in operations(api_task_tools(False, True))
+    assert "answer_step" not in operations(api_task_tools())
+    assert "answer_step" in operations(api_task_tools(True, True, True))
+    assert "answer_step" not in operations(api_task_tools(True, True, False))
 
 
-def api_task_tools(build_question=False):
+def api_task_tools(build_question=False, connect_question=False,
+                   step_question=False):
     from recollect.task_chat import task_tools
 
-    return task_tools(build_question)
+    return task_tools(build_question, connect_question, step_question)

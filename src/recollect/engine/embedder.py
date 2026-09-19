@@ -26,7 +26,6 @@ instead of quietly poisoning cosines.
 
 from __future__ import annotations
 
-import hashlib
 import threading
 import time
 from collections import OrderedDict
@@ -156,47 +155,6 @@ class HarnessEmbedder(PinnedEmbedder):
             return computed.copy()
 
     # -- startup checks ----------------------------------------------------
-
-    def runtime_fingerprint(self) -> dict:
-        """Hash the native libraries actually loaded, not the version string.
-
-        This exists because of a failure worth remembering. Two installs of
-        ``llama-cpp-python==0.3.25``, same machine, same model file, same
-        Python code, produced different embeddings: sentinel ``baecf776…``
-        against ``f40dfff9…``, vector norm 82.514 against 82.071. The
-        version string was identical and every DLL underneath it was not -
-        one install was a CUDA-enabled build carrying ``ggml-cuda.dll``,
-        the other a CPU-only build without it. The difference showed up
-        even at ``n_gpu_layers=0``.
-
-        A pinned version number therefore does not pin the computation. The
-        binaries do. Reporting them turns "sentinel drifted, cause unknown"
-        into "you are running a different build", which is a five-minute
-        fix instead of an afternoon.
-        """
-        try:
-            import llama_cpp as llama_cpp_module
-        except ImportError:
-            return {"package_version": "not installed", "libraries": {}}
-
-        library_dir = Path(llama_cpp_module.__file__).parent / "lib"
-        libraries: dict[str, str] = {}
-        if library_dir.is_dir():
-            for path in sorted(library_dir.glob("*.dll")) + sorted(
-                library_dir.glob("*.so")
-            ) + sorted(library_dir.glob("*.dylib")):
-                digest = hashlib.sha256()
-                with path.open("rb") as handle:
-                    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                        digest.update(chunk)
-                libraries[path.name] = digest.hexdigest()
-        return {
-            "package_version": getattr(llama_cpp_module, "__version__", "unknown"),
-            "libraries": libraries,
-            "cuda_backend_present": any(
-                "cuda" in name.lower() for name in libraries
-            ),
-        }
 
     def warm_up(self) -> dict:
         """Load the model and verify it is the artifact the research used.

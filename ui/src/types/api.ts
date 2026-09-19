@@ -7,8 +7,18 @@ export interface HealthResponse {
   library_version: string
   /** The EpisodicConfig the server runs under, as the library serializes it. */
   episodic_config?: Record<string, unknown>
-  /** The deployed context budget in characters (RecollectConfig, not the library). */
-  budget_chars?: number
+  /**
+   * Set when the installed library is not the version this instrumentation
+   * was written against. Null while they match. It exists because 0.2.0
+   * became 0.3.0 — a different read mechanism — under a running deployment
+   * and nothing said so.
+   */
+  library_version_mismatch?: string | null
+  /**
+   * Recollect's own ceiling on the rendered block, in characters — not the
+   * library's, which caps nothing. 0 or absent means disabled.
+   */
+  context_ceiling_chars?: number
 }
 
 export interface SessionInfo {

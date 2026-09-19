@@ -87,8 +87,12 @@ TASK_TOOLS = "\n\n".join((
     "ordinary reasoning or anything answerable from this conversation. When a "
     "request needs an action or capability that none of the available tools "
     "provides, delegate it instead of declining: the worker reports precisely "
-    "which capability is missing. Refusals on safety, privacy or legal grounds "
-    "stay with you and are never delegated. Keep the task brief: what to do, "
+    "which capability is missing. Whether a missing capability can be connected "
+    "or built is answered on the task itself as a pending question, not by "
+    "research: a worker only sees its own sandbox, so never start a task "
+    "merely to check whether a service can be connected. Refusals on safety, "
+    "privacy or legal grounds stay with you and are never delegated. Keep the "
+    "task brief: what to do, "
     "and what a good result looks like. Mark narrow lookups as focused; "
     "reserve deep effort for substantial multi-source work. A promise in "
     "task_reply starts no work. Delegation is asynchronous: it starts a "
@@ -132,6 +136,16 @@ OPERATION_RETURNED = (
     "findings, or say when none have been reported yet."
 )
 
+WORK_STARTED = (
+    "The operation started work and has reported nothing yet. Acknowledge that, "
+    "using task_reply only, and say what is now running. You are not the one "
+    "answering the request: a worker is, and it has tools you cannot see from "
+    "here. So do not answer the question yourself, do not guess at the outcome, "
+    "and above all do not say the request is impossible or that you lack the "
+    "capability - you do not know that, and saying it while the worker succeeds "
+    "is the one reply that is certainly wrong."
+)
+
 
 def _section(tag: str, *parts: str) -> str:
     return f"<{tag}>\n" + "\n\n".join(parts) + f"\n</{tag}>"
@@ -140,6 +154,7 @@ def _section(tag: str, *parts: str) -> str:
 FOLLOW_UPS = {
     "work_not_started": WORK_NOT_STARTED,
     "operation_returned": OPERATION_RETURNED,
+    "work_started": WORK_STARTED,
 }
 
 

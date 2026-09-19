@@ -7,62 +7,11 @@
  */
 import type {
   CandidateTrace,
-  PackPhase,
   PromptCacheTrace,
-  ReportTrace,
-  TierName,
-  TierTrace,
+  SelectionPath,
   TurnTrace,
   VerificationTrace,
 } from '../types/trace.ts'
-import { TIER_ORDER } from '../types/trace.ts'
-
-/**
- * TierTrace.starved — proposed episodes that never reached the context.
- *
- * Deliberately not "delivered nothing": a path can deliver nothing because
- * an earlier path already claimed everything it proposed, which is overlap,
- * not starvation. Only the budget-exhausted case is the packing-order fault.
- */
-export function isStarved(tier: TierTrace): boolean {
-  return tier.skipped_ids.length > 0 && tier.delivered_ids.length === 0
-}
-
-/** TierTrace.fully_overlapped — everything it proposed was already claimed. */
-export function isFullyOverlapped(tier: TierTrace): boolean {
-  return (
-    tier.proposed_ids.length > 0 &&
-    tier.delivered_ids.length === 0 &&
-    tier.skipped_ids.length === 0
-  )
-}
-
-/** TierTrace.contributed — added at least one episode nothing else had. */
-export function hasContributed(tier: TierTrace): boolean {
-  return tier.delivered_ids.length > 0
-}
-
-/** ReportTrace.chars_available — unused long-term allowance. */
-export function charsAvailable(report: ReportTrace): number {
-  const delivered =
-    report.retrieval_chars_delivered === null
-      ? report.chars_delivered
-      : report.retrieval_chars_delivered
-  const budget =
-    report.retrieval_budget_chars === null
-      ? report.budget_chars
-      : report.retrieval_budget_chars
-  return budget - delivered
-}
-
-/** ReportTrace.shortfall_chars — more allowance the selection would have needed. */
-export function shortfallChars(report: ReportTrace): number {
-  const delivered =
-    report.retrieval_chars_delivered === null
-      ? report.chars_delivered
-      : report.retrieval_chars_delivered
-  return Math.max(0, report.chars_wanted - delivered)
-}
 
 /** VerificationTrace.trustworthy */
 export function isTrustworthy(v: VerificationTrace): boolean {
@@ -75,37 +24,28 @@ export function cacheHitRatio(c: PromptCacheTrace): number | null {
   return Math.min(1, c.cached_tokens / c.prompt_tokens)
 }
 
-/** TurnTrace.starved_tiers */
-export function starvedTiers(trace: TurnTrace): TierName[] {
-  return trace.tiers.filter(isStarved).map((t) => t.name)
+/**
+ * TurnTrace.relevance_only_ids — delivered on relevance alone.
+ *
+ * The one number that says whether retrieval earned its place this turn. A
+ * block can look full and be nothing but the last N exchanges.
+ */
+export function relevanceOnlyIds(trace: TurnTrace): string[] {
+  const recent = new Set(trace.timeline.recent_ids)
+  return trace.timeline.selected_ids.filter((id) => !recent.has(id))
 }
 
 /**
- * TurnTrace.budget_utilization — measured on the retrieval pair, not the
- * total: recent continuity is additive and renders outside the allowance.
+ * How much of the delivered block continuity would have supplied anyway.
+ *
+ * 1 means the threshold added nothing: every relevant episode was already
+ * inside the window. 0 means continuity was empty and relevance carried the
+ * whole block.
  */
-export function budgetUtilization(trace: TurnTrace): number {
-  const budget = trace.report.retrieval_budget_chars
-  const delivered = trace.report.retrieval_chars_delivered
-  if (!budget || budget <= 0 || delivered === null) return 0
-  return delivered / budget
-}
-
-/** TurnTrace.tier(name) */
-export function tierOf(trace: TurnTrace, name: TierName): TierTrace | undefined {
-  return trace.tiers.find((t) => t.name === name)
-}
-
-/** Tiers in packing order, regardless of the order the server serialized them. */
-export function orderedTiers(trace: TurnTrace): TierTrace[] {
-  return TIER_ORDER.map((name) => tierOf(trace, name)).filter(
-    (t): t is TierTrace => Boolean(t),
-  )
-}
-
-/** The phases that ran this turn, if the serialized list is empty. */
-export function phasesOf(trace: TurnTrace): PackPhase[] {
-  return trace.packing.phases
+export function continuityShare(trace: TurnTrace): number {
+  const selected = trace.timeline.selected_ids.length
+  if (selected === 0) return 0
+  return trace.timeline.recent_ids.length / selected
 }
 
 export function candidateIndex(trace: TurnTrace): Map<string, CandidateTrace> {
@@ -115,67 +55,70 @@ export function candidateIndex(trace: TurnTrace): Map<string, CandidateTrace> {
 }
 
 /**
- * Which tier proposed a candidate, for display when it was never delivered.
- * `delivered_via` is null for everything dropped, so the Scores table would
- * otherwise show no tier at all for the rows that matter most. Everything
- * outside the recency window is ranked by CC80, so semantic proposes it.
+ * Which condition a candidate satisfied, for display when it was never
+ * delivered. `delivered_via` is null for everything that missed, so the
+ * Scores table would otherwise show nothing at all for the rows that matter
+ * most — the near misses.
  */
-export function proposingTiers(candidate: CandidateTrace): TierName[] {
-  const tiers: TierName[] = []
-  if (candidate.in_recency_window) tiers.push('recency')
-  if (candidate.in_semantic_initial || candidate.returned_semantic) {
-    tiers.push('semantic')
-  }
-  if (candidate.selected_by_aspect) tiers.push('aspect')
-  return tiers
+export function qualifyingPaths(candidate: CandidateTrace): SelectionPath[] {
+  const paths: SelectionPath[] = []
+  if (candidate.relevant) paths.push('relevance')
+  if (candidate.in_recency_window) paths.push('continuity')
+  if (candidate.is_anchor) paths.push('anchor')
+  return paths
 }
 
-/** The spread→packing gap: chosen by the ASPECT greedy, never delivered. */
-export function selectedButDropped(trace: TurnTrace): Set<string> {
-  const dropped = new Set<string>()
-  for (const candidate of trace.candidates) {
-    if (candidate.selected_by_aspect && !candidate.delivered) {
-      dropped.add(candidate.id)
-    }
-  }
-  return dropped
+/**
+ * Candidates that missed the threshold, nearest first.
+ *
+ * "What nearly made it" is the only remaining question about an episode the
+ * mechanism turned away, and a sorted answer is cheaper to read than a full
+ * table. Withheld episodes are excluded deliberately: they cleared the
+ * threshold, so their margin is positive and they would sort straight to the
+ * top of a list of things that missed it — saying the opposite of the truth.
+ */
+export function nearMisses(
+  trace: TurnTrace,
+  limit = 5,
+): CandidateTrace[] {
+  return trace.candidates
+    .filter((c) => !c.delivered && c.eligible && !c.withheld)
+    .sort((a, b) => b.margin - a.margin)
+    .slice(0, limit)
 }
 
 export interface TurnHeadline {
   delivered: number
-  dropped: number
+  eligible: number
   charsDelivered: number
-  /** The long-term allowance (not the total: recency is additive). */
-  budget: number
-  retrievalCharsDelivered: number
-  utilization: number
+  threshold: number
+  window: number
+  /** Delivered by continuity, whatever they scored. */
   recency: number
-  semantic: number
-  aspect: number
-  aspectMode: 'off' | 'protected' | 'fallback'
+  /** Cleared the threshold AND were already recent. */
+  overlap: number
+  /** Cleared the threshold and nothing else would have delivered them. */
+  relevanceOnly: number
+  /** Fraction of the block continuity alone would have supplied. */
+  continuityShare: number
   trustworthy: boolean
-  starved: TierName[]
   totalMs: number | null
 }
 
 export function headline(trace: TurnTrace): TurnHeadline {
   const report = trace.report
+  const timeline = trace.timeline
   return {
     delivered: report.episodes_delivered,
-    dropped: report.episodes_dropped,
+    eligible: report.eligible_count,
     charsDelivered: report.chars_delivered,
-    budget: report.budget_chars,
-    retrievalCharsDelivered:
-      report.retrieval_chars_delivered === null
-        ? report.chars_delivered
-        : report.retrieval_chars_delivered,
-    utilization: budgetUtilization(trace),
+    threshold: timeline.relevance_threshold,
+    window: timeline.recency_window_n,
     recency: report.recency_count,
-    semantic: report.semantic_count,
-    aspect: report.aspect_count,
-    aspectMode: trace.aspect_detail.mode,
+    overlap: timeline.overlap_ids.length,
+    relevanceOnly: timeline.relevance_only_count,
+    continuityShare: continuityShare(trace),
     trustworthy: isTrustworthy(trace.verification),
-    starved: starvedTiers(trace),
     totalMs: trace.total_ms,
   }
 }

@@ -37,6 +37,8 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: IdrisAppliedAIResearch/contextDecayWindow
+          # Timeline 0.3.0: the default branch still carries the legacy API.
+          ref: 1a781253470766214a5fb74c8d119cf4e6e513d2
           path: contextDecayWindow
 
       - name: Check out Recollect

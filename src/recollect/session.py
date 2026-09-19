@@ -197,10 +197,21 @@ class SessionManager:
         if offered.to_json() != stored:
             raise ValueError(
                 f"Session {session_id}'s store was created under a config "
-                "schema that no longer round-trips (it predates the CC-007 "
+                "schema that no longer round-trips (it predates the timeline "
                 "adoption). Its numbers came from the retired pipeline, so "
-                "opening it here would mix two mechanisms. Delete the "
-                "session directory to start clean."
+                "opening it here would mix two mechanisms. Run "
+                "scripts/migrate_store_pins.py to bring it forward."
+            )
+        if offered.read_policy != "timeline":
+            # Retrieval reaches straight into build_timeline_context, so a
+            # store pinned to another policy would be read one way and
+            # described another. That mismatch is exactly what went
+            # unnoticed when the library's own default moved.
+            raise ValueError(
+                f"Session {session_id}'s store is pinned to "
+                f"read_policy={offered.read_policy!r}, but this build reads "
+                "every store as a timeline. Run "
+                "scripts/migrate_store_pins.py to bring it forward."
             )
         return offered
 
@@ -281,10 +292,9 @@ class SessionManager:
 
             retrieval = retrieve_with_trace(
                 episodes=episodes,
-                query_text=user_message,
                 query_embedding=query_embedding,
-                budget=self.config.budget_chars,
                 config=store_config,
+                ceiling_chars=self.config.context_ceiling_chars,
                 strict=True,
             )
         finally:
@@ -298,10 +308,8 @@ class SessionManager:
             query=query_trace,
             store=store_trace,
             candidates=retrieval.candidates,
-            tiers=retrieval.tiers,
-            cc80_detail=retrieval.cc80_detail,
-            aspect_detail=retrieval.aspect_detail,
-            packing=retrieval.packing,
+            timeline=retrieval.timeline,
+            ceiling=retrieval.ceiling,
             context_block=retrieval.context_block,
             report=retrieval.report,
             verification=retrieval.verification,
@@ -377,18 +385,6 @@ class SessionManager:
         ) as handle:
             handle.write(summarize(trace).model_dump_json() + "\n")
 
-    def get_trace(self, session_id: str, turn_id: str) -> TurnTrace | None:
-        path = self.config.trace_path(session_id, turn_id)
-        if not path.is_file():
-            return None
-        try:
-            return TurnTrace.model_validate_json(path.read_text(encoding="utf-8"))
-        except ValueError:
-            # A trace written before schema v2 does not validate against it.
-            # Report it as absent rather than as an error: it is a record of
-            # a different mechanism, not a failed record of this one.
-            return None
-
     def find_trace(self, turn_id: str) -> TurnTrace | None:
         """Locate a turn without knowing its session."""
         validate_identifier(turn_id)
@@ -403,6 +399,9 @@ class SessionManager:
                     candidate.read_text(encoding="utf-8")
                 )
             except ValueError:
+                # A trace written before schema v2 does not validate against it.
+                # Report it as absent rather than as an error: it is a record of
+                # a different mechanism, not a failed record of this one.
                 return None
         return None
 
@@ -468,16 +467,14 @@ def summarize(trace: TurnTrace) -> TurnSummary:
         query_preview=_clip(trace.query.text),
         response_preview=_clip(response),
         episodes_delivered=trace.report.episodes_delivered,
-        episodes_dropped=trace.report.episodes_dropped,
         chars_delivered=trace.report.chars_delivered,
-        budget_chars=trace.report.budget_chars,
         stm_count=trace.report.stm_count,
         k_count=trace.report.k_count,
-        coverage_count=trace.report.coverage_count,
+        eligible_count=trace.report.eligible_count,
         recency_count=trace.report.recency_count,
         semantic_count=trace.report.semantic_count,
-        aspect_count=trace.report.aspect_count,
-        starved_tiers=list(trace.starved_tiers),
+        relevance_only_count=trace.timeline.relevance_only_count,
+        ceiling_engaged=trace.ceiling.engaged,
         trace_trustworthy=trace.verification.trustworthy,
     )
 

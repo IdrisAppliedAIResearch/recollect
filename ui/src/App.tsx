@@ -13,7 +13,7 @@ import { createMockSource } from './api/mock.ts'
 import { Chat } from './components/Chat.tsx'
 import { Inspector } from './components/Inspector.tsx'
 import { restoreHistory } from './lib/chat-history.ts'
-import { chars, int, ms, pct } from './lib/format.ts'
+import { int, ms, pct } from './lib/format.ts'
 import { initialSendOutcome, updateSendOutcome } from './lib/send-outcome.ts'
 import { finishWorkspace, recordResearchResult } from './lib/workspace.ts'
 import { pendingNotifications } from './lib/task-notifications.ts'
@@ -594,24 +594,20 @@ function generatorOk(health: HealthResponse): boolean | null {
 function ConfigChip({ health }: { health: HealthResponse }) {
   const cfg = health.episodic_config ?? {}
 
+  // Only the fields the timeline reads. The config pin still carries the
+  // legacy CC80/ASPECT values because the library keeps them for its own
+  // historical checks, and showing a weight that governs nothing would be a
+  // claim about the running mechanism that is not true.
   const configParts: string[] = []
+  const policy = strOf(cfg, 'read_policy')
+  if (policy !== null && policy !== 'timeline') configParts.push(policy)
+  const threshold = numOf(cfg, 'timeline_threshold')
+  if (threshold !== null) configParts.push(`cos≥${threshold}`)
   const n = numOf(cfg, 'recency_window_n')
-  if (n !== null) configParts.push(`N=${int(n)}`)
-  const threshold = numOf(cfg, 'k_threshold')
-  if (threshold !== null) configParts.push(`K≥${threshold}`)
-  const aspectEnabled = (cfg as Record<string, unknown>)['aspect_enabled']
-  if (typeof aspectEnabled === 'boolean') {
-    const share = numOf(cfg, 'aspect_share')
-    configParts.push(
-      aspectEnabled && share !== null ? `A on ${pct(share, 0)}` : aspectEnabled ? 'A on' : 'A off',
-    )
-  }
-  const denseWeight = numOf(cfg, 'semantic_dense_weight')
-  if (denseWeight !== null) {
-    configParts.push(`CC80 ${denseWeight.toFixed(2)}/${(1 - denseWeight).toFixed(2)}`)
-  }
-  const budget = numOf(health, 'budget_chars')
-  if (budget !== null) configParts.push(`budget ${chars(budget)}`)
+  if (n !== null) configParts.push(`last ${int(n)}`)
+  // Recollect's, not the library's — marked so it does not read as mechanism.
+  const ceiling = numOf(health, 'context_ceiling_chars')
+  if (ceiling) configParts.push(`ceiling ${int(ceiling)}`)
 
   const embedderParts: string[] = []
   const calls = numOf(health.embedder, 'calls')
@@ -641,14 +637,12 @@ function ConfigChip({ health }: { health: HealthResponse }) {
   const title = [
     health.episodic_config
       ? `config ${keyValues(health.episodic_config, [
+          'read_policy',
+          'timeline_threshold',
           'recency_window_n',
-          'k_threshold',
-          'aspect_enabled',
-          'aspect_share',
-          'semantic_dense_weight',
         ])}`
       : null,
-    health.budget_chars !== undefined ? `budget_chars=${health.budget_chars}` : null,
+    health.library_version_mismatch ?? null,
     keyValues(health.embedder, [
       'calls',
       'hit_ratio',

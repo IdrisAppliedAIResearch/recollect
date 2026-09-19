@@ -196,26 +196,34 @@
   --shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
 }
 
-/* Per-tier variable aliases, so a component can set one attribute and read
+/* Per-path variable aliases, so a component can set one attribute and read
    --tier / --tier-soft / --tier-line without a switch. Keyed on the data-tier
-   attribute because that is what every component writes (tier names are the
-   TierName values plus the 'none' fallback). Custom properties inherit, so a
-   marked parent colours its subtree. */
-[data-tier='recency'] {
+   attribute because that is what every component writes (the SelectionPath
+   values plus the 'none' fallback). Custom properties inherit, so a marked
+   parent colours its subtree.
+
+   The --tier-recency / --tier-semantic / --tier-aspect names above are
+   palette slots, not mechanism names: they predate the timeline adoption and
+   are kept as three stable, distinguishable hues. The meaning lives here. */
+[data-tier='continuity'] {
   --tier: var(--tier-recency);
   --tier-soft: var(--tier-recency-soft);
   --tier-line: var(--tier-recency-line);
 }
-[data-tier='semantic'] {
+[data-tier='relevance'] {
   --tier: var(--tier-semantic);
   --tier-soft: var(--tier-semantic-soft);
   --tier-line: var(--tier-semantic-line);
 }
-[data-tier='aspect'] {
+[data-tier='both'] {
   --tier: var(--tier-aspect);
   --tier-soft: var(--tier-aspect-soft);
   --tier-line: var(--tier-aspect-line);
 }
+/* Recollect never passes an anchor_turn, so this path cannot arise here. It
+   is coloured rather than left unstyled because the trace type permits it and
+   an unstyled pip would read as a rendering bug rather than a rare case. */
+[data-tier='anchor'],
 [data-tier='none'] {
   --tier: var(--tier-none);
   --tier-soft: var(--tier-none-soft);

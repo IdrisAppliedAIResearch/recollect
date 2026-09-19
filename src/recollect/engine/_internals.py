@@ -2,16 +2,15 @@
 
 Every private import in this project lives here, on purpose.
 
-**Why reach in at all.** The library's ``build_chat_context`` returns a
-payload and a ``ContextReport`` of counts. Inside, it computes far more than
-it returns: a dense cosine and a BM25 term for every episode, the min-max
-scaling each went through, the fused CC80 rank, the ASPECT saturation's
-step-by-step marginal arithmetic, and every packing decision with its exact
-serialized cost. All of it is discarded at the return boundary. That
-discarded detail is precisely what this harness exists to show - a top-rank
-candidate skipped by the initial half, a spread admission bought at a low
-ratio, a slack return that only happened because budget remained. Counts
-cannot show any of it.
+**Why reach in at all.** The library's ``build_timeline_context`` returns a
+payload and a ``ContextReport`` of counts. Inside, it computes a cosine
+against the query for every stored episode and decides, per episode,
+whether it cleared the relevance threshold, fell inside the recency
+window, both, or neither. The report keeps only the totals; the
+per-episode account is discarded at the return boundary. That discarded
+detail is precisely what this harness exists to show - which episodes the
+threshold admitted, which arrived only as continuity, and how close the
+rest came to clearing it. Counts cannot show any of it.
 
 **Why not fork the library instead.** Because the library is certified
 behavior-preserving against committed artifacts, and a fork with print
@@ -31,42 +30,45 @@ the contract; these imports are just how it is implemented.
 from __future__ import annotations
 
 import episodic
-from episodic._aspect import (
-    _load_spacy_model as load_aspect_model,
-)
-from episodic._aspect import (
-    aspect_spread,
-    prepare_facets,
-)
-from episodic._chat_context import build_chat_context
 from episodic._config import EpisodicConfig
-from episodic._context import (
-    _recency_window as recency_window,
-)
-from episodic._packing import (
-    DROP_POLICY,
-    EMPTY_PAYLOAD_CHARS,
-)
-from episodic._ranking import rank_cc80
 from episodic._render import render_episode_element, render_stm_payload
-from episodic._selection import additive_weight
 from episodic._store import EpisodeStore
+from episodic._timeline import build_timeline_context, cosine_scores
 
 #: The library version this instrumentation was written against. Recorded in
 #: every trace so a trace is interpretable years later, and compared on
 #: startup so a silent upgrade is announced rather than discovered.
-EXPECTED_LIBRARY_VERSION = "0.2.0"
+EXPECTED_LIBRARY_VERSION = "0.3.0"
 
 LIBRARY_VERSION = episodic.__version__
 
 
-def read_episodes(store: EpisodeStore) -> list[dict]:
-    """Every stored episode in the order ``build_chat_context`` reads them.
+def library_version_mismatch() -> str | None:
+    """The upgrade notice, or ``None`` while the pinned version is installed.
 
-    Ordering is load-bearing: the recency window is a tail slice of this
-    list, and CC80's tie-breaks resolve on turn number and id. The
-    library's own accessor is used rather than a reimplemented query so the
-    two cannot drift apart silently.
+    This exists because it did not. ``episodic`` is an editable install, so
+    0.2.0 became 0.3.0 - a different read mechanism - under a running
+    deployment, and nothing said so; the constant above was declared and
+    exported but never once compared. Per-turn shadow verification catches
+    behaviour that drifts, but only on a turn that exercises it. This is the
+    cheap check that speaks at startup instead.
+    """
+    if LIBRARY_VERSION == EXPECTED_LIBRARY_VERSION:
+        return None
+    return (
+        f"episodic {LIBRARY_VERSION} is installed but this instrumentation "
+        f"is written against {EXPECTED_LIBRARY_VERSION}. Re-read "
+        "recollect/engine/_internals.py before trusting a trace."
+    )
+
+
+def read_episodes(store: EpisodeStore) -> list[dict]:
+    """Every stored episode in the order ``build_timeline_context`` reads them.
+
+    Ordering is load-bearing: the timeline sorts eligible episodes by
+    ``(turn_number, id)`` and takes the recency window as a tail slice of
+    that. The library's own accessor is used rather than a reimplemented
+    query so the two cannot drift apart silently.
     """
     return store._all_episodes()
 
@@ -77,20 +79,14 @@ def store_meta(store: EpisodeStore, key: str) -> str | None:
 
 
 __all__ = [
-    "DROP_POLICY",
-    "EMPTY_PAYLOAD_CHARS",
     "EXPECTED_LIBRARY_VERSION",
     "LIBRARY_VERSION",
     "EpisodeStore",
     "EpisodicConfig",
-    "additive_weight",
-    "aspect_spread",
-    "build_chat_context",
-    "load_aspect_model",
-    "prepare_facets",
-    "rank_cc80",
+    "build_timeline_context",
+    "cosine_scores",
+    "library_version_mismatch",
     "read_episodes",
-    "recency_window",
     "render_episode_element",
     "render_stm_payload",
     "store_meta",

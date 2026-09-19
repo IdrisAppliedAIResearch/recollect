@@ -19,7 +19,7 @@ import pytest
 from recollect.config import RecollectConfig
 from recollect.engine import subagent
 from recollect.engine.sandbox.manager import SandboxHandle, SandboxManager
-from recollect.engine.sandbox.runner import OpenCodeRunner
+from recollect.engine.sandbox.runner import OpenCodeRunner, identity_note
 from recollect.engine.subagent import SubagentResult, SubagentStep
 
 OC_ID = "ses_test"
@@ -247,11 +247,16 @@ async def test_completed_delegation_yields_steps_and_result(config):
         ):
             body = json.loads(request.content)
             assert body["agent"] == "build"
+            sent = body["parts"][0]["text"]
+            # The delegation instruction carries the identity line so the
+            # worker can copy true ids into bookings (story AC1).
+            assert "session_id=s1" in sent
             assert body["parts"] == [
                 {
                     "type": "text",
                     "text": subagent.transfer_task(
-                        "find out about mars", "focused"
+                        "find out about mars\n\n" + identity_note("s1"),
+                        "focused",
                     ),
                 }
             ]

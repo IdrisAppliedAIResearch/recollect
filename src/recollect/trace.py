@@ -7,13 +7,13 @@ carefully before anything is built on top.
 
 Three rules shaped it.
 
-**Every scored candidate appears, not just the winners.** The research this
-harness deploys found its most important results in what was *not*
-delivered: episodes that top the CC80 rank yet never land because the
-initial half's walk skipped them, and candidates the ASPECT saturation
-rejected on marginal gain. Neither is visible from the delivered set. So
-``candidates`` carries one row per episode in the store, with its dense and
-BM25 terms, its fused score and rank, and the reason it did or did not land.
+**Every scored candidate appears, not just the winners.** What was *not*
+delivered is the part a delivered-set view cannot show: an episode that
+missed the relevance threshold by a hundredth, or one that landed only
+because it fell inside the continuity window and would otherwise have been
+nowhere near. So ``candidates`` carries one row per episode in the store,
+with its cosine against the query, whether it cleared the threshold,
+whether continuity carried it, and therefore why it did or did not land.
 
 **Text is not duplicated.** A candidate row carries a preview and a
 character cost, never the full episode body: a 1,000-turn session would
@@ -37,38 +37,40 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
-# Tier vocabulary
+# Selection vocabulary
 # ---------------------------------------------------------------------------
 
-#: The retrieval paths, the way the deployed CC-007 read path composes them:
-#: additive continuity, budgeted CC80 semantic admission, and the protected
-#: static ASPECT spread that carves out half of the long-term allowance.
-TierName = Literal["recency", "semantic", "aspect"]
+#: How a delivered episode earned its place. The timeline is a union, so an
+#: episode can qualify both ways at once; ``both`` is kept distinct from
+#: either alone because collapsing it would overstate what the threshold
+#: retrieved on its own.
+SelectionPath = Literal["relevance", "continuity", "both", "anchor"]
 
-TIER_LABELS: dict[str, str] = {
-    "recency": "RECENT",
-    "semantic": "SEMANTIC",
-    "aspect": "ASPECT",
+PATH_LABELS: dict[str, str] = {
+    "relevance": "RELEVANT",
+    "continuity": "RECENT",
+    "both": "RELEVANT + RECENT",
+    "anchor": "ANCHOR",
 }
 
-TIER_DESCRIPTIONS: dict[str, str] = {
-    "recency": (
-        "The last recency_window_n episodes in conversation order. Rendered "
-        "additively OUTSIDE the long-term budget: always delivered, never "
-        "dropped, and excluded from long-term admission by identity."
+PATH_DESCRIPTIONS: dict[str, str] = {
+    "relevance": (
+        "Cleared the relevance threshold on raw cosine against the query, "
+        "measured over the complete store. No ranking, no capacity: every "
+        "episode at or above the threshold is delivered."
     ),
-    "semantic": (
-        "Long-term admission ranked by frozen CC80 over the complete store: "
-        "dense cosine and BM25 each min-max normalized per query, fused "
-        "0.8 dense / 0.2 BM25, packed in rank order with skip-on-overflow. "
-        "On ASPECT turns this is the initial half plus whatever the slack "
-        "return rescued afterwards."
+    "continuity": (
+        "Inside the last recency_window_n exchanges by source order. "
+        "Delivered as continuity regardless of how it scored, so the "
+        "immediate conversation is never lost to a low cosine."
     ),
-    "aspect": (
-        "The protected static ASPECT half: a greedy saturation over frozen "
-        "parser facets (entity, date, number, event, relation, noun) that "
-        "admits episodes whose facets are not yet covered, scored by CC80 "
-        "score times facet idf, budgeted to the other half of the allowance."
+    "both": (
+        "Qualified on relevance and fell inside the continuity window. "
+        "Delivered once; the timeline is a union, not a concatenation."
+    ),
+    "anchor": (
+        "An explicitly protected exchange, admitted regardless of relevance "
+        "or recency because the caller named its turn."
     ),
 }
 
@@ -113,9 +115,8 @@ class CandidateTrace(BaseModel):
     """One episode in the store, and everything this turn decided about it.
 
     There is one of these per stored episode, whether or not it was
-    delivered. That completeness is the point: the interesting failures in
-    this architecture are all about candidates that scored well and never
-    arrived.
+    delivered. That completeness is the point: a threshold is only
+    interpretable next to the episodes it turned away.
     """
 
     id: str
@@ -126,274 +127,155 @@ class CandidateTrace(BaseModel):
     )
     assistant_preview: str
 
-    dense_cosine: float = Field(
+    cosine: float = Field(
         description="Cosine of this episode's stored vector against the "
-        "query vector. Computed for every episode, every turn, and reported "
-        "as measured - no normalization is applied here."
+        "query vector, in float64 over the retained float32 embeddings. "
+        "Computed for every episode, every turn, and reported as measured: "
+        "the timeline applies no scaling, fusion or rank to it."
     )
-    dense_normalized: float = Field(
-        description="The dense term after per-query min-max scaling, as it "
-        "enters the CC80 fusion. Zero for every episode when the store has "
-        "only one candidate or all cosines tie: a constant component "
-        "contributes nothing rather than dividing by zero."
-    )
-    bm25_score: float = Field(
-        description="Raw Robertson BM25 of this episode against the "
-        "tokenized query, before normalization."
-    )
-    bm25_normalized: float = Field(
-        description="The BM25 term after per-query min-max scaling, as it "
-        "enters the CC80 fusion."
-    )
-    cc80_score: float = Field(
-        description="The fused CC80 ranking score: semantic_dense_weight * "
-        "dense_normalized + (1 - weight) * bm25_normalized, under the "
-        "store-pinned weights (0.8 dense / 0.2 BM25 by default)."
-    )
-    cc80_rank: int = Field(
-        description="1 = highest CC80 score this turn. Ties broken by turn "
-        "number, then id, exactly as the library orders them."
+    margin: float = Field(
+        description="cosine - relevance_threshold. Negative means it missed. "
+        "Carried because the distance from the threshold is the whole "
+        "question for an episode that did not land, and recomputing it in "
+        "each renderer invites two answers to one question."
     )
 
     render_chars: int = Field(
         description="Exact serialized size of this episode's element, in "
-        "characters. The admission charge is this plus one separator "
-        "character - see the packing decisions."
+        "characters. Nothing is charged against an allowance on this path - "
+        "it is here so the cost of a delivered block stays attributable."
     )
 
+    eligible: bool = Field(
+        description="Within the caller's source-order horizon. False only "
+        "when an explicit through_turn excluded it; without one, every "
+        "stored episode is eligible."
+    )
+    relevant: bool = Field(
+        description="Cosine at or above the relevance threshold. Independent "
+        "of the continuity window: both can be true."
+    )
     in_recency_window: bool = Field(
-        description="Within the trailing recency_window_n slice. If so, the "
-        "episode is delivered additively and is never considered by "
-        "long-term admission."
+        description="Inside the trailing recency_window_n slice of eligible "
+        "episodes, ordered by (turn_number, id). Delivered as continuity "
+        "whatever its cosine."
     )
-    in_semantic_initial: bool = Field(
-        description="Admitted by the initial budgeted CC80 walk (rank order, "
-        "skipping what does not fit the half allowance)."
+    is_anchor: bool = Field(
+        default=False,
+        description="Named by the caller's anchor_turn and therefore "
+        "protected regardless of relevance or recency.",
     )
-    selected_by_aspect: bool = Field(
-        description="Admitted by the protected ASPECT spread: the greedy "
-        "facet-saturation half."
-    )
-    returned_semantic: bool = Field(
-        description="Rejected by the initial and spread packs, then rescued "
-        "by the final slack walk while budget still remained."
+
+    withheld: bool = Field(
+        default=False,
+        description="Cleared the threshold and would have been delivered, "
+        "but the deployment ceiling excluded it - see CeilingTrace. This is "
+        "the one undelivered row the mechanism did not decide, and it is "
+        "kept distinct from a near miss because the two mean opposite "
+        "things: one was not relevant enough, the other was relevant and "
+        "did not fit.",
     )
 
     delivered: bool
-    delivered_via: TierName | None = Field(
+    delivered_via: SelectionPath | None = Field(
         default=None,
-        description="The path that claimed it first. Attribution follows "
-        "decision order, so an episode in both the recency window and the "
-        "CC80 selection is attributed to recency.",
-    )
-    drop_reason: str | None = Field(
-        default=None,
-        description="Why a proposed episode did not land: the reason of its "
-        "last admission attempt that proposed it. None when it was never "
-        "proposed, or when it was delivered.",
+        description="Which condition put it in the block. An episode that "
+        "is both relevant and recent reports 'both' rather than being "
+        "attributed to one - the union has no precedence order to record.",
     )
 
 
-class AspectStepTrace(BaseModel):
-    """One greedy step of the ASPECT facet saturation, arithmetic shown."""
+class TimelineDetail(BaseModel):
+    """The selection this turn made, and the settings that produced it.
 
-    step: int
-    candidate_id: str
-    source_turn: int
-    score: float = Field(
-        description="This episode's CC80 score, the multiplier in every "
-        "facet marginal of the step."
-    )
-    marginal: float = Field(
-        description="Sum, over this episode's facets, of "
-        "max(0, score * idf(facet) - coverage(facet)): how much uncovered "
-        "faceted relevance it adds over what earlier choices already carry."
-    )
-    ratio: float = Field(
-        description="marginal divided by the episode's additive character "
-        "cost. The greedy takes the highest ratio, ties broken by CC80 rank "
-        "then store index, so long episodes are penalized."
-    )
-    additive_chars: int
-    cumulative_chars: int
-    covered_total: int = Field(
-        description="Size of the coverage map after this admission: how many "
-        "distinct facets the running selection accounts for."
-    )
-
-
-class CC80Detail(BaseModel):
-    """How this turn's CC80 fusion was scaled.
-
-    Broken out because min-max normalization makes every ranking number
-    query-relative: the same episode scores 0.00 on one turn and 0.84 on
-    another. A constant component (one candidate, an empty query token
-    stream, or all-equal vectors) normalizes to all zeros and is flagged
-    rather than silently diluted.
+    The timeline has no ranking, no capacity and no drops, so there is no
+    decision sequence to record - only the two conditions and what each
+    admitted. What is worth keeping is their overlap: a turn where every
+    relevant episode already sat inside the continuity window retrieved
+    nothing the last N exchanges would not have supplied anyway, and that
+    is invisible from a delivered count alone.
     """
 
-    dense_weight: float
-    bm25_k1: float
-    bm25_b: float
-    dense_min: float
-    dense_max: float
-    dense_constant: bool
-    bm25_min: float
-    bm25_max: float
-    bm25_constant: bool
-
-
-class AspectDetail(BaseModel):
-    """The protected ASPECT half: what it admitted and why it stopped.
-
-    ``mode`` says which path this turn actually took:
-
-    - ``off``      - ASPECT disabled in the store's config.
-    - ``protected`` - full pipeline: initial CC80 half, facet-spread half,
-      slack return.
-    - ``fallback``  - ASPECT was enabled but either no eligible episode
-      remained or the initial half admitted nothing; the full budget went
-      to a single CC80 walk instead.
-
-    ``initial_ids`` and the returned list are long-term admissions that the
-    semantic path owns, even on a protected turn, because they come from the
-    CC80 walk; ``spread_ids`` are the ones only the saturation produced.
-    """
-
-    enabled: bool
-    share: float
-    model: str
-    mode: Literal["off", "protected", "fallback"]
-    facet_latency_ms: float | None = Field(
-        default=None,
-        description="Wall time of parsing the store into facets this turn. "
-        "None when no spread ran. Excluded from verification: latency is "
-        "not byte-reproducible.",
+    read_policy: str
+    relevance_threshold: float
+    recency_window_n: int
+    eligible_count: int = Field(
+        description="Episodes inside the caller's source-order horizon. "
+        "Equals the store's episode count unless through_turn was set."
     )
-    initial_ids: list[str]
-    spread_ids: list[str]
-    returned_ids: list[str] = Field(
-        description="Candidates the slack walk admitted after initial plus "
-        "spread, in CC80 rank order."
+    relevant_ids: list[str] = Field(
+        description="Cleared the threshold, in source order. Includes any "
+        "that also fell inside the continuity window."
     )
-    solo_chars: int | None = Field(
-        default=None,
-        description="The spread's own accounting: starting from the empty "
-        "tags, how many characters its running selection spent against the "
-        "half allowance. None when no spread ran.",
+    recent_ids: list[str] = Field(
+        description="The trailing continuity slice, in source order."
     )
-    stopping_reason: str | None = Field(
-        default=None,
-        description="Why the saturation stopped: no_complete_candidate_fits "
-        "or no_positive_marginal. None when no spread ran.",
+    selected_ids: list[str] = Field(
+        description="The delivered union, chronologically - the order the "
+        "block itself renders."
     )
-    steps: list[AspectStepTrace] = Field(default_factory=list)
-
-
-class TierTrace(BaseModel):
-    """What one retrieval path proposed, and what became of it.
-
-    A path can end a turn having delivered nothing for two entirely
-    different reasons, and conflating them would hide the exact fault this
-    harness exists to expose:
-
-    - **Starved.** It proposed episodes that never reached the context at
-      all, because an earlier path had already spent the budget. This is
-      the packing-order fault.
-    - **Overlapped.** Its episodes did reach the context, but an earlier
-      path had already claimed them, so it added nothing new. The path
-      worked; it just duplicated.
-
-    Both show as a zero in a delivered count. They are kept apart here.
-    """
-
-    name: TierName
-    label: str
-    description: str
-    proposed_ids: list[str]
-    delivered_ids: list[str] = Field(
-        description="Reached the context AND were attributed to this path. "
-        "Attribution follows packing order, so an earlier path wins ties."
-    )
-    overlapped_ids: list[str] = Field(
+    overlap_ids: list[str] = Field(
         default_factory=list,
-        description="Proposed by this path, present in the context, but "
-        "credited to an earlier path that also proposed them.",
+        description="Qualified on both counts. A large overlap means the "
+        "threshold contributed little the window did not already carry.",
     )
-    skipped_ids: list[str] = Field(
-        default_factory=list,
-        description="Proposed and absent from the context entirely: the "
-        "budget was gone by the time they were considered.",
+    relevance_only_count: int = Field(
+        description="Episodes the threshold contributed that continuity "
+        "would not have delivered anyway. The honest measure of what "
+        "retrieval added this turn."
     )
-    chars_delivered: int
-    chars_proposed: int
-
-    @property
-    def starved(self) -> bool:
-        """Proposed episodes that never reached the context at all."""
-        return bool(self.skipped_ids) and not self.delivered_ids
-
-    @property
-    def fully_overlapped(self) -> bool:
-        """Everything it proposed was already claimed by an earlier path."""
-        return (
-            bool(self.proposed_ids)
-            and not self.delivered_ids
-            and not self.skipped_ids
-        )
-
-    @property
-    def contributed(self) -> bool:
-        """Added at least one episode the context would not otherwise have."""
-        return bool(self.delivered_ids)
+    through_turn: int | None = None
+    anchor_turn: int | None = None
 
 
-class PackingDecision(BaseModel):
-    """One admission attempt, in the order packing made it."""
+class CeilingTrace(BaseModel):
+    """Recollect's hardware ceiling - which the library's mechanism has not.
 
-    order: int
-    candidate_id: str
-    tier: TierName
-    phase: Literal["full", "initial", "spread", "slack"]
-    cost_chars: int
-    payload_chars_after: int
-    admitted: bool
-    reason: str
+    Kept as its own record, deliberately not folded into ``TimelineDetail``,
+    because it is **a deviation**. The library delivers every episode at or
+    above the threshold and caps nothing; its own documentation says the
+    timeline output "is also uncapped and has no established latency
+    horizon". That is a defensible research position and this harness does
+    not argue with it.
 
+    It is also unrunnable on a 32K-context local model. So Recollect decides
+    which episodes are *handed to* the library, and the library then does
+    exactly what it always does with the set it is given. The alternative -
+    trimming the payload after the fact - would make the shadow and the
+    authority disagree byte-for-byte and refuse every turn, which is §3's
+    second hard rule working as intended.
 
-class PackingTrace(BaseModel):
-    """How the long-term budget was spent, decision by decision.
-
-    Decisions are ordered exactly as the library made them, across the
-    phases that ran this turn: ``full`` (a single CC80 walk over the whole
-    allowance - the off and fallback shapes), ``initial`` (the CC80 half
-    walk), ``spread`` (the ASPECT-selected candidates packed against the
-    other half), and ``slack`` (the final return, charged at exact
-    additive cost until the allowance ran out).
+    Two properties keep this honest. Continuity is never withheld, so the
+    ceiling can be exceeded by the recency window alone rather than
+    silently dropping what was just said. And ``store_episodes`` is the
+    true store size, because ``report.pool_size`` and
+    ``report.eligible_count`` describe only what the library was shown and
+    would otherwise understate the history that exists.
     """
 
-    policy: str = Field(
-        description="The named drop policy from the library. Candidates are "
-        "considered in decision order and a candidate that does not fit is "
-        "skipped rather than ending the walk."
+    ceiling_chars: int | None = Field(
+        description="The deployment ceiling in characters, or None when "
+        "disabled and the library's uncapped behaviour is taken as-is."
     )
-    phases: list[Literal["full", "initial", "spread", "slack"]]
-    budget_chars: int = Field(
-        description="The long-term allowance this walk governed. Recent "
-        "continuity is additive and sits outside it."
+    engaged: bool = Field(
+        description="True when the ceiling actually withheld something. "
+        "False means this turn fit and the mechanism ran unmodified."
     )
-    half_chars: int = Field(
-        description="int(budget * aspect_share): each protected half's "
-        "allowance. Zero when no protected turn ran."
+    store_episodes: int = Field(
+        description="Episodes in the store. The report's pool_size counts "
+        "only what was handed to the library."
     )
-    empty_payload_chars: int = Field(
-        description="Cost of the two empty block tags. No payload is cheaper, "
-        "so a budget below this cannot express any answer at all."
-    )
-    decisions: list[PackingDecision]
-    duplicate_ids: list[str] = Field(
+    considered_episodes: int
+    withheld_ids: list[str] = Field(
         default_factory=list,
-        description="Episodes proposed by more than one path. Charged once.",
+        description="Episodes that cleared the threshold and would have "
+        "been delivered, excluded lowest-cosine-first to fit the ceiling. "
+        "Never a continuity or anchor episode.",
+    )
+    withheld_chars: int = Field(
+        default=0,
+        description="What those episodes would have added, at their exact "
+        "serialized cost.",
     )
 
 
@@ -411,59 +293,37 @@ class ReportTrace(BaseModel):
     """The library's own ContextReport, carried verbatim.
 
     This is the authority. Every richer number in the trace is checked
-    against it. On the CC-007 path ``chars_delivered`` is the total output
-    and may exceed ``budget_chars`` because recency is additive; the pair
-    ``retrieval_chars_delivered`` / ``retrieval_budget_chars`` is the part
-    the allowance governed.
+    against it.
+
+    Only the fields the timeline populates are carried. The report type
+    also has ``episodes_dropped``, ``truncated``, ``dropped_ids``,
+    ``drop_policy``, ``budget_chars``, ``coverage_count``, ``aspect_count``
+    and ``returned_semantic_count``, all of which describe a budgeted path
+    and are structurally constant here: nothing is ranked, nothing competes
+    for capacity and nothing is dropped. Storing a column of zeros on every
+    turn would invite a reader to conclude a drop could have happened. They
+    are still asserted in ``shadow._verify`` - constant is a claim, and an
+    unchecked claim is how a mechanism change goes unnoticed.
     """
 
     chars_delivered: int
     chars_wanted: int
     episodes_delivered: int
-    episodes_dropped: int
-    truncated: bool
     stm_count: int
     k_count: int
-    coverage_count: int
     latency_ms: float
     pool_size: int
-    dropped_ids: list[str]
-    drop_policy: str
-    budget_chars: int
+    read_policy: str
+    relevance_threshold: float
+    eligible_count: int
+    selected_ids: list[str] = Field(default_factory=list)
     retrieval_chars_delivered: int | None = None
-    retrieval_budget_chars: int | None = None
     recency_count: int = 0
     semantic_count: int = 0
-    aspect_count: int = 0
-    returned_semantic_count: int = 0
-    aspect_enabled: bool = False
     recent_ids: list[str] = Field(default_factory=list)
-    recency_additive: bool = False
-
-    @property
-    def chars_available(self) -> int:
-        """Unused long-term allowance, excluding additive recent continuity."""
-        delivered = (
-            self.chars_delivered
-            if self.retrieval_chars_delivered is None
-            else self.retrieval_chars_delivered
-        )
-        budget = (
-            self.budget_chars
-            if self.retrieval_budget_chars is None
-            else self.retrieval_budget_chars
-        )
-        return budget - delivered
-
-    @property
-    def shortfall_chars(self) -> int:
-        """How much more allowance the proposed selection would have needed."""
-        delivered = (
-            self.chars_delivered
-            if self.retrieval_chars_delivered is None
-            else self.retrieval_chars_delivered
-        )
-        return max(0, self.chars_wanted - delivered)
+    recency_additive: bool = True
+    through_turn: int | None = None
+    anchor_turn: int | None = None
 
 
 class VerificationTrace(BaseModel):
@@ -625,7 +485,10 @@ class GenerationTrace(BaseModel):
 class TurnTrace(BaseModel):
     """One complete turn: retrieval, assembly, generation, and the proof."""
 
-    schema_version: Literal[2] = 2
+    #: 3 is the timeline read path. A version-2 trace described CC80/ASPECT
+    #: packing - different fields, different mechanism - so the two are not
+    #: mixed: a stored v2 trace is history, readable only by a v2 reader.
+    schema_version: Literal[3] = 3
 
     turn_id: str
     session_id: str
@@ -637,10 +500,8 @@ class TurnTrace(BaseModel):
     store: StoreTrace
 
     candidates: list[CandidateTrace]
-    tiers: list[TierTrace]
-    cc80_detail: CC80Detail
-    aspect_detail: AspectDetail
-    packing: PackingTrace
+    timeline: TimelineDetail
+    ceiling: CeilingTrace
 
     context_block: ContextBlockTrace
     report: ReportTrace
@@ -657,34 +518,20 @@ class TurnTrace(BaseModel):
 
     # -- convenience views the UI would otherwise recompute ----------------
 
-    def tier(self, name: TierName) -> TierTrace:
-        for entry in self.tiers:
-            if entry.name == name:
-                return entry
-        raise KeyError(name)
-
     @property
-    def starved_tiers(self) -> list[TierName]:
-        """Paths that proposed episodes and delivered none.
+    def relevance_only_ids(self) -> list[str]:
+        """Delivered on relevance alone - what continuity would have missed.
 
-        Worth surfacing on its own: a starved path is the signature of the
-        packing-order fault, and it is invisible in a delivered-set view.
+        The one number that says whether retrieval earned its place this
+        turn. A block can look full and still be nothing but the last N
+        exchanges.
         """
-        return [entry.name for entry in self.tiers if entry.starved]
-
-    @property
-    def budget_utilization(self) -> float:
-        """How much of the long-term allowance the retrieval block used.
-
-        Measured on the retrieval pair, not the total: recent continuity is
-        additive and renders outside the allowance, so a fully packed
-        retrieval plus a recent window would read over 100% of the total.
-        """
-        budget = self.report.retrieval_budget_chars
-        delivered = self.report.retrieval_chars_delivered
-        if not budget or budget <= 0 or delivered is None:
-            return 0.0
-        return delivered / budget
+        recent = set(self.timeline.recent_ids)
+        return [
+            identifier
+            for identifier in self.timeline.selected_ids
+            if identifier not in recent
+        ]
 
 
 class TurnSummary(BaseModel):
@@ -697,14 +544,15 @@ class TurnSummary(BaseModel):
     query_preview: str
     response_preview: str
     episodes_delivered: int
-    episodes_dropped: int
     chars_delivered: int
-    budget_chars: int
     stm_count: int
     k_count: int
-    coverage_count: int
-    starved_tiers: list[str]
+    eligible_count: int
     trace_trustworthy: bool
     recency_count: int = 0
     semantic_count: int = 0
-    aspect_count: int = 0
+    relevance_only_count: int = 0
+    #: The deployment ceiling withheld episodes the mechanism would have
+    #: delivered. Worth carrying into a session list: a run of these is the
+    #: signal that the store has outgrown the deployed context window.
+    ceiling_engaged: bool = False
