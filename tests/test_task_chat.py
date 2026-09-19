@@ -15,6 +15,7 @@ import recollect.tasks as tasks_module
 from recollect.config import RecollectConfig
 from recollect.engine.generator import GenerationError
 from recollect.engine.subagent import SubagentResult, SubagentStep
+from recollect.task_chat import _task_handoff
 from recollect.task_store import TaskStore
 from recollect.tasks import TaskCoordinator
 from tests.test_subagent import _episode_rows, _make_state, _parse_sse
@@ -301,6 +302,38 @@ async def test_new_task_handoff_records_its_identity_and_prompt_cost(make_task_s
     assert any(record["kind"] == "conversation" for record in (
         state.task_store.messages(session_id, task["task_id"])
     ))
+
+
+def test_handoff_withholds_an_objective_until_the_worker_reports():
+    started = {
+        "task_id": "task-1", "objective": "No reminder service is connected.",
+        "accepted_revision": 0, "progress": "", "findings": [], "sources": [],
+        "result": "", "error": None,
+    }
+    assert json.loads(_task_handoff(started))["objective"] is None
+    for field, value in (
+        ("accepted_revision", 1), ("progress", "Attempt 1: checks passed."),
+        ("findings", ["The seam is absent."]), ("result", "None available."),
+        ("error", "The worker stopped."),
+    ):
+        carried = json.loads(_task_handoff({**started, field: value}))
+        assert carried["objective"] == "No reminder service is connected."
+
+
+async def test_a_started_task_cannot_answer_the_user_from_its_own_objective(
+    make_task_state,
+):
+    verdict = "No calendar service is connected, so report it as missing."
+    state = make_task_state([
+        tool("run_subagent", task=verdict, effort="focused"),
+    ], ["I have started checking."])
+    session_id = state.sessions.create_session().session_id
+    await chat(state, session_id, "Set a reminder every Friday at 1:30 pm.")
+    final = state.generator.calls[-1]["messages"]
+    assert json.loads(final[-1]["content"])["objective"] is None
+    # Neither quoted as the operation's evidence nor echoed back as the call.
+    assert not any(verdict in item.get("content", "") for item in final)
+    assert state.task_store.list(session_id)[0]["objective"] == verdict
 
 
 @pytest.mark.parametrize("operation", ["cancel", "steer"])

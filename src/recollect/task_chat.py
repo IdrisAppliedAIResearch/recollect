@@ -248,6 +248,19 @@ async def _control(state, session_id, request_id, arguments, message=""):
     )
 
 
+def _worker_reported(result: dict) -> bool:
+    """Whether anything has come back from the worker that holds the brief.
+
+    Until it has, the objective is only what this turn just wrote. Quoted
+    back to the reply it reads as a finding, so an objective that states a
+    conclusion gets answered to the user before anything was checked.
+    """
+    return any((
+        result.get("accepted_revision"), result.get("progress"),
+        result.get("findings"), result.get("result"), result.get("error"),
+    ))
+
+
 def _task_handoff(result: dict) -> str:
     if "task_id" not in result:
         return json.dumps(result, ensure_ascii=False)
@@ -262,6 +275,8 @@ def _task_handoff(result: dict) -> str:
                        ("result", 4_000), ("error", 500)):
         value = result.get(key)
         snapshot[key] = value[:limit] if isinstance(value, str) else value
+    if not _worker_reported(result):
+        snapshot["objective"] = None
     snapshot["findings"] = [text[:500] for text in result.get("findings", [])[-4:]]
     snapshot["sources"] = [
         text for text in result.get("sources", [])[-8:] if len(text) <= 300
@@ -521,11 +536,20 @@ async def stream_task_turn(
                                 conversation_task_id = target_id
                                 if target_id not in task_ids:
                                     task_ids.append(target_id)
+                        echoed = arguments
+                        if (call.name == "run_subagent"
+                                and isinstance(result, dict)
+                                and not _worker_reported(result)):
+                            # The handoff already withholds the objective; the
+                            # echoed call must not hand the same unchecked
+                            # conclusion back under a different framing.
+                            echoed = {key: value for key, value in
+                                      arguments.items() if key != "task"}
                         messages.append(
                             {
                                 "role": "assistant",
                                 "content": json.dumps({
-                                    "name": call.name, "arguments": arguments,
+                                    "name": call.name, "arguments": echoed,
                                 }, ensure_ascii=False),
                             }
                         )
