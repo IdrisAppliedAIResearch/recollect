@@ -55,7 +55,7 @@ export function charsAvailable(report: ReportTrace): number {
   return budget - delivered
 }
 
-/** ReportTrace.shortfall_chars — more allowance the selection would have needed. */
+/** More allowance the selection would have needed. */
 export function shortfallChars(report: ReportTrace): number {
   const delivered =
     report.retrieval_chars_delivered === null
@@ -81,8 +81,8 @@ export function starvedTiers(trace: TurnTrace): TierName[] {
 }
 
 /**
- * TurnTrace.budget_utilization — measured on the retrieval pair, not the
- * total: recent continuity is additive and renders outside the allowance.
+ * Measured on the retrieval pair, not the total: recent continuity is
+ * additive and renders outside the allowance.
  */
 export function budgetUtilization(trace: TurnTrace): number {
   const budget = trace.report.retrieval_budget_chars

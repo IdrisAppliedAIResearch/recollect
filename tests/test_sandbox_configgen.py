@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 from recollect.engine.sandbox import configgen
 
@@ -132,3 +133,14 @@ def test_container_paths_are_written_without_prompt_overrides(tmp_path):
     )
     assert config["mcp"][configgen.MCP_SERVER]["cwd"] == "/workspace"
     assert sorted(path.parent.iterdir()) == [path]
+
+
+def test_the_seams_envelope_ships_with_the_bundled_skills():
+    """The implementation agent is *told* its boundary (seam plan)."""
+    path = (Path(configgen.__file__).with_name("skills")
+            / "recollect-seams" / "SKILL.md")
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("---\n")
+    assert "name: recollect-seams" in text
+    assert "[recollect identity]" in text
+    assert "capability_gap" in text

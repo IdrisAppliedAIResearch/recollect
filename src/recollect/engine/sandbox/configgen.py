@@ -51,7 +51,8 @@ def _permission_table(*, subagent: bool, continuous: bool = False) -> dict:
         "external_directory": "deny",
         "question": "deny",
         "skill": ({"*": "deny", "recollect-reporting": "allow",
-                   "recollect-files": "allow", "recollect-research": "allow"}
+                   "recollect-files": "allow", "recollect-research": "allow",
+                   "recollect-seams": "allow"}
                   if continuous else "deny"),
         "lsp": "deny",
         "task": "deny",

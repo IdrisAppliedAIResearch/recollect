@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { artifactUrl, decideBuild, deleteSavedTask, resetSavedTasks, sendTaskMessage } from '../api/tasks.ts'
+import { artifactUrl, deleteSavedTask, resetSavedTasks, sendTaskMessage } from '../api/tasks.ts'
 import { safeSourceUrl } from '../lib/task-notifications.ts'
 import { canDeleteSavedWork } from '../lib/task-retention.ts'
 import { taskTitle } from '../lib/task-title.ts'
@@ -83,26 +83,6 @@ function TaskCard({ task, enabled, notifications, dependents }: {
     }
   }
 
-  const decide = async (approve: boolean) => {
-    if (pending) return
-    const abort = new AbortController()
-    active.current = abort
-    setPending(true)
-    setError(null)
-    setReceipt(null)
-    try {
-      await decideBuild(task.session_id, task.task_id, approve, abort.signal)
-      if (abort.signal.aborted) return
-      setReceipt(task.connect_proposal
-        ? (approve ? 'Opening the sign-in in your browser.' : 'Not connecting it.')
-        : (approve ? 'Building the capability.' : 'Not building it.'))
-    } catch (failure) {
-      if (!abort.signal.aborted) setError((failure as Error).message)
-    } finally {
-      if (!abort.signal.aborted) setPending(false)
-    }
-  }
-
   return (
     <article className="task">
       <div className="task__head">
@@ -120,28 +100,11 @@ function TaskCard({ task, enabled, notifications, dependents }: {
         <p className="faint">The saved result predates your latest direction.</p>}
       {task.progress && <Markdown text={task.progress} />}
       {task.error && <p className="callout callout--bad">{task.error}</p>}
-      {task.connect_proposal && <div className="callout callout--warn task__build">
-        <p>Connect {task.connect_proposal.name} for{' '}
-          {task.connect_proposal.missing_capability || 'this'}? You allow it on{' '}
-          {task.connect_proposal.name}'s own page, and your request resumes
-          afterwards.</p>
-        <div className="rowflex">
-          <button type="button" className="btn" disabled={pending}
-            onClick={() => void decide(true)}>Connect</button>
-          <button type="button" className="btn btn--ghost" disabled={pending}
-            onClick={() => void decide(false)}>Not now</button>
-        </div>
-      </div>}
-      {task.build_proposal && <div className="callout callout--warn task__build">
-        <p>Build the missing capability{task.build_proposal.missing_capability
-          ? `: ${task.build_proposal.missing_capability}` : ''}?</p>
-        <div className="rowflex">
-          <button type="button" className="btn" disabled={pending}
-            onClick={() => void decide(true)}>Build it</button>
-          <button type="button" className="btn btn--ghost" disabled={pending}
-            onClick={() => void decide(false)}>Don't build</button>
-        </div>
-      </div>}
+      {(task.connect_proposal || task.build_proposal) && <p className="faint">
+        {task.connect_proposal
+          ? `Connect ${task.connect_proposal.name}` : 'Build the capability'}
+        {' '}is waiting for your answer in the conversation.
+      </p>}
       {task.step_proposal && <div className="callout callout--warn task__build">
         <p>The build is paused. To finish it I need your answer:{' '}
           {task.step_proposal.question}</p>

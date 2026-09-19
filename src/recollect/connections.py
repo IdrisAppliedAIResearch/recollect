@@ -22,6 +22,7 @@ import os
 import secrets
 import socket
 import time
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -124,11 +125,6 @@ class GoogleAccount:
         return {"access_token": token, "expires_in": expires, "scope": scope,
                 "calendar_id": calendar_id, "calendar_time_zone": time_zone}
 
-    async def verifier_token(self) -> str:
-        """Read-only access for independent checks outside the sandbox."""
-        async with self._lock:
-            return (await self._access_token("verifier"))[0]
-
     async def close(self) -> None:
         await self._client.aclose()
 
@@ -143,11 +139,20 @@ class _Server(uvicorn.Server):
 class ConnectionService:
     """Serves connected-account and connector access to holders of its key."""
 
-    def __init__(self, google: GoogleAccount | None = None, connectors=None) -> None:
+    def __init__(self, google: GoogleAccount | None = None, connectors=None,
+                 scheduler=None, store=None, channels=None) -> None:
         self.google = google
         #: A recollect.connectors.ConnectorManager, or None while none exists.
         #: Duck-typed (``connection``/``status``) to keep this module a leaf.
         self.connectors = connectors
+        #: The host's recollect.scheduling.Scheduler, or None while none runs.
+        self.scheduler = scheduler
+        #: The host's recollect.agents_store.AgentStore (durable state seam),
+        #: or None while it is not wired. Duck-typed, leaf again.
+        self.store = store
+        #: The host's recollect.channels.ChannelHub (off-device send seam),
+        #: or None while it is not wired.
+        self.channels = channels
         self.key = secrets.token_urlsafe(32)
         self.base_url = ""
         self.app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -196,6 +201,143 @@ class ConnectionService:
                 raise HTTPException(503, f"{connector_id} connection unavailable: "
                                          f"{type(error).__name__}: {error}") from None
 
+        # The generic "do this at time T" primitive (recollect.scheduling).
+        # The payload travels untouched: what a due job means is the host
+        # deliverer's contract, never this relay's.
+        @self.app.post("/schedules")
+        async def schedule_job(request: Request):
+            require_key(request)
+            if self.scheduler is None:
+                raise HTTPException(404, "No scheduler is available.")
+            try:
+                body = await request.json()
+                job = self.scheduler.schedule(
+                    datetime.fromisoformat(body["due_at"]), body["payload"])
+            except (json.JSONDecodeError, KeyError, TypeError,
+                    ValueError) as error:
+                raise HTTPException(
+                    400, f"A job needs a timezone-aware due_at and an object "
+                         f"payload: {error}") from None
+            return job
+
+        @self.app.get("/schedules")
+        async def schedules_list(request: Request):
+            require_key(request)
+            if self.scheduler is None:
+                return []
+            return self.scheduler.pending()
+
+        @self.app.delete("/schedules/{job_id}")
+        async def schedule_cancel(job_id: str, request: Request):
+            require_key(request)
+            if self.scheduler is None:
+                raise HTTPException(404, "No scheduler is available.")
+            try:
+                return self.scheduler.cancel(job_id)
+            except KeyError as error:
+                raise HTTPException(404, str(error)) from None
+            except ValueError as error:  # already fired or canceled
+                raise HTTPException(409, str(error)) from None
+
+        # The durable-state seam (recollect.agents_store): namespaced JSON
+        # for worker-built capabilities, over the same key. Values travel
+        # untouched — their meaning belongs to the capability that wrote
+        # them, exactly as job payloads belong to the deliverer.
+        @self.app.get("/agents")
+        async def agents_namespaces(request: Request):
+            require_key(request)
+            if self.store is None:
+                return []
+            return await asyncio.to_thread(self.store.namespaces)
+
+        @self.app.get("/agents/{namespace}/entries")
+        async def agents_entries(namespace: str, request: Request):
+            require_key(request)
+            if self.store is None:
+                return []
+            try:
+                return await asyncio.to_thread(self.store.list, namespace)
+            except ValueError as error:
+                raise HTTPException(400, str(error)) from None
+
+        @self.app.get("/agents/{namespace}/entries/{key}")
+        async def agent_entry(namespace: str, key: str, request: Request):
+            require_key(request)
+            if self.store is None:
+                raise HTTPException(404, "No agent store is available.")
+            try:
+                return {"data": await asyncio.to_thread(
+                    self.store.get, namespace, key)}
+            except KeyError as error:
+                raise HTTPException(404, f"no such entry: {error}") from None
+            except ValueError as error:
+                raise HTTPException(400, str(error)) from None
+
+        @self.app.put("/agents/{namespace}/entries/{key}")
+        async def agent_entry_put(namespace: str, key: str, request: Request):
+            require_key(request)
+            if self.store is None:
+                raise HTTPException(404, "No agent store is available.")
+            try:
+                body = await request.json()
+                return await asyncio.to_thread(
+                    self.store.put, namespace, key, body["data"])
+            except (json.JSONDecodeError, KeyError, TypeError,
+                    ValueError) as error:
+                raise HTTPException(
+                    400, f"an entry needs an object with a JSON 'data' "
+                         f"value: {error}") from None
+
+        @self.app.delete("/agents/{namespace}/entries/{key}")
+        async def agent_entry_delete(namespace: str, key: str,
+                                     request: Request):
+            require_key(request)
+            if self.store is None:
+                raise HTTPException(404, "No agent store is available.")
+            try:
+                await asyncio.to_thread(self.store.delete, namespace, key)
+            except KeyError as error:
+                raise HTTPException(404, f"no such entry: {error}") from None
+            except ValueError as error:
+                raise HTTPException(400, str(error)) from None
+            return {"deleted": True}
+
+        # The off-device send seam (recollect.channels): what exists, and a
+        # test message the user can verify. Delivery itself happens at job
+        # time in the host deliverer, never from the sandbox; the listing
+        # never carries config values — a topic URL is a credential.
+        @self.app.get("/channels")
+        async def channels_list(request: Request):
+            require_key(request)
+            if self.channels is None:
+                return []
+            return await asyncio.to_thread(self.channels.configured)
+
+        @self.app.post("/channels/{name}/test")
+        async def channel_test(name: str, request: Request):
+            require_key(request)
+            if self.channels is None:
+                raise HTTPException(404, "No channels are available.")
+            try:
+                body = await request.json()
+                text = body["text"]
+            except (json.JSONDecodeError, KeyError, TypeError,
+                    ValueError) as error:
+                raise HTTPException(400, f"a test needs text: {error}") from None
+            if not isinstance(text, str) or not text.strip():
+                raise HTTPException(400, "a test needs text")
+            if len(text.encode("utf-8")) > 4096:
+                raise HTTPException(400, "a test message is limited to "
+                                         "4096 bytes")
+            try:
+                await self.channels.send(name, text.strip())
+            except KeyError as error:
+                raise HTTPException(404, str(error)) from None
+            except (ValueError, RuntimeError) as error:
+                raise HTTPException(503, f"{name} test failed: {error}") \
+                    from None
+            return {"sent": True}
+
     async def start(self) -> None:
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -221,6 +363,8 @@ class ConnectionService:
         if self._worker is not None:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(asyncio.shield(self._worker), 5)
+        if self.scheduler is not None:
+            await self.scheduler.close()
         if self.google is not None:
             await self.google.close()
         if self.connectors is not None:

@@ -455,16 +455,6 @@ class ReportTrace(BaseModel):
         )
         return budget - delivered
 
-    @property
-    def shortfall_chars(self) -> int:
-        """How much more allowance the proposed selection would have needed."""
-        delivered = (
-            self.chars_delivered
-            if self.retrieval_chars_delivered is None
-            else self.retrieval_chars_delivered
-        )
-        return max(0, self.chars_wanted - delivered)
-
 
 class VerificationTrace(BaseModel):
     """Proof that the instrumented reconstruction matched the library.
@@ -671,20 +661,6 @@ class TurnTrace(BaseModel):
         packing-order fault, and it is invisible in a delivered-set view.
         """
         return [entry.name for entry in self.tiers if entry.starved]
-
-    @property
-    def budget_utilization(self) -> float:
-        """How much of the long-term allowance the retrieval block used.
-
-        Measured on the retrieval pair, not the total: recent continuity is
-        additive and renders outside the allowance, so a fully packed
-        retrieval plus a recent window would read over 100% of the total.
-        """
-        budget = self.report.retrieval_budget_chars
-        delivered = self.report.retrieval_chars_delivered
-        if not budget or budget <= 0 or delivered is None:
-            return 0.0
-        return delivered / budget
 
 
 class TurnSummary(BaseModel):

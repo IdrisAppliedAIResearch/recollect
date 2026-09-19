@@ -50,7 +50,7 @@ async def test_old_trace_messages_remain_readable_without_relaxing_validation(sa
     document["schema_version"] = 1
     document.pop("cc80_detail")
     path.write_text(json.dumps(document), encoding="utf-8")
-    assert manager.get_trace(session_id, turn_id) is None
+    assert manager.find_trace(turn_id) is None
     history = manager.chat_history(session_id)
     assert history[0].user_message == user
     assert history[0].assistant_message == answer
@@ -59,7 +59,7 @@ async def test_old_trace_messages_remain_readable_without_relaxing_validation(sa
 async def test_history_keeps_failed_attempts_in_append_order_with_their_errors(saved):
     manager, session_id, _, answer = saved
     summaries = manager.list_turns(session_id)
-    failed = manager.get_trace(session_id, summaries[0].turn_id)
+    failed = manager.find_trace(summaries[0].turn_id)
     failed.turn_id = "failed-attempt"
     failed.turn_index = summaries[1].turn_index
     failed.generation.error = "Generation connection failed."

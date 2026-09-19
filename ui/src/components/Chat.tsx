@@ -6,12 +6,14 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 
 import { chars, clock, int, stamp } from '../lib/format.ts'
 import { appendVoiceDraft } from '../lib/voice-draft.ts'
+import { SELFMOD_PROPOSAL_PREFIX } from '../lib/task-notifications.ts'
 import { conversationBundles } from '../lib/conversation-events.ts'
 import type { SessionInfo } from '../types/api.ts'
-import type { TaskSnapshot } from '../types/tasks.ts'
+import type { ResearchTask, TaskNotification, TaskSnapshot } from '../types/tasks.ts'
 import type { Exchange } from '../App.tsx'
 import type { VoiceControl } from '../voice/useVoice.ts'
 import { Markdown } from './Markdown.tsx'
+import { ProposalDecision } from './ProposalDecision.tsx'
 import { Workspace } from './Workspace.tsx'
 import { Sources, Tasks } from './Tasks.tsx'
 import { Implementation } from './Implementation.tsx'
@@ -152,14 +154,17 @@ export function Chat({
                   )}
                   {exchange.error && <div className="callout callout--bad">{exchange.error}</div>}
                 </div>}
-                {bundle.updates.map((update) => <div key={update.notification_id}
-                  className="bundle__update">
-                  <Markdown text={update.text} />
-                  {update.source_refs.length > 0 && <Sources sources={update.source_refs} />}
-                  <div className="bundle__time faint">
-                    <time dateTime={update.created_at} title={stamp(update.created_at)}>{clock(update.created_at)}</time>
+                {bundle.updates.map((update) => {
+                  const decision = proposalTask(tasks, update)
+                  return <div key={update.notification_id} className="bundle__update">
+                    <Markdown text={update.text} />
+                    {update.source_refs.length > 0 && <Sources sources={update.source_refs} />}
+                    {decision && <ProposalDecision task={decision} />}
+                    <div className="bundle__time faint">
+                      <time dateTime={update.created_at} title={stamp(update.created_at)}>{clock(update.created_at)}</time>
+                    </div>
                   </div>
-                </div>)}
+                })}
               </div>
 
               {exchange?.trace && (
@@ -347,6 +352,17 @@ export function Chat({
       </div>
     </div>
   )
+}
+
+/**
+ * The task behind a selfmod proposal notification, while its ask is still
+ * open. Null for every other notification, so the decision card anchors to
+ * the one turn that made the request.
+ */
+function proposalTask(tasks: TaskSnapshot, update: TaskNotification): ResearchTask | null {
+  if (update.notification_id !== `${SELFMOD_PROPOSAL_PREFIX}${update.task_id}`) return null
+  const task = tasks.tasks.find((item) => item.task_id === update.task_id)
+  return task && (task.connect_proposal || task.build_proposal) ? task : null
 }
 
 function TierPip({ code, n, tier }: { code: string; n: number; tier: string }) {

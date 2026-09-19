@@ -95,5 +95,5 @@ def test_stop_command_uses_trusted_launcher_and_preview(monkeypatch, tmp_path):
     monkeypatch.setattr(launch, '_powershell_path', lambda: powershell)
     monkeypatch.setattr(launch.subprocess, 'run', lambda args, **kw:
                         calls.append(args) or subprocess.CompletedProcess(args, 0))
-    assert launch.stop_main(['--dry-run']) == 0
+    assert launch.main(['stop', '--dry-run']) == 0
     assert calls[0][-3:] == ['-Mode', 'stop', '-DryRun']

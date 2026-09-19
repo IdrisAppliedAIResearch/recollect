@@ -1024,6 +1024,7 @@ class TaskCoordinator:
                 restore_workspace=restore,
                 save_workspace=save,
                 message_id=establishing,
+                task_id=task_id,
             ):
                 if isinstance(item, SubagentStep):
                     await asyncio.to_thread(

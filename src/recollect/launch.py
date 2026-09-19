@@ -16,10 +16,6 @@ def host_main(argv: list[str] | None = None) -> int:
     return _desktop("host", argv)
 
 
-def stop_main(argv: list[str] | None = None) -> int:
-    return _desktop("stop", argv)
-
-
 def _powershell_path() -> Path:
     import ctypes
     from ctypes import wintypes

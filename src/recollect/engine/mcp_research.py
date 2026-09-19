@@ -135,6 +135,15 @@ if "google_calendar" in _connected_services():
 
     _register_calendar(mcp)
 
+# The generic timer is reachable wherever the connection relay is: the
+# env pair is what the host writes when it starts the relay, so the tools
+# appear exactly when bookings can succeed.
+if (os.environ.get("RECOLLECT_CONNECTIONS_URL")
+        and os.environ.get("RECOLLECT_CONNECTIONS_TOKEN")):
+    from .subagent_tools.scheduling import register as _register_scheduling
+
+    _register_scheduling(mcp)
+
 
 #: A result blaming the toolset is a capability gap, not a finished request.
 _MISSING_TOOL = re.compile(

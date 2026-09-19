@@ -115,6 +115,24 @@ def _looks_like_cap_banner(text: str) -> bool:
     )
 
 
+def identity_note(session_id: str, task_id: str = "") -> str:
+    """The identity line appended to a delegation's instruction.
+
+    The tool process env cannot carry these ids (one warm server is shared
+    across chats), so the worker copies them from its instruction — the
+    route the reminder story names. Self-asserted: for routing notices,
+    never as authorization (.agent/seam-architecture-plan.md doctrine 7).
+    """
+    if not session_id.strip():
+        return ""
+    parts = [f"session_id={session_id.strip()}"]
+    if task_id.strip():
+        parts.append(f"task_id={task_id.strip()}")
+    return ("[recollect identity] " + " ".join(parts)
+            + " — copy these into any schedule or notice booking; never "
+              "invent different ones.")
+
+
 class OpenCodeRunner:
     """Yield steps as they happen and a single result, like run_subagent."""
 
@@ -144,7 +162,11 @@ class OpenCodeRunner:
         task: str,
         *,
         effort: SubagentEffort = "focused",
+        task_id: str = "",
     ) -> AsyncIterator[SubagentStep | SubagentResult]:
+        note = identity_note(session_id, task_id)
+        if note:
+            task = f"{task}\n\n{note}"
         started = time.perf_counter()
         try:
             invocation = await self._manager.begin_invocation(session_id)
@@ -208,16 +230,22 @@ class OpenCodeRunner:
         restore_workspace: WorkspaceCallback | None = None,
         save_workspace: WorkspaceCallback | None = None,
         message_id: str = "",
+        task_id: str = "",
     ) -> AsyncIterator[SubagentStep | SubagentResult]:
         """Run owned work independently of a foreground response's lifetime.
 
         ``message_id`` is the durable ID of the instruction that established
         ``revision``; reports copy it, which binds them to that instruction.
+        ``task_id`` names the task whose notices this work may book; it
+        travels inside the instruction, never in the shared env.
 
         Per-request admission belongs to the manager's configured model ingress.
         Native sessions live for this invocation; later invocations restore only
         validated workspace files and the caller's structured checkpoint.
         """
+        note = identity_note(session_id, task_id)
+        if note:
+            task = f"{task}\n\n{note}"
         started = time.perf_counter()
         try:
             invocation = await self._manager.begin_invocation(

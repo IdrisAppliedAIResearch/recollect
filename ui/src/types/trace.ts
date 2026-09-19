@@ -7,9 +7,8 @@
  * 1. `datetime` fields arrive as ISO-8601 strings.
  * 2. Pydantic `@property` accessors (`TierTrace.starved`,
  *    `TierTrace.fully_overlapped`, `TierTrace.contributed`,
- *    `ReportTrace.chars_available`, `ReportTrace.shortfall_chars`,
- *    `VerificationTrace.trustworthy`, `TurnTrace.starved_tiers`,
- *    `TurnTrace.budget_utilization`, `PromptCacheTrace.cache_hit_ratio`) are
+ *    `ReportTrace.chars_available`, `VerificationTrace.trustworthy`,
+ *    `TurnTrace.starved_tiers`, `PromptCacheTrace.cache_hit_ratio`) are
  *    NOT part of `model_dump()`, so they are absent from the wire. They are
  *    recomputed in `src/lib/derive.ts` from the same definitions.
  */

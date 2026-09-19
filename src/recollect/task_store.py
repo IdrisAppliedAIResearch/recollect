@@ -346,17 +346,6 @@ class TaskStore:
                         break
             return result
 
-    def all_messages(self, session_id: str, after: int = 0,
-                     limit: int = 1_000) -> list[dict]:
-        if after < 0 or not 1 <= limit <= 1_000:
-            raise ValueError("Invalid mailbox cursor or page size.")
-        with self._db(session_id) as connection:
-            return [{**json.loads(row["record"]), "seq": row["seq"]}
-                    for row in connection.execute(
-                        "SELECT seq, record FROM messages WHERE seq>? "
-                        "ORDER BY seq LIMIT ?", (after, limit),
-                    )]
-
     def get_message(self, session_id: str, message_id: str) -> dict | None:
         with self._db(session_id) as connection:
             row = connection.execute(

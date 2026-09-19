@@ -25,11 +25,14 @@ from pathlib import Path
 
 import httpx
 
+from ..agents_store import AgentStore
+from ..channels import ChannelHub
 from ..connections import GUIDE as connection_guide_text
 from ..connections import ConnectionService, GoogleAccount, google_store
 from ..connectors.manager import GUIDE as connector_guide_text
 from ..connectors.manager import ConnectorManager
 from ..engine.sandbox.manager import SandboxDeployment, SandboxManager
+from ..scheduling import Scheduler, ScheduleStore
 from .agents import AgentDeveloper, DockerChecks
 from .deployment import (
     BundleImages,
@@ -189,10 +192,6 @@ def _verdict(data):
 
 
 STOPPED_NOTICE = "Stopped building the capability."
-
-
-def connection_guide():
-    return connection_guide_text
 
 
 class SelfModificationService:
@@ -931,6 +930,52 @@ class SelfModificationService:
             task.cancel()
 
 
+def notice_delivery(notify, channels=None):
+    """What a due job means here: a notice into the task that booked it,
+    then the off-device fan-out the seam plan assigns to the host.
+
+    ``notify`` is ``TaskStore.notify``, called as ``notify(session_id,
+    task_id, message_id, text, kind=...)``. ``channels`` is a
+    ``channels.ChannelHub``, or None while sending is not wired. The
+    payload shape is checked here, not at the relay: the relay carries
+    payloads untouched, so a bad job fails with this as its recorded
+    reason instead of half-delivering. The Notice always posts; a failed
+    channel send fails the job with its reason — no retry, by contract.
+    """
+
+    async def deliver(job: dict) -> None:
+        payload = job["payload"]
+        missing = [name for name in ("session_id", "task_id", "text")
+                   if not isinstance(payload.get(name), str)
+                   or not payload[name].strip()]
+        if missing:
+            raise ValueError(f"a notice needs {', '.join(missing)}")
+        channel = payload.get("channel", "")
+        if not isinstance(channel, str):
+            raise ValueError("a notice channel must be a string")
+        await asyncio.to_thread(
+            notify, payload["session_id"], payload["task_id"],
+            f"scheduled-{job['job_id']}", payload["text"].strip(),
+            kind="reminder")
+        if channels is None:
+            return
+        try:
+            targets = channels.targets(channel)
+        except ValueError as error:
+            raise RuntimeError(str(error)) from error
+        failures = []
+        for name in targets:
+            try:
+                await channels.send(name, payload["text"].strip())
+            except Exception as error:  # noqa: BLE001 - recorded, never retried
+                failures.append(f"{name}: {type(error).__name__}: {error}")
+        if failures:
+            raise RuntimeError("channel send failed: "
+                               + "; ".join(failures)[:400])
+
+    return deliver
+
+
 async def install(config, coordinator, *, repository=None, root=None,
                   model_slot=None, model_base_url=None, model_api_key=None):
     """Build and serve A, then hand the coordinator its gap hook."""
@@ -945,7 +990,19 @@ async def install(config, coordinator, *, repository=None, root=None,
     google = (GoogleAccount(google_store())
               if GoogleAccount.available(google_store()) else None)
     connectors = ConnectorManager()
-    connections = ConnectionService(google, connectors)
+    # The durable-state seam for worker-built capabilities, and the host's
+    # channel hub for delivery-time sends (.agent/seam-architecture-plan.md).
+    agent_store = AgentStore(Path(config.data_dir) / "agents")
+    channels = ChannelHub()
+    # The generic "do this at time T" primitive: due jobs become task
+    # notices. It starts with the app because a job may be due while the
+    # server that booked it is gone; the schedule file is its memory.
+    scheduler = Scheduler(
+        ScheduleStore(Path(config.data_dir) / "schedules.json"),
+        notice_delivery(coordinator.store.notify, channels))
+    await scheduler.start()
+    connections = ConnectionService(google, connectors, scheduler,
+                                    store=agent_store, channels=channels)
     await connections.start()
     role_slot = (model_slot.slot_for("modifier")
                  if config.generator_parallel_slots == 3

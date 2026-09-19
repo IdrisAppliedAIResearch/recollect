@@ -25,7 +25,8 @@ def test_continuous_skills_are_read_only_config_assets_not_prompt_bodies(tmp_pat
     )
     config = json.loads(path.read_text())
     assert config["skills"] == {"paths": ["/config/skills"]}
-    names = {"recollect-reporting", "recollect-files", "recollect-research"}
+    names = {"recollect-reporting", "recollect-files", "recollect-research",
+             "recollect-seams"}
     for agent in ("build", "general"):
         assert config["agent"][agent]["permission"]["skill"] == {
             "*": "deny", **dict.fromkeys(names, "allow"),

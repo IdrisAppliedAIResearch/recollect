@@ -92,9 +92,9 @@ PyPI publishes no binary wheel for this package, so `pip install` and
 happens to hold. That is not a reproducible pin.
 
 **Consequence:** the working install must carry the CUDA-enabled build.
-`HarnessEmbedder.runtime_fingerprint()` hashes the loaded libraries and
-`recollect doctor` prints them, so this failure reports itself as "you are
-running a different build" rather than as an unexplained sentinel drift.
+`recollect doctor` runs the sentinel check and prints the observed digest,
+so a wrong build reports itself as "sentinel drifted" rather than failing
+silently in the store.
 
 To install the correct build, copy the package from a known-good
 environment rather than resolving it:

@@ -377,18 +377,6 @@ class SessionManager:
         ) as handle:
             handle.write(summarize(trace).model_dump_json() + "\n")
 
-    def get_trace(self, session_id: str, turn_id: str) -> TurnTrace | None:
-        path = self.config.trace_path(session_id, turn_id)
-        if not path.is_file():
-            return None
-        try:
-            return TurnTrace.model_validate_json(path.read_text(encoding="utf-8"))
-        except ValueError:
-            # A trace written before schema v2 does not validate against it.
-            # Report it as absent rather than as an error: it is a record of
-            # a different mechanism, not a failed record of this one.
-            return None
-
     def find_trace(self, turn_id: str) -> TurnTrace | None:
         """Locate a turn without knowing its session."""
         validate_identifier(turn_id)
@@ -403,6 +391,9 @@ class SessionManager:
                     candidate.read_text(encoding="utf-8")
                 )
             except ValueError:
+                # A trace written before schema v2 does not validate against it.
+                # Report it as absent rather than as an error: it is a record of
+                # a different mechanism, not a failed record of this one.
                 return None
         return None
 

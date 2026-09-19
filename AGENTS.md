@@ -8,7 +8,7 @@ compaction. It is the only rules file — `CLAUDE.md` just points here.
 
 ## 0. Boot sequence — do this before anything else
 
-Run these four steps at the start of a session **and immediately after
+Run these five steps at the start of a session **and immediately after
 every compaction or context reset.** They take under a minute and they are
 what keeps you from redoing finished work or undoing it.
 
@@ -21,6 +21,9 @@ what keeps you from redoing finished work or undoing it.
    ```
 4. Update `.agent/TODO.md` so it matches what step 3 actually showed. Move
    finished items to `## Done`. Then continue.
+5. Check that `.agent/` is under its 50 MB cap (§4). If it is over, clean
+   the oldest evidence first before continuing — `TODO.md` and the
+   plan/contract docs are never deleted.
 
 For a request to start, launch, or bring up the local application, follow
 the complete runtime sequence in §7.1. The agent owns that sequence;
@@ -194,6 +197,15 @@ evidence of the current one. Anything test-only created *inside* the repo
 (e.g. a throwaway session under `var/`) must be deleted or explicitly
 pointed out to the user before you report done.
 
+`.agent/` is scratch, not project history: it ends every session under
+**50 MB**. Live-run evidence is disposable by default — write a run's
+scratch into one timestamped temp root and delete it on teardown, instead
+of leaving named bundles behind. The only standing residents are `TODO.md`
+and the plan/contract docs; if a piece of evidence must outlive the
+session, leave a one-line dated pointer in `TODO.md` saying why. Bulk
+cleanup of `.agent/` evidence is user-sanctioned (2026-09-18): size-gate
+cleanups need no special approval.
+
 ---
 
 ## 5. How to make changes
@@ -363,8 +375,9 @@ docker image inspect recollect-opencode-sandbox:1.18.18
 ```
 
 Build it only if absent or stale relative to the Dockerfile, locked image
-requirements, `src/recollect/engine/mcp_research.py`, or
-`src/recollect/engine/webtools.py`. These are the image's build inputs, so
+requirements, `src/recollect/engine/mcp_research.py`,
+`src/recollect/engine/subagent_tools/`, or `src/recollect/engine/webtools.py`.
+These are the image's build inputs, so
 a tag alone does not establish that it contains current research-tool changes:
 
 ```powershell
